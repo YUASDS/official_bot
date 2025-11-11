@@ -23,7 +23,7 @@ from .GlobalData import data_manager, action2part
 from .Equipment import Equipment, equipment_repo
 
 
-# region 1. 数据库模型 (Models) - 基本保持不变
+# region 1. 数据库模型
 class BaseModel(Model):
     class Meta:
         db_path = Path(__file__).parent.joinpath("inv.db")
@@ -91,7 +91,7 @@ class InventoryItemModel(BaseModel):
 # endregion
 
 
-# region 2. 数据访问层 (Repository)
+# region 2. 数据访问层
 class InvestigatorRepository:
     """负责所有与调查员相关的数据库操作"""
 
@@ -316,7 +316,7 @@ investigator_repo = InvestigatorRepository()
 # endregion
 
 
-# region 3. 领域对象 (Domain Object)
+# region 3. 领域对象
 class Investigator:
     """代表一个调查员实体，封装其所有数据和行为"""
 
@@ -407,14 +407,9 @@ class Investigator:
 
         # 移除装备
         del self._equipped[part]
-
-        # 从背包中移除物品 (这里简化为直接调用Repo，也可以通过Inventory对象)
-        # 注意：这部分逻辑需要一个Inventory管理类或在Repo中实现
         logger.info(f"{self.name} 的 {part} 装备 ({item_id_to_break}) 已损坏。")
 
-        investigator_repo.remove_item_from_inventory(
-            self.qq, item_id_to_break, 1
-        )  # 假设有此方法
+        investigator_repo.remove_item_from_inventory(self.qq, item_id_to_break, 1)
         self.save()  # 保存装备变动
         return True
 
@@ -468,7 +463,7 @@ class Investigator:
 # endregion
 
 
-# region 4. 辅助类 (Helpers) - 基本保持不变，但与新类交互
+# region 4. 辅助类
 class InvestigatorGenerator:
     """调查员生成器"""
 
