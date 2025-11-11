@@ -1,709 +1,685 @@
-import random
-from typing import Union, Tuple, Dict, Any, Optional, List
+# combat_system.py
+from __future__ import annotations
+from typing import Tuple, Optional, Literal, Dict, Any, List
+
 from loguru import logger
 
-from .dice import *
-from .Investigator import investigator_service, Investigator
-from .Monster import Monster, get_mon
-from .Equipment import EquipmentService, LootService, Equipment
+# 导入重构后的领域对象和它们的工厂/仓库
+from .Investigator import Investigator
+from .Monster import Monster
+from .Equipment import Equipment
+
+# 导入辅助模块
 from .GlobalData import data_manager, Separator
+from .dice import (
+    DiceRoll,
+    ConfrontationRoll,
+    PenaltyDiceRoll,
+    SuccessLevel,
+    get_success_description,
+    roll_dice,
+)
 
 
 class CombatSystem:
-    """战斗系统主类"""
+    """
+    重构后的战斗系统主类。
+    - 完全依赖于 Investigator, Monster, Equipment 领域对象，实现了高内聚低耦合。
+    - 状态管理由领域对象自身负责（如 HP 增减、物品损坏）。
+    - 本类的唯一职责是协调战斗流程。
+    """
 
-    def __init__(
-        self,
-        player_id: str,
-        player_info: Dict[str, Any],
-        monster_id: str,
-        available_actions: Dict[str, Any],
-        hp_record: Dict[str, Dict[str, int]],
-        player_name: str,
-    ):
-        self.player_id = str(player_id)
-        self.player_info = player_info
-        self.monster = Monster(monster_id)
-        self.available_actions = available_actions
-        self.hp_record = hp_record
-        self.player_name = player_name
-        self.current_action = None
-        self.gun = investigator_service.get_equipped_id(player_id, "远程")
-        if self.gun:
-            gun = Equipment(self.gun)
-            self.bullet = gun.bullet
-            self.max_bullet = self.bullet
+    def __init__(self, investigator: Investigator, monster: Monster):
+        self.investigator: Investigator = investigator
+        self.monster: Monster = monster
 
-    def first_turn(self) -> str:
-        turn, replys, action_dict = first(
-            inv=investigator_service.get_investigator(self.player_id),
-            mon=self.monster,
-            qq=self.player_id,
-            name=self.player_name,
+        # 在战斗系统内部维护一个临时的HP记录，用于战斗过程中的判断
+        self.hp_record: Dict[str, int] = {
+            "inv": self.investigator.hp,
+            "mon": self.monster.hp,
+        }
+
+        self.player_name: str = self.investigator.name
+        self.available_actions: Dict[str, List[str]] = (
+            self.investigator.get_available_actions()
         )
-        self.current_turn = turn
-        return replys
+        self.current_turn: Literal["inv", "mon"] = "inv"
+        self.current_action: str = "格斗"
+
+        # 初始化远程武器状态
+        self.gun: Optional[Equipment] = None
+        self.bullet: int = 0
+        self.max_bullet: int = 0
+        self.succeded_skill = set()
+        self._update_gun_status()
+
+    def get_success_record_description(self, rank: int, skill_name: str = "") -> str:
+        if rank > 0 and skill_name:
+            self.succeded_skill.add(skill_name)
+        return get_success_description(rank)
+
+    def _update_gun_status(self) -> None:
+        """从调查员对象更新枪械状态。"""
+        gun_id = self.investigator.get_equipped_id("远程")
+        if gun_id:
+            self.gun = Equipment(gun_id)
+            if self.gun.is_valid:
+                # 假设装备数据中有 'bullet' 字段
+                self.bullet = getattr(self.gun, "bullet", 0)
+                self.max_bullet = getattr(self.gun, "bullet", 0)
+            else:
+                self.gun = None
+                self.bullet = 0
+                self.max_bullet = 0
+        else:
+            self.gun = None
+            self.bullet = 0
+            self.max_bullet = 0
+
+    def start_turn(self) -> str:
+        """决定先手并开始第一回合。"""
+        confrontation = ConfrontationRoll(
+            self.investigator.get_skill("敏捷"), self.monster.敏捷
+        )
+        player_starts = confrontation.get_result("先攻")
+        self.current_turn = "inv" if player_starts else "mon"
+
+        dex1_res = f"{self.player_name}进行敏捷鉴定: {confrontation.dice1}/{confrontation.skill1}【{self.get_success_record_description(confrontation.level1)}】"
+        dex2_res = f"{self.monster.名字}进行敏捷鉴定: {confrontation.dice2}/{confrontation.skill2}【{self.get_success_record_description(confrontation.level2)}】"
+
+        initial_prompt = self._get_next_turn_prompt()
+        return f"{dex1_res}\n{dex2_res}\n{initial_prompt}"
 
     def fight_is_over(self) -> bool:
-        """检查战斗是否结束"""
-        player_hp = self.hp_record[self.player_id]["inv"]
-        monster_hp = self.hp_record[self.player_id]["mon"]
-        return player_hp <= 0 or monster_hp <= 0
+        """检查战斗是否结束。"""
+        return self.hp_record["inv"] <= 0 or self.hp_record["mon"] <= 0
 
     def execute_action(self, action: str) -> Tuple:
-        """执行行动"""
+        """根据当前回合执行行动分派。"""
         self.current_action = action
+        handler = {
+            "inv": self._execute_player_action,
+            "mon": self._execute_monster_action,
+        }.get(self.current_turn)
 
-        if self.current_turn == "inv":
-            return self._execute_player_action(action)
-        else:
-            return self._execute_monster_action(action)
+        if handler:
+            return handler(action)
+        return ("错误的战斗回合状态。",)
+
+    # --- 玩家与怪物行动的具体实现 ---
 
     def _execute_player_action(self, action: str) -> Tuple:
-        """执行玩家行动"""
+        """执行玩家行动。"""
         action_handlers = {
             "格斗": self._melee_attack,
             "射击": lambda: self._ranged_attack(1),
             "二连射": lambda: self._ranged_attack(2),
             "三连射": lambda: self._ranged_attack(3),
-            "换弹": lambda: self._change_bomb,
+            "换弹": self._reload_weapon,
         }
-
         handler = action_handlers.get(action)
         if handler:
             return handler()
-        else:
-            logger.warning(f"未知的玩家行动: {action}")
-            return ()
+        return (f"未知的玩家行动: {action}",)
 
     def _execute_monster_action(self, action: str) -> Tuple:
-        """执行怪物回合行动"""
-        action_handlers = {"反击": self._counter_attack, "闪避": self._dodge}
-
-        handler = action_handlers.get(action)
-        if handler:
-            return handler()
-        else:
-            logger.warning(f"未知的怪物行动: {action}")
-            return ()
+        """执行怪物回合的行动（由玩家选择防御方式）。"""
+        if action in ("反击", "闪避"):
+            return self._handle_defensive_action(action)
+        return (f"未知的防御行动: {action}",)
 
     def _melee_attack(self) -> Tuple:
-        """近战攻击"""
-        # 获取装备信息
-        equipped_item = investigator_service.get_equipped_id(
-            self.player_id, action=self.current_action  # type: ignore
-        )
-        if not equipped_item:
-            logger.exception(f"玩家 {self.player_id} 没有装备格斗武器")
-            return ()
+        """处理近战格斗行动。"""
+        weapon_id = self.investigator.get_equipped_id(self.current_action)
+        if not weapon_id:
+            return ("你没有装备格斗武器！",)
 
-        action_reply = EquipmentService.get_equipment_reply(equipped_item)
+        weapon = Equipment(weapon_id)
+        if not weapon.is_valid:
+            return (f"装备ID {weapon_id} 无效！",)
+
         monster_action = self.monster.get_action(self.current_turn)
+        player_skill = self.investigator.get_skill(weapon.identify_skill, 25)
+        confrontation = ConfrontationRoll(player_skill, monster_action["skill"])
 
-        # 从玩家信息中获取技能值
-        player_skill = self.player_info.get(self.current_action, 25)  # type: ignore
-        monster_skill = monster_action["skill"]
-
-        confrontation = ConfrontationRoll(player_skill, monster_skill)
-        player_wins = confrontation.get_result("反击")
-
-        # 构建鉴定描述
-        player_roll_desc = f"{self.player_name}进行格斗鉴定,{confrontation.dice1}/{confrontation.skill1}【{get_success_description(confrontation.level1)}】"
-        # TO DO: 根据怪物的行动优化
-        monster_roll_desc = f"{self.monster.名字}进行反击鉴定,{confrontation.dice2}/{confrontation.skill2}【{get_success_description(confrontation.level2)}】"
-        roll_description = f"{player_roll_desc}\n{monster_roll_desc}"
-
-        equipment_name = EquipmentService.get_equipment_name(equipped_item)
+        roll_desc = (
+            f"{self.player_name}进行格斗: {confrontation.dice1}/{confrontation.skill1}【{self.get_success_record_description(confrontation.level1,weapon.identify_skill)}】\n"
+            f"{self.monster.名字}进行反击: {confrontation.dice2}/{confrontation.skill2}【{self.get_success_record_description(confrontation.level2)}】"
+        )
 
         if confrontation.level1 == SuccessLevel.CRITICAL_FAILURE:
-            des = self._handle_critical_failure(equipment_name)
-            roll_description += f"\n{des}"
-        if player_wins:
-            return self._handle_successful_attack(
-                confrontation,
-                equipped_item,
-                action_reply,
+            failure_desc = self._handle_player_critical_failure(weapon)
+            roll_desc += f"\n{failure_desc}"
+            return (
+                weapon.reply,
                 monster_action["counterattack"],
-                roll_description,
+                roll_desc,
+                failure_desc,
+                "",
+                self._end_turn(),
+            )
+
+        if confrontation.get_result("反击"):
+            return self._handle_player_melee_success(
+                confrontation, weapon, monster_action, roll_desc
             )
         else:
-            return self._handle_failed_attack(
-                confrontation,
-                equipment_name,
-                action_reply,
-                monster_action,
-                roll_description,
+            return self._handle_player_melee_failure(
+                confrontation, weapon, monster_action, roll_desc
             )
-
-    def _handle_critical_failure(
-        self,
-        equipment: str,
-    ) -> str:
-        """处理大失败情况"""
-        if equipment != "弹簧折刀":
-            player_text = self._get_reply_text("反击大失败").replace("$装备", equipment)
-        else:
-            damage = roll_dice("1d4")
-            self._apply_damage_to_player(damage[1])
-            player_text = (
-                self._get_reply_text("大失败_初始")
-                .replace("$骰子", "1d4")
-                .replace("$伤害", damage[0])
-            )
-
-        investigator_service.break_equipped_item(self.player_id, self.current_action)  # type: ignore
-        self.available_actions = investigator_service.get_available_actions(
-            self.player_id
-        )
-        return player_text
-
-    def _handle_successful_attack(
-        self,
-        confrontation: ConfrontationRoll,
-        equipped_item: str,
-        action_reply: str,
-        monster_reply: str,
-        roll_description: str,
-    ) -> Tuple:
-        """处理成功攻击"""
-        damage = EquipmentService.get_equipment_damage(equipped_item)
-        has_penetration = EquipmentService.has_penetration_effect(equipped_item)
-        equipment_name = EquipmentService.get_equipment_name(equipped_item)
-        db: str = self.player_info.get("db", "0")
-        if db != "0":
-            if db.startswith("-"):
-                damage += db
-            else:
-                damage += f"+{db}"
-
-        damage_expression = self._calculate_damage_expression(
-            damage, confrontation.level1, has_penetration
-        )
-
-        if confrontation.level1 > SuccessLevel.HARD_SUCCESS:
-            reply_template = self._get_reply_text("格斗大成功")
-        else:
-            reply_template = self._get_reply_text("格斗成功")
-
-        player_text = (
-            reply_template.replace("$装备", equipment_name)
-            .replace("$伤害", str(damage_expression[1]))
-            .replace("$骰子", damage_expression[0])
-        )
-
-        monster_text = self._apply_damage_to_monster(damage_expression[1])
-
-        return (
-            action_reply,
-            monster_reply,
-            roll_description,
-            player_text,
-            monster_text,
-            self._end_turn(),
-        )
-
-    def _handle_failed_attack(
-        self,
-        confrontation: ConfrontationRoll,
-        equipment: str,
-        action_reply: str,
-        monster_action: Dict,
-        roll_description: str,
-    ) -> Tuple:
-        """处理失败攻击"""
-        if confrontation.level1 < 1 and confrontation.level2 < 1:
-            action = self.current_action
-            player_text = self._get_reply_text(f"{action}失败").replace(
-                "$装备", equipment
-            )
-            monster_text = monster_action["counter_false"]
-        else:
-            monster_damage = monster_action["damage"]
-            armor = int(investigator_service.get_armor(self.player_id))
-
-            damage_expression = self._calculate_damage_expression(
-                monster_damage, armor=armor
-            )
-
-            monster_text = (
-                monster_action["counter_succ"]
-                .replace("$伤害", str(damage_expression[1]))
-                .replace("$骰子", damage_expression[0])
-            )
-
-            player_text = self._apply_damage_to_player(damage_expression[1])
-
-        return (
-            action_reply,
-            monster_action["counterattack"],
-            roll_description,
-            player_text,
-            monster_text,
-            self._end_turn(),
-        )
 
     def _ranged_attack(self, shot_count: int) -> Tuple:
-        """远程攻击"""
+        """处理远程射击行动。"""
+        if not self.gun or not self.gun.is_valid:
+            return ("你没有装备远程武器。",)
         if self.bullet < shot_count:
-            return (f"当前剩余弹药{self.bullet}", "无法发射")
-        else:
-            self.bullet -= shot_count
+            return (f"弹药不足！当前剩余 {self.bullet} 发。",)
+
+        self.bullet -= shot_count
+        weapon = self.gun
+        player_skill = self.investigator.get_skill(weapon.identify_skill, 20)
+
         if shot_count > 1:
-            return self._multiple_shot(shot_count)
+            return self._multiple_shot(shot_count, weapon, player_skill)
         else:
-            return self._single_shot()
+            return self._single_shot(weapon, player_skill)
 
-    def _change_bomb(self) -> Tuple:
-        self.bullet = self.max_bullet
-        return ("换弹完成", self._end_turn())
-
-    def _single_shot(self) -> Tuple:
-        """单发射击"""
-        equipped_item = investigator_service.get_equipped_id(
-            self.player_id, action=self.current_action  # type: ignore
-        )
-        if not equipped_item:
-            logger.exception(f"玩家 {self.player_id} 没有装备远程武器")
-            return ()
-
-        skill_name = EquipmentService.get_identify_skill(equipped_item)
-        player_skill = self.player_info.get(skill_name, 20)
-        damage = EquipmentService.get_equipment_damage(equipped_item)
-        equipment_name = EquipmentService.get_equipment_name(equipped_item)
-
+    def _single_shot(self, weapon: Equipment, player_skill: int) -> Tuple:
+        """处理单发射击。"""
+        if not self.gun:
+            return ("", "")
         roll = DiceRoll(player_skill)
-        roll_description = f"{self.player_name}进行{skill_name}鉴定,{roll.dice}/{roll.skill}【{get_success_description(roll.level)}】"
+        roll_description = f"{self.player_name}进行{weapon.identify_skill}鉴定,{roll.dice}/{roll.skill}【{self.get_success_record_description(roll.level,self.gun.identify_skill)}】"
 
         if roll.level > SuccessLevel.FAILURE:
-            damage_expression = self._calculate_damage_expression(damage, roll.level, 1)
+            damage_expression = self._calculate_damage_expression(
+                weapon.damage, roll.level, weapon.has_penetration
+            )
             if roll.level > SuccessLevel.HARD_SUCCESS:
-                reply_template = self._get_reply_text("射击大成功")
+                reply_template = self._get_reply("射击大成功")
             else:
-                reply_template = self._get_reply_text("射击成功")
+                reply_template = self._get_reply("射击成功")
 
             player_text = reply_template.replace(
                 "$伤害", str(damage_expression[1])
             ).replace("$骰子", damage_expression[0])
             monster_text = self._apply_damage_to_monster(damage_expression[1])
 
+            return (
+                weapon.reply,
+                roll_description,
+                player_text,
+                monster_text,
+                self._end_turn(),
+            )
+
         elif roll.level == SuccessLevel.CRITICAL_FAILURE:
-            player_text = self._get_reply_text("射击大失败").replace(
-                "$装备", equipment_name
+            player_text = self._get_reply("射击大失败").replace("$装备", weapon.name)
+            self.investigator.break_equipped_item("远程")
+            self._update_gun_status()
+            return (
+                weapon.reply,
+                roll_description,
+                player_text,
+                "",
+                self._end_turn(),
             )
-            monster_text = None
-            investigator_service.break_equipped_item(
-                self.player_id, self.current_action
-            )
-            self.gun = 0
-            self.available_actions = investigator_service.get_available_actions(
-                self.player_id
-            )
-            # damage_eq(self.player_id, self.current_action)
         else:
-            player_text = self._get_reply_text("射击失败")
-            monster_text = None
+            player_text = self._get_reply("射击失败")
+            return (
+                weapon.reply,
+                roll_description,
+                player_text,
+                "",
+                self._end_turn(),
+            )
 
-        return (
-            EquipmentService.get_equipment_reply(equipped_item),
-            roll_description,
-            player_text,
-            monster_text,
-            self._end_turn(),
-        )
-
-    def _multiple_shot(self, shot_count: int) -> Tuple:
-        """多发射击"""
-        equipped_item = investigator_service.get_equipped_id(
-            self.player_id, action=self.current_action  # type: ignore
-        )
-        if not equipped_item:
-            logger.exception(f"玩家 {self.player_id} 没有装备远程武器")
-            return ()
-
-        skill_name = EquipmentService.get_identify_skill(equipped_item)
-        player_skill = self.player_info.get(skill_name, 20)
-        damage = EquipmentService.get_equipment_damage(equipped_item)
-        equipment_name = EquipmentService.get_equipment_name(equipped_item)
-
+    def _multiple_shot(
+        self, shot_count: int, weapon: Equipment, player_skill: int
+    ) -> Tuple:
+        """处理多发射击。"""
         roll_descriptions = []
         total_damage = 0
-        player_text = ""
+        player_texts = []
+        critical_failure = False
 
-        for _ in range(shot_count):
+        for i in range(shot_count):
             roll = PenaltyDiceRoll(player_skill)
             roll_descriptions.append(
-                f"{self.player_name}进行{skill_name}鉴定,P={roll.dice}[惩罚骰:{roll.penalty_rolls}] "
-                f"{roll.final_result}/{roll.skill}【{get_success_description(roll.level)}】"
+                f"{self.player_name}进行{weapon.identify_skill}鉴定,P={roll.dice}[惩罚骰:{roll.penalty_rolls}] "
+                f"{roll.final_result}/{roll.skill}【{self.get_success_record_description(roll.level,weapon.identify_skill)}】"
             )
 
             if roll.level == SuccessLevel.CRITICAL_FAILURE:
-                player_text += f'{self._get_reply_text("射击大失败")}\n'.replace(
-                    "$装备", equipment_name
+                player_texts.append(
+                    self._get_reply("射击大失败").replace("$装备", weapon.name)
                 )
-                # damage_eq(self.player_id, self.current_action)
-                investigator_service.break_equipped_item(
-                    self.player_id, self.current_action
-                )
-                self.gun = 0
-                self.available_actions = investigator_service.get_available_actions(
-                    self.player_id
-                )
+                self.investigator.break_equipped_item("远程")
+                self._update_gun_status()
+                critical_failure = True
                 break
             elif roll.level > SuccessLevel.FAILURE:
                 damage_expression = self._calculate_damage_expression(
-                    damage, roll.level, 1
+                    weapon.damage, roll.level, weapon.has_penetration
                 )
-                player_text += f"{damage_expression[0]}={damage_expression[1]}\n"
+                player_texts.append(f"{damage_expression[0]}={damage_expression[1]}")
                 total_damage += damage_expression[1]
 
         roll_description = "\n".join(roll_descriptions)
-        player_text += f"总伤害：{total_damage}"
-        monster_text = self._apply_damage_to_monster(total_damage)
+        player_text = "\n".join(player_texts)
+
+        if not critical_failure and total_damage > 0:
+            player_text += f"\n总伤害：{total_damage}"
+            monster_text = self._apply_damage_to_monster(total_damage)
+        else:
+            monster_text = ""
 
         return (
-            EquipmentService.get_equipment_reply(equipped_item),
+            weapon.reply,
             roll_description,
             player_text,
             monster_text,
             self._end_turn(),
         )
 
-    def _counter_attack(self) -> Tuple:
-        """反击行动"""
-        return self._handle_defensive_action("反击")
+    def _reload_weapon(self) -> Tuple:
+        """处理换弹行动。"""
+        if self.max_bullet > 0:
+            self.bullet = self.max_bullet
+            return ("换弹完成", self._end_turn())
+        return ("你没有可换弹的武器。",)
 
-    def _dodge(self) -> Tuple:
-        """闪避行动"""
-        return self._handle_defensive_action("闪避")
-
-    def _handle_defensive_action(self, action: str) -> Tuple:
-        """处理防御性行动"""
-        if action == "闪避":
-            action_reply = self._get_reply_text("闪避")
-        else:
-            equipped_item = investigator_service.get_equipped_id(
-                self.player_id, action=action
-            )
-            if not equipped_item:
-                logger.exception(f"玩家 {self.player_id} 没有装备 {action} 武器")
-                return ()
-            action_reply = EquipmentService.get_equipment_reply(equipped_item)
-
+    def _handle_defensive_action(self, player_action: str) -> Tuple:
+        """处理玩家的防御性行动。"""
         monster_action = self.monster.get_action(self.current_turn)
+        weapon: Optional[Equipment] = None
+        used_skill = ""
+        if player_action == "闪避":
+            used_skill = "闪避"
+            player_skill = self.investigator.get_skill("闪避", 25)
+            action_reply = self._get_reply("闪避")
+        else:  # 反击
+            player_skill = self.investigator.get_skill("格斗", 25)
+            weapon_id = self.investigator.get_equipped_id("格斗")
+            if not weapon_id:
+                return ("你没有装备武器来反击！",)
+            weapon = Equipment(weapon_id)
+            action_reply = weapon.reply
+            used_skill = weapon.identify_skill
 
-        monster_skill = monster_action["skill"]
-        player_skill = self.player_info.get(action, "")
-        if not player_skill:
-            player_skill = self.player_info.get("格斗", 25)
-        confrontation = ConfrontationRoll(monster_skill, player_skill)
-        monseter_succeeds = confrontation.get_result(action)
-        monster_roll_desc = f"{self.monster.名字}进行鉴定,{confrontation.dice1}/{confrontation.skill1}【{get_success_description(confrontation.level1)}】"
-        player_roll_desc = f"{self.player_name}进行{action}鉴定,{confrontation.dice2}/{confrontation.skill2}【{get_success_description(confrontation.level2)}】"
-        roll_description = f"{monster_roll_desc}\n{player_roll_desc}"
-        monster_text = None
+        confrontation = ConfrontationRoll(monster_action["skill"], player_skill)
+        roll_desc = (
+            f"{self.monster.名字}进行攻击: {confrontation.dice1}/{confrontation.skill1}【{self.get_success_record_description(confrontation.level1)}】\n"
+            f"{self.player_name}进行{player_action}: {confrontation.dice2}/{confrontation.skill2}【{self.get_success_record_description(confrontation.level2,used_skill)}】"
+        )
 
-        if confrontation.level2 == SuccessLevel.CRITICAL_FAILURE and action != "闪避":
-            equipment_name = EquipmentService.get_equipment_name(equipped_item)
-            des = self._handle_critical_failure(equipment_name)
-            roll_description += f"\n{des}"
-        # 怪物造成伤害
-        if monseter_succeeds:
-            monster_text, player_text = self._handle_monster_success(
+        if confrontation.level2 == SuccessLevel.CRITICAL_FAILURE and weapon:
+            critical_text = self._handle_player_critical_failure(weapon)
+            roll_desc += f"\n{critical_text}"
+
+        monster_succeeds = confrontation.get_result(player_action)
+
+        if monster_succeeds:
+            monster_text, player_text = self._handle_monster_attack_success(
                 monster_action, confrontation
             )
-        # 闪避成功
-        elif action == "闪避":
-            player_text = self._get_reply_text("闪避成功")
-            monster_text = None
-        # 双方攻击失败
+        elif player_action == "闪避":
+            monster_text = ""
+            player_text = self._get_reply("闪避成功")
         elif confrontation.level1 < 1 and confrontation.level2 < 1:
             monster_text = monster_action["attack_false"]
-            player_text = None
-        else:
-            # 对怪物造成伤害
-            player_text, monster_text = self._handle_successful_counter(monster_action)
+            player_text = ""
+        else:  # 玩家反击成功
+            player_text, monster_text = self._handle_player_counter_success(weapon)
 
         return (
             monster_action["attack"],
             action_reply,
-            roll_description,
-            monster_text,
+            roll_desc,
             player_text,
+            monster_text,
             self._end_turn(),
         )
 
-    def _handle_successful_counter(self, monster_action: Dict) -> Tuple:
-        """处理成功反击"""
-        equipped_item = investigator_service.get_equipped_id(
-            self.player_id, action=self.current_action
-        )
-        if not equipped_item:
-            return "反击失败", ""
+    # --- 伤害与结果处理辅助函数 ---
 
-        damage = EquipmentService.get_equipment_damage(equipped_item)
-        name = EquipmentService.get_equipment_name(equipped_item)
-        db = self.player_info.get("db", "0")
-        if db != "0":
-            if db.startswith("-"):
-                damage += db
-            else:
-                damage += f"+{db}"
-        # print(damage)
-        damage_expression = self._calculate_damage_expression(damage)
-        player_text = (
-            self._get_reply_text("反击成功")
-            .replace("$装备", name)
-            .replace("$伤害", str(damage_expression[1]))
-            .replace("$骰子", damage_expression[0])
-        )
-
-        monster_text = self._apply_damage_to_monster(damage_expression[1])
-        return player_text, monster_text
-
-    def _handle_monster_success(
-        self, monster_action: Dict, confrontation: ConfrontationRoll
+    def _handle_player_melee_success(
+        self,
+        confrontation: ConfrontationRoll,
+        weapon: Equipment,
+        monster_action: Dict,
+        roll_desc: str,
     ) -> Tuple:
-        """处理怪物成功"""
-        monster_damage = monster_action["damage"]
-        armor = int(investigator_service.get_armor(self.player_id))
-        damage_expression = self._calculate_damage_expression(
-            monster_damage, confrontation.level1, monster_action.get("ex", 0), armor
+        """处理玩家近战成功。"""
+        damage_formula = self._get_player_damage_formula(weapon)
+        expr, val = self._calculate_damage_expression(
+            damage_formula, confrontation.level1, weapon.has_penetration
         )
 
+        reply_key = (
+            "格斗大成功"
+            if confrontation.level1 > SuccessLevel.HARD_SUCCESS
+            else "格斗成功"
+        )
+        player_text = (
+            self._get_reply(reply_key)
+            .replace("$装备", weapon.name)
+            .replace("$伤害", str(val))
+            .replace("$骰子", expr)
+        )
+        monster_text = self._apply_damage_to_monster(val)
+
+        return (
+            weapon.reply,
+            monster_action["counterattack"],
+            roll_desc,
+            player_text,
+            monster_text,
+            self._end_turn(),
+        )
+
+    def _handle_player_melee_failure(
+        self,
+        confrontation: ConfrontationRoll,
+        weapon: Equipment,
+        monster_action: Dict,
+        roll_desc: str,
+    ) -> Tuple:
+        """处理玩家近战失败。"""
+        if confrontation.level1 < 1 and confrontation.level2 < 1:
+            player_text = self._get_reply(f"{self.current_action}失败").replace(
+                "$装备", weapon.name
+            )
+            monster_text = monster_action["counter_false"]
+        else:
+            monster_text, player_text = self._handle_monster_attack_success(
+                monster_action, confrontation
+            )
+        return (
+            weapon.reply,
+            monster_action["counterattack"],
+            roll_desc,
+            player_text,
+            monster_text,
+            self._end_turn(),
+        )
+
+    def _handle_monster_attack_success(
+        self, monster_action: Dict, confrontation: ConfrontationRoll
+    ) -> Tuple[str, str]:
+        """处理怪物攻击成功。"""
+        armor = self.investigator.get_armor_value()
+        expr, val = self._calculate_damage_expression(
+            monster_action["damage"],
+            confrontation.level1,
+            monster_action.get("ex", 0),
+            armor,
+        )
         monster_text = (
             monster_action["attack_succ"]
-            .replace("$伤害", str(damage_expression[1]))
-            .replace("$骰子", damage_expression[0])
+            .replace("$伤害", str(val))
+            .replace("$骰子", expr)
         )
-
-        player_text = (
-            self._get_reply_text("闪避失败") if self.current_action == "闪避" else ""
-        )
-        player_text += self._apply_damage_to_player(damage_expression[1])
-
+        player_text = self._apply_damage_to_player(val)
         return monster_text, player_text
 
-    def _calculate_damage_expression(
-        self, damage: str, success_level: int = 0, extra_damage: int = 0, armor: int = 0
-    ) -> Tuple[str, int]:
-        """
-        计算伤害表达式
+    def _handle_player_counter_success(
+        self, weapon: Optional[Equipment]
+    ) -> Tuple[str, str]:
+        """处理玩家反击成功。"""
+        if not weapon or not weapon.is_valid:
+            return "反击失败", ""
 
-        Args:
-            damage: 基础伤害
-            success_level: 成功等级
-            extra_damage: 额外伤害
-            armor: 护甲值
+        damage_formula = self._get_player_damage_formula(weapon)
+        expr, val = self._calculate_damage_expression(damage_formula)
+        logger.info(damage_formula)
+        logger.info(expr)
+        logger.info(val)
 
-        Returns:
-            (伤害表达式, 实际伤害)
-        """
-        # 计算基础伤害
-        if success_level > SuccessLevel.HARD_SUCCESS and extra_damage:
-            base_expression = self._double_damage(damage)
-        elif success_level > SuccessLevel.HARD_SUCCESS:
-            base_expression = roll_dice(damage, use_max=True)
+        player_text = (
+            self._get_reply("反击成功")
+            .replace("$装备", weapon.name)
+            .replace("$伤害", str(val))
+            .replace("$骰子", expr)
+        )
+        monster_text = self._apply_damage_to_monster(val)
+        return player_text, monster_text
+
+    def _handle_player_critical_failure(self, weapon: Equipment) -> str:
+        """处理玩家大失败，特别是武器损坏。"""
+        if weapon.name == "弹簧折刀":
+            dice_result = roll_dice("1d4")
+            damage_val = dice_result[1]
+            self._apply_damage_to_player(damage_val)
+            return (
+                self._get_reply("大失败_初始")
+                .replace("$骰子", "1d4")
+                .replace("$伤害", dice_result[0])
+            )
         else:
-            base_expression = (damage, roll_dice(damage)[1])
+            self.investigator.break_equipped_item(self.current_action)
+            return self._get_reply("反击大失败").replace("$装备", weapon.name)
 
-        expression, total_damage = base_expression
+    # --- 核心计算与状态变更 ---
+
+    def _get_player_damage_formula(self, weapon: Equipment) -> str:
+        """获取玩家包括DB在内的伤害公式字符串。"""
+        damage = weapon.damage
+        db = self.investigator.db
+        if db and db != "0":
+            damage = f"{damage}+{db}" if not db.startswith("-") else f"{damage}{db}"
+        return damage
+
+    def _apply_damage_to_player(self, damage: int) -> str:
+        """对玩家造成伤害，并返回描述文本。"""
+        if damage <= 0:
+            return self._get_reply("低伤害")
+
+        initial_hp = self.hp_record["inv"]
+        armor = self.investigator.get_armor_value()
+        actual_damage = max(0, damage - armor)
+        self.hp_record["inv"] = max(0, self.hp_record["inv"] - actual_damage)
+
+        if actual_damage > initial_hp / 2:
+            return self._get_reply("高伤害")
+        elif actual_damage < 2:
+            return self._get_reply("低伤害")
+        else:
+            return self._get_reply("正常伤害")
+
+    def _apply_damage_to_monster(self, damage: int) -> str:
+        """对怪物造成伤害，并返回描述文本。"""
+        if damage <= 0:
+            return getattr(self.monster, "低伤害", "攻击无效。")
+
+        initial_hp = self.hp_record["mon"]
+        actual_damage = max(0, damage - getattr(self.monster, "armor", 0))
+        self.hp_record["mon"] = max(0, self.hp_record["mon"] - actual_damage)
+
+        if actual_damage > initial_hp / 2:
+            return getattr(self.monster, "高伤害", "造成了重创！")
+        elif actual_damage < 2:
+            return getattr(self.monster, "低伤害", "攻击几乎无效。")
+        else:
+            return getattr(self.monster, "正常伤害", "对其造成了伤害。")
+
+    def _calculate_damage_expression(
+        self,
+        damage: str,
+        success_level: int = 1,
+        has_penetration: bool = False,
+        armor: int = 0,
+    ) -> Tuple[str, int]:
+        """计算伤害表达式"""
+        is_critical = success_level > SuccessLevel.HARD_SUCCESS
+
+        if is_critical and has_penetration:
+            expr, val = self._double_damage(damage)
+            damage = f"{damage}+{damage}"
+        elif is_critical:
+            expr, val = roll_dice(damage, use_max=True)
+        else:
+            expr, val = roll_dice(damage)
 
         # 应用护甲
-        if armor:
-            total_damage = max(0, total_damage - armor)
-            expression = f"{expression}-{armor}"
-
-        return expression, total_damage
+        if armor > 0:
+            val = max(1 if has_penetration else 0, val - armor)
+            expr = f"({expr})-{armor}"
+            damage = f"({damage})-{armor}"
+        if (
+            damage.isdigit()
+            or int(damage.split("d")[0]) <= 1
+            and "+" not in damage
+            and "-" not in damage
+        ):
+            return damage, val
+        return f"{damage}={expr}", val
 
     def _double_damage(self, damage: str) -> Tuple[str, int]:
         """双倍伤害计算"""
-        max_damage = roll_dice(damage, use_max=True)
-        random_damage = roll_dice(damage)
+        max_expr, max_val = roll_dice(damage, use_max=True)
+        rand_expr, rand_val = roll_dice(damage)
+        return f"{max_expr}+{rand_expr}", max_val + rand_val
 
-        total_damage = max_damage[1] + random_damage[1]
-        expression = f"{max_damage[0]}+{damage}={max_damage[0]}+{random_damage[0]}"
+    # --- 回合结束与胜利/失败处理 ---
 
-        return expression, total_damage
+    def _end_turn(self) -> str:
+        """结束回合，检查胜负，返回下一回合的提示。"""
+        end_message = self._check_combat_over()
+        if end_message:
+            return end_message
 
-    def _apply_damage_to_monster(self, damage: int) -> str:
-        """对怪物造成伤害"""
-        actual_damage = self.monster.damage_to_mon(damage)
-        current_monster_hp = self.hp_record[self.player_id]["mon"]
-        self.hp_record[self.player_id]["mon"] -= actual_damage
+        self.current_turn = "mon" if self.current_turn == "inv" else "inv"
+        return self._get_next_turn_prompt()
 
-        if current_monster_hp / 2 < actual_damage:
-            return self.monster.高伤害
-        elif actual_damage < 2:
-            return self.monster.低伤害
-        else:
-            return self.monster.正常伤害
-
-    def _apply_damage_to_player(self, damage: int) -> str:
-        """对玩家造成伤害"""
-        current_player_hp = self.hp_record[self.player_id]["inv"]
-        self.hp_record[self.player_id]["inv"] -= damage
-
-        if current_player_hp / 2 < damage:
-            return self._get_reply_text("高伤害")
-        elif damage < 2:
-            return self._get_reply_text("低伤害")
-        else:
-            return self._get_reply_text("正常伤害")
-
-    def _end_turn(self):
-        """结束当前回合"""
-        player_hp = self.hp_record[self.player_id]["inv"]
-        monster_hp = self.hp_record[self.player_id]["mon"]
-
-        if player_hp > 0 and monster_hp > 0:
-            self.current_turn = "mon" if self.current_turn == "inv" else "inv"
-            if self.gun:
-                bullet_num = f"当前子弹剩余：{self.bullet}\n"
-                return bullet_num + self._get_turn_message(player_hp)
-            else:
-                return self._get_turn_message(player_hp)
-        elif player_hp <= 0:
-            investigator_service.mark_as_deceased(self.player_id)
-            return f"{self.player_name}死亡"
-        else:
+    def _check_combat_over(self) -> Optional[str]:
+        """检查战斗是否结束，如果结束则返回最终结果，并保存状态。"""
+        if self.hp_record["inv"] <= 0:
+            # self.investigator.hp = 1
+            self.investigator.is_survive = False
+            self.investigator.save()
+            return f"{self.player_name}死亡..."
+        if self.hp_record["mon"] <= 0:
             return self._handle_victory()
-
-    def _get_turn_message(self, player_hp: int) -> str:
-        """获取回合开始消息"""
-        if self.current_turn == "mon":
-            reply = f'{"怪物的回合".center(10, "-")}\n当前剩余HP：{player_hp}\n请选择行动：\n'
-            for action in self.available_actions["mon"]:
-                reply += f"【/行动 {action}】\n"
-        else:
-            reply = (
-                f'{"你的回合".center(10, "-")}\n当前剩余HP：{player_hp}\n请选择行动：\n'
-            )
-            for action in self.available_actions["inv"]:
-                reply += f"【/行动 {action}】\n"
-
-        return reply.strip()
+        return None
 
     def _handle_victory(self) -> str:
-        """处理胜利情况"""
-        search_skill = self.player_info.get("侦查", 25)
+        """处理战斗胜利，更新并保存调查员状态。"""
+        # 更新调查员HP
+        # self.investigator.hp = self.hp_record["inv"]
+
+        search_skill = self.investigator.get_skill("侦查", 25)
         search_roll = DiceRoll(search_skill)
-        search_desc = f"{self.player_name}进行侦查鉴定,{search_roll.dice}/{search_roll.skill}【{get_success_description(search_roll.level)}】"
+        search_desc = f"{self.player_name}进行侦查: {search_roll.dice}/{search_roll.skill}【{self.get_success_record_description(search_roll.level,'侦查')}】"
 
+        bonus_text = ""
         if search_roll.level > SuccessLevel.FAILURE:
-
-            gold, item, bonus = LootService.get_loot_reward(self.monster.data.get("id"))
-            if item:
-                item_id = item.get(
-                    "id",
-                )
-                investigator_service.add_item_to_inventory(self.player_id, item_id)
-
+            # 使用怪物的掉落生成方法
+            gold, dropped_item, bonus_text = self.monster.generate_loot()
+            if dropped_item:
+                # 假设 Investigator 类有 add_item_to_inventory 方法
+                self.investigator.add_item_to_inventory(dropped_item.id, 1)
         else:
-            bonus = self._get_reply_text("侦查失败")
-        investigator_service.update_investigator(
-            self.player_id, {"day": self.player_info.get("day", 1) + 1}
-        )
-        return f"{self.monster.结局}{Separator}{search_desc}{Separator}{bonus}"
+            bonus_text = self._get_reply("侦查失败")
 
-    def _get_reply_text(self, key: str) -> str:
-        """获取回复文本"""
-        # 这里可以从数据库或配置文件中获取，暂时返回简单文本
+        self.investigator.day += 1
+
+        en_skill = "成长鉴定:\n"
+        for skill_name in self.succeded_skill:
+            skill = self.investigator.get_skill(skill_name, 25)
+            dice = DiceRoll(skill)
+            des = self.get_success_record_description(dice.level)
+            en_skill += f"进行【{skill_name}】成长鉴定：{dice.dice}/{skill}【{des}】\n"
+            if dice.level < 1:
+                exp, res = roll_dice("1d10")
+                en_skill += f"技能成长：1d10={res}\n"
+                skill += res
+                self.investigator.set_skill(skill_name, skill)
+        self.investigator.save()
+        return f"{getattr(self.monster, '结局', '怪物倒下了。')}{Separator}{search_desc}{Separator}{bonus_text}{Separator}{en_skill}"
+
+    def _get_next_turn_prompt(self) -> str:
+        """获取并格式化下一回合的行动提示。"""
+        self.available_actions = self.investigator.get_available_actions()
+        turn_owner = "你的" if self.current_turn == "inv" else "怪物"
+
+        prompt = (
+            f'--- {turn_owner}回合 ---\n当前HP: {self.hp_record["inv"]}\n请选择行动:\n'
+        )
+        if self.gun:
+            prompt = f"当前子弹: {self.bullet}/{self.max_bullet}\n" + prompt
+
+        actions = self.available_actions.get(self.current_turn, [])
+        prompt += "".join([f"【/行动 {action}】\n" for action in actions])
+        return prompt.strip()
+
+    def _get_reply(self, key: str) -> str:
+        """从数据管理器获取回复文本。"""
         reply_texts = data_manager.reply_data
         return reply_texts.get(key, f"[{key}]")
 
 
-def first(inv: Investigator, mon: Monster, qq, name):
-    confrontation = ConfrontationRoll(inv.敏捷, mon.敏捷)
-    turn = "inv" if confrontation.get_result("先攻") else "mon"
-    dex1_res = f"{name}进行敏捷鉴定：\n{confrontation.dice1}/{confrontation.skill1} 【{get_success_description(confrontation.level1)}】\n"
-    dex2_res = f"{mon.名字}进行敏捷鉴定：\n{confrontation.dice2}/{confrontation.skill2} 【{get_success_description(confrontation.level2)}】\n"
-    action_dict = investigator_service.get_available_actions(qq)
-    if turn == "inv":
-        replys = (
-            f"{dex1_res}{dex2_res}调查员回合".center(10, "-") + "\n" + "请选择行动：\n"
-        )
-        for i in action_dict["inv"]:
-            replys += f"【/行动 {i}】\n"
-    else:
-        replys = (
-            f"{dex1_res}{dex2_res}怪物回合".center(10, "-") + "\n" + "请选择行动：\n"
-        )
-        for i in action_dict["mon"]:
-            replys += f"【/行动 {i}】\n"
-    return turn, replys, action_dict
-
-
 def start_combat(
-    player_id: Union[str, int], player_name: str = "调查员"
+    player_qq: str, player_name_override: Optional[str] = None
 ) -> CombatSystem:
     """
-    开始战斗
-
-    Args:
-        player_id: 玩家ID
-        player_name: 玩家名称
-
-    Returns:
-        战斗系统实例
+    工厂函数：创建并初始化一个战斗系统实例（完全重构版）。
     """
-    # 获取玩家信息
-    player_id = str(player_id)
-    player_info = investigator_service.get_investigator_dict(player_id)
-    if not player_info:
-        logger.exception(f"无法找到玩家 {player_id} 的信息")
-        raise ValueError(f"玩家 {player_id} 不存在")
+    logger.info(f"尝试为QQ {player_qq} 开始战斗...")
 
-    # 获取行动字典
-    action_dict = investigator_service.get_available_actions(player_id)
+    # 1. 加载 Investigator 对象，不存在则自动创建
+    investigator = Investigator.load(player_qq)
+    if player_name_override:
+        investigator.name = player_name_override
 
-    # 获取怪物信息（基于玩家当前天数）
-    day = player_info.get("day", 1)
-    monster_info = get_mon(str(day))
+    # 2. 加载当天的随机怪物
+    # 使用 Monster 的工厂方法
+    monster = Monster.load_random_for_day(investigator.day)
+    if not monster:
+        raise RuntimeError(f"无法为第 {investigator.day} 天加载任何怪物！")
 
-    # 初始化HP记录
-    hp_record = {
-        player_id: {"inv": player_info.get("hp", 10), "mon": monster_info.get("hp", 20)}
-    }
-
-    # 创建战斗系统
-    combat_system = CombatSystem(
-        player_id=player_id,
-        player_info=player_info,
-        monster_id=monster_info["id"],
-        available_actions=action_dict,
-        hp_record=hp_record,
-        player_name=player_name,
-    )
-
-    logger.info(
-        f"开始战斗: 玩家 {player_name}({player_id}) vs {monster_info.get('名字', '怪物')}"
-    )
+    # 3. 创建战斗系统实例
+    combat_system = CombatSystem(investigator=investigator, monster=monster)
+    logger.info(f"战斗开始: {investigator.name}({investigator.qq}) vs {monster.名字}")
     return combat_system
 
 
 if __name__ == "__main__":
     # 测试代码
     try:
-        combat = start_combat("1787569211", "测试玩家")
-        result = combat.first_turn()
-        print(result)
-        while (
-            combat.hp_record[combat.player_id]["inv"] > 0
-            and combat.hp_record[combat.player_id]["mon"] > 0
-        ):
-            command = input("输入指令：")
-            result = combat.execute_action(command)
+        test_qq = "12345_test"  # 使用一个测试QQ号
+        test_name = "英勇的测试员"
 
-            if not result:
-                print("无效指令或无法执行")
+        # 启动战斗
+        combat = start_combat(test_qq, test_name)
+
+        # 显示初始信息和第一回合提示
+        initial_message = combat.start_turn()
+        print(initial_message)
+
+        while not combat.fight_is_over():
+            print("-" * 20)
+            # 根据当前回合决定可输入指令
+            actions = combat.available_actions.get(combat.current_turn, [])
+            command = input(f"输入指令({', '.join(actions)}): ")
+
+            if not command or command not in actions:
+                print("无效指令，请重新输入。")
                 continue
 
-            for message in result:
+            result_tuple = combat.execute_action(command)
+
+            # 打印战斗过程信息
+            for message in result_tuple:
                 if message:
                     print(message)
 
-            print(f"HP状态: {combat.hp_record}")
+            print(
+                f"HP状态: 玩家 {combat.hp_record['inv']}, 怪物 {combat.hp_record['mon']}"
+            )
+
+        print("\n战斗结束！")
 
     except Exception as e:
-        logger.exception("战斗系统异常")
+        logger.exception("战斗系统测试时发生异常")
         print(f"战斗异常: {e}")

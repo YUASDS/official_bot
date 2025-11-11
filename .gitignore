@@ -142,5 +142,6 @@ dmypy.json
 
 test
 logs
-env.prod
+.env.prod
+inv.db
 # End of https://www.toptal.com/developers/gitignore/api/python

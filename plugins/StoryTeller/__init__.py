@@ -17,13 +17,13 @@ from nonebot.adapters.console import MessageEvent as ConsoleMessageEvent
 from nonebot.permission import SUPERUSER
 from nonebot.plugin import PluginMetadata
 
-from .Equipment import EquipmentService
+from .Equipment import Equipment
 from .start import check, set_attr, check_issurvive, Adventure
 from .Investigator import (
-    investigator_service,
+    Investigator,
     CreateInvestigator,
     InvestigatorFormatter,
-    get_random_times,
+    investigator_repo,
 )
 from .GlobalData import data_manager, Separator
 
@@ -70,7 +70,7 @@ async def handle_check_equipments(
 ):
     logger.info("check_equipments_cmd")
     item_id = matched_item_id.result
-    res = "\n" + EquipmentService.str_equipment(str(item_id))
+    res = "\n" + Equipment(str(item_id)).get_full_description()
     await check_equipments_cmd.finish(res)
 
 
@@ -84,7 +84,8 @@ async def handle_change_equipments(
     else:
         qq = str(event.get_user_id())
     item_id = matched_item_id.result
-    res = investigator_service.equip_item(qq, str(item_id))
+
+    res = investigator_repo.equip_item(qq, str(item_id))
     await change_equipments_cmd.finish(res[1])
 
 
@@ -95,7 +96,8 @@ async def handle_equipments(event: Event):
         qq = "console_user"
     else:
         qq = str(event.get_user_id())
-    equipments = "\n已有装备：\n" + investigator_service.str_equipments(qq)
+    inv = Investigator.load(qq)
+    equipments = "\n已有装备：\n" + inv.str_equipments()
     await investigator_equipments_cmd.finish(equipments)
 
 
@@ -115,7 +117,7 @@ async def handle_adventure(event: Event):
     #     await adventure_cmd.finish(res[1])
 
     # 获取调查员信息
-    inv_info = investigator_service.get_investigator(qq)
+    inv_info = Investigator.load(qq)
     if not inv_info:
         await adventure_cmd.finish("调查员信息获取失败，请稍后再试~")
 
@@ -150,7 +152,7 @@ async def handle_fight(event: Event, action: Match[str] = AlconnaMatch("action")
     if qq not in user_states or not user_states[qq].get("in_fight"):
         return
 
-    adventure = user_states[qq]["adventure"]
+    adventure: Adventure = user_states[qq]["adventure"]
 
     # 执行战斗动作
     flag, res = adventure.run_adventure(action.result)
@@ -175,20 +177,16 @@ async def handle_create_investigator(event: Event):
         qq = str(event.get_user_id())
 
     # 检查是否已存在调查员
-    res = check_issurvive(qq)
-    hp = (
-        investigator_service.get_investigator(qq).hp
-        if investigator_service.get_investigator(qq)
-        else 0
-    )
-
+    inv = Investigator.load(qq)
+    res = check_issurvive(inv)
+    hp = inv.hp
     if res[0] and hp > 0:
         pass
         # await create_investigator_cmd.finish("当前已经有存在的调查员了哦~")
 
     # 创建调查员
     name = "调查员"  # 这里需要根据实际情况获取用户名
-    times = get_random_times(qq)
+    times = 3
     creator = CreateInvestigator(times)
 
     # 存储创建器状态
@@ -197,7 +195,9 @@ async def handle_create_investigator(event: Event):
     reply = (
         f"欢迎来到克苏鲁的世界~\n请选择你想要创建的调查员属性:\n/选择调查员[1-{times}]"
     )
-    reply += InvestigatorFormatter.format_investigator_info(name, creator.investigators)
+    reply += InvestigatorFormatter.format_investigator_info(
+        name, creator.investigators_data
+    )
 
     await create_investigator_cmd.send(reply)
 
@@ -260,7 +260,7 @@ async def handle_set_skill(
         await set_skill_cmd.finish(reply)
 
     # 创建调查员
-    flag, reply = creator.create_investigator(qq, name)
+    creator.create_investigator(qq, name)
     attr = InvestigatorFormatter.format_investigator_info(name, creator.select)
 
     # 清除创建状态
@@ -280,12 +280,12 @@ async def handle_investigator_info(event: Event):
         qq = str(event.get_user_id())
 
     # 检查调查员状态
-    res = check_issurvive(qq)
+
+    inv = Investigator.load(qq)
+    inv_info = inv.model_to_dict()
+    res = check_issurvive(inv)
     if not res[0]:
         await investigator_info_cmd.finish(res[1])
-
-    # 获取调查员信息
-    inv_info = investigator_service.get_investigator_dict(qq)
     if not inv_info:
         await investigator_info_cmd.finish("调查员信息获取失败，请稍后再试~")
 
@@ -295,7 +295,9 @@ async def handle_investigator_info(event: Event):
     await investigator_info_cmd.finish(state)
 
 
-async def send_forward_messages(event: Event, messages: list | str, name: str):
+async def send_forward_messages(
+    event: Event, messages, name: str  # type:ignore
+):
     """发送合并转发消息（适配不同平台）"""
     if isinstance(messages, str):
         return await adventure_cmd.send(messages)

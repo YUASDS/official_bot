@@ -1,3 +1,5 @@
+# investigator.py
+from __future__ import annotations
 import ujson
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Union
@@ -15,21 +17,21 @@ from peewee import (
     AutoField,
 )
 
-
+# 假设这些模块功能正确
 from .dice import roll_dice, calculate_damage_bonus
 from .GlobalData import data_manager, action2part
-from .Equipment import EquipmentService
+from .Equipment import Equipment, equipment_repo
 
 
+# region 1. 数据库模型 (Models) - 基本保持不变
 class BaseModel(Model):
-
     class Meta:
         db_path = Path(__file__).parent.joinpath("inv.db")
         database = SqliteDatabase(db_path)
 
 
-class Investigator(BaseModel):
-    """调查员模型"""
+class InvestigatorModel(BaseModel):
+    """调查员Peewee模型 (重命名以区分领域对象)"""
 
     id = AutoField(primary_key=True)
     qq = CharField(unique=True, verbose_name="QQ号")
@@ -68,70 +70,405 @@ class Investigator(BaseModel):
 
     # 装备信息 (JSON格式存储)
     equipped_items = TextField(default="{}", verbose_name="装备物品")
-    current_armor = CharField(default="", verbose_name="当前护甲")
 
-    class Meta:
+    class Meta:  # type:ignore
         db_table = "investigators"
-        indexes = ((("qq",), True),)
 
 
-class InventoryItem(BaseModel):
-    """背包物品模型"""
+class InventoryItemModel(BaseModel):
+    """背包物品Peewee模型"""
 
     id = AutoField(primary_key=True)
-    investigator = ForeignKeyField(
-        Investigator, backref="inventory", verbose_name="调查员"
-    )
-    item_id = CharField(verbose_name="物品ID")
-    item_name = CharField(verbose_name="物品名称")
-    quantity = IntegerField(default=1, verbose_name="数量")
-    equipped = BooleanField(default=False, verbose_name="是否装备")
+    investigator = ForeignKeyField(InvestigatorModel, backref="inventory")
+    item_id = CharField()
+    item_name = CharField()
+    quantity = IntegerField(default=1)
 
-    class Meta:
+    class Meta:  # type:ignore
         db_table = "inventory"
-        indexes = ((("investigator", "item_id"), True),)
 
 
-class DatabaseManager:
-    """数据库管理器"""
+# endregion
 
-    _instance = None
 
-    def __new__(cls):
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-            cls._instance._initialize()
-        return cls._instance
+# region 2. 数据访问层 (Repository)
+class InvestigatorRepository:
+    """负责所有与调查员相关的数据库操作"""
 
-    def _initialize(self):
-        """初始化数据库连接和表"""
-        self.db_path = Path(__file__).parent.joinpath("inv.db")
-        self.database = SqliteDatabase(self.db_path)
+    def __init__(self):
+        db = BaseModel._meta.database  # type:ignore
+        if db.is_closed():
+            db.connect()
+        db.create_tables([InvestigatorModel, InventoryItemModel], safe=True)
+        self.db = db
+        logger.info("数据库和表已准备就绪。")
 
-        # 定义模型
-        self._define_models()
-        self._create_tables()
-
-    def _define_models(self):
-        """定义数据库模型"""
-        self.Investigator = Investigator
-        self.InventoryItem = InventoryItem
-
-    def _create_tables(self):
-        """创建数据库表"""
+    def find_by_qq(self, qq: str) -> Optional[InvestigatorModel]:
+        """通过QQ号查找调查员模型"""
         try:
-            self.database.connect()
-            self.database.create_tables(
-                [self.Investigator, self.InventoryItem], safe=True
+            return InvestigatorModel.get(InvestigatorModel.qq == qq)
+        except DoesNotExist:
+            return None
+
+    def create_and_save(
+        self, qq: str, name: str, data: Dict[str, Any]
+    ) -> InvestigatorModel:
+        """创建新的调查员并存入数据库"""
+        with self.db.atomic():
+            # 创建调查员
+            inv_model = InvestigatorModel.create(qq=qq, name=name, **data)
+
+            # 添加并装备默认武器
+            default_weapon_id = "101"
+            default_weapon_name = "弹簧折刀"
+            InventoryItemModel.create(
+                investigator=inv_model,
+                item_id=default_weapon_id,
+                item_name=default_weapon_name,
+                quantity=1,
             )
-            logger.info("数据库表创建/检查完成")
-        except OperationalError as e:
-            logger.exception(f"数据库操作失败: {e}")
-        finally:
-            if not self.database.is_closed():
-                self.database.close()
+            inv_model.equipped_items = ujson.dumps(
+                {"近战": default_weapon_id},
+                ensure_ascii=False,
+            )
+            inv_model.save()
+        return inv_model
+
+    def update(self, inv_model: InvestigatorModel, data: Dict[str, Any]) -> None:
+        """使用字典数据更新调查员模型"""
+        for key, value in data.items():
+            if hasattr(inv_model, key):
+                setattr(inv_model, key, value)
+        inv_model.save()
+
+    def delete_by_qq(self, qq: str) -> bool:
+        """删除调查员及其所有物品"""
+        inv_model = self.find_by_qq(qq)
+        if not inv_model:
+            return False
+        with self.db.atomic():
+            InventoryItemModel.delete().where(
+                InventoryItemModel.investigator == inv_model
+            ).execute()
+            inv_model.delete_instance()
+        return True
+
+    def remove_item_from_inventory(
+        self, qq: str, item_id: str, quantity: int = 1
+    ) -> bool:
+        """
+        从背包移除物品
+
+        Args:
+            qq: 用户QQ号
+            item_id: 物品ID
+            quantity: 数量
+
+        Returns:
+            是否移除成功
+        """
+        try:
+            investigator = self.find_by_qq(qq)
+            if not investigator:
+                return False
+
+            with self.db.atomic():
+                item = (
+                    InventoryItemModel.select()
+                    .where(
+                        (InventoryItemModel.investigator == investigator)
+                        & (InventoryItemModel.item_id == item_id)
+                    )
+                    .first()
+                )
+
+                if item:
+                    if item.quantity <= quantity:
+                        # 完全移除
+                        item.delete_instance()
+                    else:
+                        # 减少数量
+                        item.quantity -= quantity
+                        item.save()
+
+                    logger.info(
+                        f"从背包移除物品成功: QQ={qq}, 物品ID={item_id}, 数量={quantity}"
+                    )
+                    return True
+                else:
+                    logger.warning(f"背包中未找到物品: QQ={qq}, 物品ID={item_id}")
+                    return False
+
+        except Exception as e:
+            logger.exception(f"从背包移除物品失败: QQ={qq}, Error={e}")
+            return False
+
+    def equip_item(self, pid, item_id):
+        """
+        装备物品
+
+        Args:
+            qq: 用户QQ号
+            item_id: 物品ID
+
+        Returns:
+            是否装备成功
+        """
+        try:
+            investigator = self.find_by_qq(pid)
+            if not investigator:
+                return False, "调查员不存在"
+
+            # 获取物品信息
+            item = (
+                InventoryItemModel.select()
+                .where(
+                    (InventoryItemModel.investigator == investigator)
+                    & (InventoryItemModel.item_id == item_id)
+                )
+                .first()
+            )
+
+            if not item:
+                logger.warning(f"背包中未找到物品: QQ={pid}, 物品ID={item_id}")
+                return False, "背包中未找到物品"
+
+            part = Equipment(item_id).part
+            with self.db.atomic():
+                # 更新装备信息
+                equipped_data = ujson.loads(investigator.equipped_items)  # type:ignore
+                equipped_data[part] = item_id
+                investigator.equipped_items = ujson.dumps(  # type:ignore
+                    equipped_data,
+                    ensure_ascii=False,
+                )
+                investigator.save()
+
+                # 标记物品为已装备
+                item.equipped = True
+                item.save()
+
+                logger.info(
+                    f"装备物品成功: QQ={pid}, 物品={item.item_name}, 部位={part}"
+                )
+                return True, f"装备物品成功,装备:{item.item_name}, 部位:{part}"
+
+        except Exception as e:
+            logger.exception(f"装备物品失败: QQ={pid}, Error={e}")
+            return False, "装备物品失败"
+
+    def add_item_to_inventory(self, inv_model: InvestigatorModel, item_id, quantity=1):
+        """
+        添加物品到背包
+
+        Args:
+            qq: 用户QQ号
+            item_id: 物品ID
+            item_name: 物品名称
+            quantity: 数量
+            item_data: 物品数据
+
+        Returns:
+            是否添加成功
+        """
+        try:
+            investigator = inv_model
+
+            with self.db.atomic():
+                # 检查是否已存在该物品
+                existing_item = (
+                    InventoryItemModel.select()
+                    .where(
+                        (InventoryItemModel.investigator == investigator)
+                        & (InventoryItemModel.item_id == item_id)
+                    )
+                    .first()
+                )
+                item = Equipment(item_id)
+                item_name = item.name
+                if existing_item:
+                    # 更新数量
+                    existing_item.quantity += quantity
+                    existing_item.save()
+                else:
+                    # 创建新物品
+
+                    InventoryItemModel.create(
+                        investigator=investigator,
+                        item_id=item_id,
+                        item_name=item_name,
+                        quantity=quantity,
+                        ensure_ascii=False,
+                    )
+
+                logger.info(
+                    f"添加物品到背包成功: QQ={inv_model.qq}, 物品={item_name}, 数量={quantity}"
+                )
+                return True
+
+        except Exception as e:
+            logger.exception(f"添加物品到背包失败: QQ={inv_model.qq}, Error={e}")
+            return False
 
 
+# 全局仓库实例
+investigator_repo = InvestigatorRepository()
+# endregion
+
+
+# region 3. 领域对象 (Domain Object)
+class Investigator:
+    """代表一个调查员实体，封装其所有数据和行为"""
+
+    def __init__(self, model: InvestigatorModel):
+        self._model = model
+        self.qq: str = model.qq  # type:ignore
+        self.name: str = model.name  # type:ignore
+        self.hp: int = model.hp  # type:ignore
+        self.is_survive: bool = model.issurvive  # type:ignore
+        self.day: int = model.day  # type:ignore
+        self.db: str = model.db  # type:ignore
+        self.is_adventure = model.isadventure
+
+        # 装备信息应作为内部状态
+        self._equipped: Dict[str, str] = ujson.loads(
+            model.equipped_items or "{}"  # type:ignore
+        )
+        self.update_data = {}
+        # 更多属性可以按需加载...
+
+    @classmethod
+    def load(cls, qq: str, name_if_new: str = "调查员") -> Investigator:
+        """通过QQ号加载调查员，如果不存在则创建"""
+        model = investigator_repo.find_by_qq(qq)
+        if not model:
+            logger.info(f"未找到QQ:{qq}的调查员，将创建新角色。")
+            default_data = InvestigatorGenerator.generate_investigator_data()[0]
+            model = investigator_repo.create_and_save(qq, name_if_new, default_data)
+        return cls(model)
+
+    def save(self) -> None:
+        """将当前对象的状态持久化到数据库"""
+
+        update_data = {
+            "name": self.name,
+            "hp": self.hp,
+            "issurvive": self.is_survive,
+            "day": self.day,
+            "equipped_items": ujson.dumps(
+                self._equipped,
+                ensure_ascii=False,
+            ),
+        }
+        self.update_data.update(update_data)
+        investigator_repo.update(self._model, self.update_data)
+        logger.info(f"调查员 {self.name}({self.qq}) 的数据已保存。")
+
+    def get_skill(self, skill_name: str, default: int = 0) -> int:
+        """安全地获取技能值"""
+        return getattr(self._model, skill_name, default)
+
+    def set_skill(self, skill_name: str, skill: int = 0):
+        self.update_data[skill_name] = skill
+
+    def get_equipped_id(self, action_or_part: str) -> Optional[str]:
+        """获取指定动作或部位的装备ID"""
+        part = action2part(action_or_part) or action_or_part
+        return self._equipped.get(part)
+
+    def get_available_actions(self) -> Dict[str, List[str]]:
+        """获取当前可用的行动列表"""
+        player_actions = set()
+        for item_id in self._equipped.values():
+            equipment_data = data_manager.goods_data.get(item_id, {})
+            actions = equipment_data.get("skill", [])
+            player_actions.update(actions)
+
+        # 确保基础动作存在
+        if "格斗" not in player_actions and not self.get_equipped_id("格斗"):
+            player_actions.add("格斗")  # 允许徒手格斗
+
+        return {"inv": sorted(list(player_actions)), "mon": ["反击", "闪避"]}
+
+    def mark_as_deceased(self):
+        """标记为死亡"""
+        self.is_survive = False
+        logger.info(f"{self.name} 已被标记为死亡。")
+
+    def break_equipped_item(self, action: str) -> bool:
+        """损坏指定动作关联的装备"""
+        part = action2part(action)
+        if not part:
+            return False
+
+        item_id_to_break = self._equipped.get(part)
+        if not item_id_to_break:
+            return False
+
+        # 移除装备
+        del self._equipped[part]
+
+        # 从背包中移除物品 (这里简化为直接调用Repo，也可以通过Inventory对象)
+        # 注意：这部分逻辑需要一个Inventory管理类或在Repo中实现
+        logger.info(f"{self.name} 的 {part} 装备 ({item_id_to_break}) 已损坏。")
+
+        investigator_repo.remove_item_from_inventory(
+            self.qq, item_id_to_break, 1
+        )  # 假设有此方法
+        self.save()  # 保存装备变动
+        return True
+
+    def get_armor_value(self) -> int:
+        """获取当前护甲值"""
+        armor_id = self.get_equipped_id("防具")
+        if not armor_id:
+            return 0
+        equipment_data = data_manager.goods_data.get(armor_id)
+        return int(equipment_data.get("armor", "0")) if equipment_data else 0
+
+    def get_full_attributes_dict(self) -> Dict[str, Any]:
+        """获取完整的属性字典用于显示"""
+        data = {}
+        for field in self._model._meta.fields.keys():  # type:ignore
+            data[field] = getattr(self._model, field)
+        data["hp"] = self.hp  # 确保返回最新的HP
+        return data
+
+    def get_equipments(self):
+        """获取已有的装备"""
+        investigator = self._model
+        items: list[InventoryItemModel] = InventoryItemModel.select().where(
+            InventoryItemModel.investigator == investigator
+        )
+        res = {}
+        for Inventory in items:
+            res[Inventory.item_id] = Inventory.item_name
+        return res
+
+    def str_equipments(self) -> str:
+        """获取已有的装备"""
+        equipments = self.get_equipments()
+        all_equipments = equipment_repo.brief_equipment(equipments)
+        res = "已装备：\n"
+        for key, value in self._equipped.items():
+            res += f"{key}：{equipments.get(value)}\n"
+        return all_equipments + res
+
+    def model_to_dict(self) -> Dict[str, Any]:
+        """将模型实例转换为字典"""
+        data = {}
+        for field_name in self._model._meta.fields.keys():  # type:ignore
+            data[field_name] = getattr(self._model, field_name)
+        return data
+
+    def add_item_to_inventory(self, item_id, quantity):
+        investigator_repo.add_item_to_inventory(self._model, item_id, quantity)
+
+
+# endregion
+
+
+# region 4. 辅助类 (Helpers) - 基本保持不变，但与新类交互
 class InvestigatorGenerator:
     """调查员生成器"""
 
@@ -224,591 +561,6 @@ class InvestigatorGenerator:
         return derived
 
 
-class InvestigatorService:
-    """调查员服务类"""
-
-    def __init__(self):
-        self.db_manager = DatabaseManager()
-        self.data_manager = data_manager
-        self.Investigator = self.db_manager.Investigator
-        self.InventoryItem = self.db_manager.InventoryItem
-
-    def ensure_investigator_exists(self, qq: str, name: str = "调查员") -> bool:
-        """
-        确保调查员存在，不存在则创建
-
-        Args:
-            qq: 用户QQ号
-            name: 调查员名称
-
-        Returns:
-            是否成功确保调查员存在
-        """
-        try:
-            with self.db_manager.database.atomic():
-                investigator, created = self.Investigator.get_or_create(
-                    qq=qq,
-                    defaults={"name": name, **self._get_default_investigator_data()},
-                )
-                if created:
-                    logger.info(f"已创建新调查员: {name} (QQ: {qq})")
-                    # 创建默认装备
-                    self._create_default_equipment(investigator)
-                return True
-        except Exception as e:
-            logger.exception(f"确保调查员存在失败: QQ={qq}, Error={e}")
-            return False
-
-    def _get_default_investigator_data(self) -> Dict[str, Any]:
-        """获取默认调查员数据"""
-        return {
-            "格斗": 25,
-            "侦查": 25,
-            "聆听": 20,
-            "手枪": 20,
-            "步枪": 25,
-            "急救": 30,
-            "医学": 1,
-            "issurvive": True,
-            "isadventure": False,
-            "day": 1,
-            "san": 99,
-            "equipped_items": "{}",
-            "current_armor": "",
-        }
-
-    def _create_default_equipment(self, investigator) -> None:
-        """创建默认装备"""
-        try:
-            # 添加默认武器（弹簧折刀）
-            default_weapon_data = {
-                "item_id": "101",
-                "item_name": "弹簧折刀",
-                "quantity": 1,
-                "equipped": True,
-            }
-
-            self.InventoryItem.create(investigator=investigator, **default_weapon_data)
-
-            # 更新装备信息
-            equipped_data = {"近战": "101"}
-            investigator.equipped_items = ujson.dumps(
-                equipped_data,
-                ensure_ascii=False,
-            )
-            investigator.save()
-
-        except Exception as e:
-            logger.exception(f"创建默认装备失败: {e}")
-
-    def create_new_investigator(
-        self, qq: str, name: str = "调查员", data: dict = {}
-    ) -> bool:
-        """
-        创建新的调查员
-
-        Args:
-            qq: 用户QQ号
-            name: 调查员名称
-
-        Returns:
-            是否创建成功
-        """
-        try:
-            # 生成随机属性
-            if not data:
-                investigator_data = InvestigatorGenerator.generate_investigator_data(1)[
-                    0
-                ]
-            else:
-                investigator_data = data
-            with self.db_manager.database.atomic():
-                # 删除已存在的调查员
-                investigator = (
-                    self.Investigator.select().where(self.Investigator.qq == qq).first()
-                )
-
-                if not investigator:
-                    logger.warning(f"未找到要删除的调查员: {qq}")
-                    return False
-
-                # 删除相关的库存物品
-                self.InventoryItem.delete().where(
-                    self.InventoryItem.investigator == investigator
-                ).execute()
-                investigator.delete_instance()
-
-                # 创建新调查员
-                investigator = self.Investigator.create(
-                    qq=qq, name=name, **investigator_data
-                )
-
-                # 创建默认装备
-                self._create_default_equipment(investigator)
-
-                logger.info(f"成功创建新调查员: {name} (QQ: {qq})")
-                return True
-
-        except Exception as e:
-            logger.exception(f"创建新调查员失败: QQ={qq}, Error={e}")
-            return False
-
-    def get_investigator(self, qq: str) -> Optional[Investigator]:
-        """
-        获取调查员信息
-
-        Args:
-            qq: 用户QQ号
-
-        Returns:
-            调查员对象或None
-        """
-        try:
-            if self.ensure_investigator_exists(qq):
-                return self.Investigator.get(self.Investigator.qq == qq)
-            return None
-        except DoesNotExist:
-            logger.warning(f"调查员不存在: {qq}")
-            return None
-        except Exception as e:
-            logger.exception(f"获取调查员失败: QQ={qq}, Error={e}")
-            return None
-
-    def get_investigator_dict(self, qq: str) -> Optional[Dict[str, Any]]:
-        """
-        获取调查员信息字典
-
-        Args:
-            qq: 用户QQ号
-
-        Returns:
-            调查员信息字典或None
-        """
-        investigator = self.get_investigator(qq)
-        if investigator:
-            return self._model_to_dict(investigator)
-        return None
-
-    def _model_to_dict(self, model_instance) -> Dict[str, Any]:
-        """将模型实例转换为字典"""
-        data = {}
-        for field_name in model_instance._meta.fields.keys():
-            data[field_name] = getattr(model_instance, field_name)
-        return data
-
-    def update_investigator(self, qq: str, attributes: Dict[str, Any]) -> bool:
-        """
-        更新调查员属性
-
-        Args:
-            qq: 用户QQ号
-            attributes: 要更新的属性字典
-
-        Returns:
-            是否更新成功
-        """
-        try:
-            with self.db_manager.database.atomic():
-
-                if attributes:
-                    query = self.Investigator.update(attributes).where(
-                        self.Investigator.qq == qq
-                    )
-                    res = query.execute()
-                    print(query)
-                    if res:
-                        logger.info(f"更新调查员属性成功: QQ={qq}, 属性={attributes}")
-                        return True
-                    else:
-                        logger.warning(f"未找到要更新的调查员: {qq}")
-                        return False
-                else:
-                    logger.warning("没有有效的属性需要更新")
-                    return False
-
-        except Exception as e:
-            logger.exception(f"更新调查员失败: QQ={qq}, Error={e}")
-            return False
-
-    # 背包管理方法
-    def get_inventory(self, qq: str) -> List[InventoryItem]:
-        """
-        获取背包物品列表
-
-        Args:
-            qq: 用户QQ号
-
-        Returns:
-            背包物品列表
-        """
-        try:
-            investigator = self.get_investigator(qq)
-            if not investigator:
-                return []
-
-            items = (
-                self.InventoryItem.select()
-                .where(self.InventoryItem.investigator == investigator)
-                .execute()
-            )
-            return items
-        except Exception as e:
-            logger.exception(f"获取背包失败: QQ={qq}, Error={e}")
-            return []
-
-    def add_item_to_inventory(
-        self,
-        qq: str,
-        item_id: str,
-        quantity: int = 1,
-    ) -> bool:
-        """
-        添加物品到背包
-
-        Args:
-            qq: 用户QQ号
-            item_id: 物品ID
-            item_name: 物品名称
-            quantity: 数量
-            item_data: 物品数据
-
-        Returns:
-            是否添加成功
-        """
-        try:
-            investigator = self.get_investigator(qq)
-            if not investigator:
-                return False
-
-            with self.db_manager.database.atomic():
-                # 检查是否已存在该物品
-                existing_item = (
-                    self.InventoryItem.select()
-                    .where(
-                        (self.InventoryItem.investigator == investigator)
-                        & (self.InventoryItem.item_id == item_id)
-                    )
-                    .first()
-                )
-                item_name = EquipmentService.get_equipment_name(item_id)
-                if existing_item:
-                    # 更新数量
-                    existing_item.quantity += quantity
-                    existing_item.save()
-                else:
-                    # 创建新物品
-
-                    self.InventoryItem.create(
-                        investigator=investigator,
-                        item_id=item_id,
-                        item_name=item_name,
-                        quantity=quantity,
-                        ensure_ascii=False,
-                    )
-
-                logger.info(
-                    f"添加物品到背包成功: QQ={qq}, 物品={item_name}, 数量={quantity}"
-                )
-                return True
-
-        except Exception as e:
-            logger.exception(f"添加物品到背包失败: QQ={qq}, Error={e}")
-            return False
-
-    def remove_item_from_inventory(
-        self, qq: str, item_id: str, quantity: int = 1
-    ) -> bool:
-        """
-        从背包移除物品
-
-        Args:
-            qq: 用户QQ号
-            item_id: 物品ID
-            quantity: 数量
-
-        Returns:
-            是否移除成功
-        """
-        try:
-            investigator = self.get_investigator(qq)
-            if not investigator:
-                return False
-
-            with self.db_manager.database.atomic():
-                item = (
-                    self.InventoryItem.select()
-                    .where(
-                        (self.InventoryItem.investigator == investigator)
-                        & (self.InventoryItem.item_id == item_id)
-                    )
-                    .first()
-                )
-
-                if item:
-                    if item.quantity <= quantity:
-                        # 完全移除
-                        item.delete_instance()
-                    else:
-                        # 减少数量
-                        item.quantity -= quantity
-                        item.save()
-
-                    logger.info(
-                        f"从背包移除物品成功: QQ={qq}, 物品ID={item_id}, 数量={quantity}"
-                    )
-                    return True
-                else:
-                    logger.warning(f"背包中未找到物品: QQ={qq}, 物品ID={item_id}")
-                    return False
-
-        except Exception as e:
-            logger.exception(f"从背包移除物品失败: QQ={qq}, Error={e}")
-            return False
-
-    def equip_item(self, qq: str, item_id: str) -> tuple[bool, str]:
-        """
-        装备物品
-
-        Args:
-            qq: 用户QQ号
-            item_id: 物品ID
-
-        Returns:
-            是否装备成功
-        """
-        try:
-            investigator = self.get_investigator(qq)
-            if not investigator:
-                return False, "调查员不存在"
-
-            # 获取物品信息
-            item = (
-                self.InventoryItem.select()
-                .where(
-                    (self.InventoryItem.investigator == investigator)
-                    & (self.InventoryItem.item_id == item_id)
-                )
-                .first()
-            )
-
-            if not item:
-                logger.warning(f"背包中未找到物品: QQ={qq}, 物品ID={item_id}")
-                return False, "背包中未找到物品"
-            part = EquipmentService.get_equipment_part(item_id)
-            with self.db_manager.database.atomic():
-                # 更新装备信息
-                equipped_data = ujson.loads(investigator.equipped_items)
-                equipped_data[part] = item_id
-                investigator.equipped_items = ujson.dumps(
-                    equipped_data,
-                    ensure_ascii=False,
-                )
-                investigator.save()
-
-                # 标记物品为已装备
-                item.equipped = True
-                item.save()
-
-                logger.info(
-                    f"装备物品成功: QQ={qq}, 物品={item.item_name}, 部位={part}"
-                )
-                return True, f"装备物品成功,装备:{item.item_name}, 部位:{part}"
-
-        except Exception as e:
-            logger.exception(f"装备物品失败: QQ={qq}, Error={e}")
-            return False, "装备物品失败"
-
-    def get_equipped_id(
-        self, qq: str, part: str = "", action: Optional[str] = ""
-    ) -> Optional[str]:
-        """
-        获取装备的物品
-
-        Args:
-            qq: 用户QQ号
-            part: 装备部位(近战，远程，防具)
-
-        Returns:
-            装备物品ID或None
-        """
-        if action:
-            part = action2part(action)
-        try:
-            investigator = self.get_investigator(qq)
-            if not investigator:
-                return None
-            equipped_data = ujson.loads(investigator.equipped_items)
-            item_id: str = equipped_data.get(part, "")
-            return item_id
-
-        except Exception as e:
-            logger.exception(f"获取装备物品失败: QQ={qq}, Action={part}, Error={e}")
-            return None
-
-    # 破坏正在装备的物品
-    def break_equipped_item(self, qq: str, action: str) -> bool:
-        """
-        破坏正在装备的物品
-
-        Args:
-            qq: 用户QQ号
-            part: 装备部位(近战，远程，防具)
-
-        Returns:
-            是否破坏成功
-        """
-        part = action2part(action)
-        logger.info(part)
-        try:
-            investigator = self.get_investigator(qq)
-            if not investigator:
-                return False
-
-            equipped_data = ujson.loads(investigator.equipped_items)
-
-            item_id = equipped_data.get(part, "")
-
-            if not item_id:
-                logger.warning(f"没有装备该部位的物品: QQ={qq}, 部位={part}")
-                return False
-
-            item_data = self.data_manager.goods_data.get(item_id, {})
-            if not item_data.get("breakable", True):
-                logger.info(f"物品不可破坏: QQ={qq}, 部位={part}, 物品ID={item_id}")
-                return False
-            self.remove_item_from_inventory(qq, item_id)
-            # 更新装备信息
-            logger.info([item_id, item_data, equipped_data])
-            equipped_data.pop(part, None)
-            investigator.equipped_items = ujson.dumps(
-                equipped_data,
-                ensure_ascii=False,
-            )
-            investigator.save()
-
-            logger.info(f"破坏装备物品成功: QQ={qq}, 部位={part}")
-            return True
-
-        except Exception as e:
-            logger.exception(f"破坏装备物品失败: QQ={qq}, 部位={part}, Error={e}")
-            return False
-
-    def get_available_actions(self, qq: str) -> Dict[str, List[str]]:
-        """获取可用的行动字典"""
-        try:
-            investigator = self.get_investigator(qq)
-            if not investigator:
-                return {"inv": [], "mon": ["反击", "闪避"]}
-
-            equipped_data = ujson.loads(investigator.equipped_items)
-            player_actions = []
-            for part, item_id in equipped_data.items():
-                equipment_data = self.data_manager.goods_data.get(item_id)
-                if equipment_data:
-                    actions = equipment_data.get("skill", [])
-                    if actions:
-                        player_actions.extend(actions)
-
-            return {"inv": player_actions, "mon": ["反击", "闪避"]}
-        except Exception as e:
-            logger.exception(f"获取行动字典失败: QQ={qq}, Error={e}")
-            return {"inv": [], "mon": ["反击", "闪避"]}
-
-    # 原有功能的兼容方法
-    def get_adventure_status(self, qq: str) -> Optional[bool]:
-        """获取冒险状态"""
-        investigator = self.get_investigator(qq)
-        return investigator.isadventure if investigator else None
-
-    def get_survival_status(self, qq: str) -> Optional[bool]:
-        """获取生存状态"""
-        investigator = self.get_investigator(qq)
-        return investigator.issurvive if investigator else None
-
-    def mark_as_adventured(self, qq: str) -> bool:
-        """标记为已冒险"""
-        return self.update_investigator(qq, {"isadventure": True})
-
-    def mark_as_deceased(self, qq: str) -> bool:
-        """标记为死亡"""
-        return self.update_investigator(qq, {"issurvive": False})
-
-    def resurrect_investigator(self, qq: str) -> bool:
-        """复活调查员"""
-        return self.update_investigator(qq, {"issurvive": True})
-
-    def reset_all_adventure_status(self) -> bool:
-        """重置所有冒险状态"""
-        try:
-            with self.db_manager.database.atomic():
-                query = self.Investigator.update(isadventure=False).where(
-                    self.Investigator.isadventure == True
-                )
-                affected_rows = query.execute()
-                logger.info(f"重置冒险状态完成，影响 {affected_rows} 个调查员")
-                return True
-        except Exception as e:
-            logger.exception(f"重置冒险状态失败: {e}")
-            return False
-
-    def delete_investigator(self, qq: str) -> bool:
-        """删除调查员"""
-        try:
-            with self.db_manager.database.atomic():
-                # 先删除背包物品
-                self.InventoryItem.delete().where(
-                    self.InventoryItem.investigator.qq == qq
-                ).execute()
-                # 再删除调查员
-                query = self.Investigator.delete().where(self.Investigator.qq == qq)
-                deleted_count = query.execute()
-
-                if deleted_count > 0:
-                    logger.info(f"删除调查员成功: {qq}")
-                    return True
-                else:
-                    logger.warning(f"未找到要删除的调查员: {qq}")
-                    return False
-
-        except Exception as e:
-            logger.exception(f"删除调查员失败: QQ={qq}, Error={e}")
-            return False
-
-    def get_armor(self, qq: str) -> str:
-        """获取当前护甲"""
-        investigator = self.get_equipped_id(qq, "防具")
-        if not investigator:
-            return "0"
-        equipment_data = data_manager.goods_data.get(investigator)
-        return equipment_data.get("armor", "0") if equipment_data else "0"
-
-    def get_equipments(self, qq: str) -> Dict[str, str]:
-        """获取已有的装备"""
-        investigator = self.get_investigator(qq)
-        if not investigator:
-            return {}
-        items: list[InventoryItem] = self.InventoryItem.select().where(
-            self.InventoryItem.investigator == investigator
-        )
-        detial_info = {}
-        for inventoryItem in items:
-            detial_info[inventoryItem.item_id] = {
-                inventoryItem.item_name: inventoryItem.quantity
-            }
-        return detial_info
-
-    def str_equipments(self, qq: str) -> str:
-        """获取已有的装备"""
-        equipments = self.get_equipments(qq)
-        investigator = self.get_investigator(qq)
-        equipped_data = ujson.loads(investigator.equipped_items)
-        all_equipments = EquipmentService.brief_equipment(equipments)
-        res = "已装备：\n"
-        for key, value in equipped_data.items():
-            res += f"{key}：{equipments.get(value)}\n"
-        return all_equipments + res
-
-
 class InvestigatorFormatter:
     """调查员格式化器"""
 
@@ -896,18 +648,20 @@ class InvestigatorFormatter:
 
 
 class CreateInvestigator:
-    """创建调查员服务实例"""
+    """创建调查员流程的辅助类 (重构后)"""
 
     def __init__(self, number: int = 1):
-        self.investigators = InvestigatorGenerator.generate_investigator_data(number)
+        self.investigators_data = InvestigatorGenerator.generate_investigator_data(
+            number
+        )
+        self.select = {}
 
-    def choose_investigator(self, choose: int):
-        """选择调查员服务实例"""
-        if choose < 1 or choose > len(self.investigators):
-            return False, "选择的调查员不存在哦~"
-        self.select = self.investigators[choose - 1]
-        self.skill_point = self.select.get("教育", 0) + self.select.get("智力", 0)
-        return True, self.select
+    def choose_investigator(self, index: int) -> bool:
+        if 1 <= index < len(self.investigators_data) + 1:
+            self.select = self.investigators_data[index - 1]
+            self.skill_point = self.select.get("教育", 0) + self.select.get("智力", 0)
+            return True
+        return False
 
     def set_skill(self, skills: str):
         """设置技能服务实例"""
@@ -939,80 +693,18 @@ class CreateInvestigator:
         self.select.update(user_select)
         return True, "技能设置成功啦~"
 
-    def create_investigator(self, qq: str, name: str = "调查员"):
-        """创建调查员服务实例"""
-        success = investigator_service.create_new_investigator(qq, name, self.select)
-        if not success:
-            return False, "创建调查员失败了哦~"
-        return True, "创建调查员成功啦~"
+    def create_investigator(self, qq: str, name: str) -> Investigator:
+        """最终创建调查员实例"""
+        if not self.select:
+            raise ValueError("尚未选择调查员模板。")
+
+        # 删除旧的
+        investigator_repo.delete_by_qq(qq)
+
+        # 创建新的
+        new_model = investigator_repo.create_and_save(qq, name, self.select)
+        logger.info(f"新调查员 {name} ({qq}) 创建成功！")
+        return Investigator(new_model)
 
 
-def get_random_times(qq: str) -> int:
-    """获取创造调查员的数量"""
-
-    return 3
-
-
-# 全局服务实例
-investigator_service = InvestigatorService()
-
-
-if __name__ == "__main__":
-    # 测试代码
-    test_qq = "1787569211"
-    name = "测试调查员"
-    # 创建新调查员
-    flag = True
-    create_service = CreateInvestigator(5)
-    print("以下是为您生成的5个调查员属性，请选择其中一个:")
-    print(
-        InvestigatorFormatter.format_investigator_info(
-            name, create_service.investigators
-        )
-    )
-    print("请选择调查员(输入数字1-5):")
-    choose = input()
-    if not choose.isdigit() or int(choose) < 1 or int(choose) > 5:
-        print("选择无效，默认选择第1个调查员。")
-        choose = 1
-    else:
-        choose = int(choose)
-    create_service.choose_investigator(choose)
-    while flag:
-        print(
-            f"您选择的调查员属性为:\n{InvestigatorFormatter.format_investigator_info(name, create_service.select)}"
-        )
-        print(
-            f"您有{create_service.skill_point}点技能点可以分配，请按格式输入技能分配(例如: 手枪 30 步枪 20):"
-        )
-        skills = input()
-        success, result = create_service.set_skill(skills)
-        if not success:
-            print(result)
-            continue
-        else:
-            print(
-                f"技能分配成功，当前调查员属性为:\n{InvestigatorFormatter.format_investigator_info(name, create_service.select)}"
-            )
-            print("是否确认创建该调查员？(y/n):")
-            confirm = input().lower()
-            if confirm == "y":
-                flag = False
-            else:
-                print("请重新分配技能点。")
-
-    success = create_service.create_investigator(test_qq, name)[0]
-    print(f"创建调查员: {'成功' if success else '失败'}")
-
-    # 获取调查员信息
-    investigator = investigator_service.get_investigator_dict(test_qq)
-    if investigator:
-        print("调查员信息:", investigator)
-
-    # 获取背包
-    action = investigator_service.get_available_actions(test_qq)
-    print("可用动作:", action)
-
-    # 格式化显示
-    # formatted = investigator_service("测试", investigator)
-    # print(formatted)
+# endregion

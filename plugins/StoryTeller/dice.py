@@ -230,7 +230,7 @@ def roll_dice(
             else:
                 rolls = [random.randint(1, sides) for _ in range(count)]
                 detail = " + ".join(map(str, rolls))
-                return sum(rolls), detail
+                return sum(rolls), detail.replace(" ", "")
         else:
             # 处理纯数字
             return int(part), part
@@ -299,9 +299,9 @@ if __name__ == "__main__":
 
     dice_tests = ["3d6", "2d4+1", "1d8+2d6+3", "10"]
     for test in dice_tests:
-        res = test + "+1d4"
-        print(res)
-        detail, total = roll_dice(res)
+        # res = test + "+1d4"
+        # print(res)
+        detail, total = roll_dice(test)
         print(f"{test} -> {detail} = {total}")
 
     # 测试最大骰值
