@@ -1,15 +1,15 @@
-# combat_system.py
-from __future__ import annotations
+import asyncio
 from typing import Tuple, Optional, Literal, Dict, Any, List
+
 
 from loguru import logger
 
-# 导入重构后的领域对象和它们的工厂/仓库
+from database.db import add_gold
+
+
 from .Investigator import Investigator
 from .Monster import Monster
 from .Equipment import Equipment
-
-# 导入辅助模块
 from .GlobalData import data_manager, Separator
 from .dice import (
     DiceRoll,
@@ -149,7 +149,7 @@ class CombatSystem:
 
         if confrontation.level1 == SuccessLevel.CRITICAL_FAILURE:
             failure_desc = self._handle_player_critical_failure(weapon)
-            roll_desc += f"\n{failure_desc}"
+            # roll_desc += f"\n{failure_desc}"
             return (
                 weapon.reply,
                 monster_action["counterattack"],
@@ -336,8 +336,8 @@ class CombatSystem:
             monster_action["attack"],
             action_reply,
             roll_desc,
-            player_text,
             monster_text,
+            player_text,
             self._end_turn(),
         )
 
@@ -576,6 +576,7 @@ class CombatSystem:
         if search_roll.level > SuccessLevel.FAILURE:
             # 使用怪物的掉落生成方法
             gold, dropped_item, bonus_text = self.monster.generate_loot()
+            asyncio.run(add_gold(self.investigator.qq, gold))
             if dropped_item:
                 # 假设 Investigator 类有 add_item_to_inventory 方法
                 self.investigator.add_item_to_inventory(dropped_item.id, 1)
