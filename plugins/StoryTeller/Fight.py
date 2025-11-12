@@ -576,7 +576,7 @@ class CombatSystem:
         if search_roll.level > SuccessLevel.FAILURE:
             # 使用怪物的掉落生成方法
             gold, dropped_item, bonus_text = self.monster.generate_loot()
-            asyncio.run(add_gold(self.investigator.qq, gold))
+            add_gold(self.investigator.qq, gold)
             if dropped_item:
                 # 假设 Investigator 类有 add_item_to_inventory 方法
                 self.investigator.add_item_to_inventory(dropped_item.id, 1)
