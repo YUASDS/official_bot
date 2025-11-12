@@ -54,7 +54,7 @@ class CombatSystem:
         self._update_gun_status()
 
     def get_success_record_description(self, rank: int, skill_name: str = "") -> str:
-        if rank > 0 and skill_name:
+        if rank > SuccessLevel.FAILURE and skill_name:
             self.succeded_skill.add(skill_name)
         return get_success_description(rank)
 

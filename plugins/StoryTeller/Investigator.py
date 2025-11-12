@@ -543,7 +543,7 @@ class InvestigatorGenerator:
 
         # 计算DB（伤害加值）
         size = base_attributes["体型"]
-        strength = base_attributes["体质"]
+        strength = base_attributes["力量"]
         derived["db"] = calculate_damage_bonus(size, strength)
 
         # 计算HP
