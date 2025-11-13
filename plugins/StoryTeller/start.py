@@ -1,3 +1,4 @@
+from database.db import get_info
 from .Fight import start_combat
 from .Investigator import Investigator
 
@@ -58,6 +59,15 @@ class Adventure:
             return False, "无效指令或无法执行"
         state = combat.fight_is_over()
         return state, result
+
+
+def get_qq_equipment(qq: str):
+
+    inv = Investigator.load(qq)
+
+    info = get_info(qq)
+    wupa = f"\n当前乌帕数量：{info.gold}\n"
+    return f"{wupa}\n已有装备：\n{inv.str_equipments()}"
 
 
 if __name__ == "__main__":

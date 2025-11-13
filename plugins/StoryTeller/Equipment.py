@@ -34,9 +34,9 @@ class EquipmentRepository:
     def brief_equipment(self, equipments) -> str:
         """对于装备内容进行简要描述"""
         result = ""
-        for equipment_id, equipment_name in equipments.items():
+        for equipment_id, quantity in equipments.items():
             equipment = Equipment(equipment_id)
-            result += f" {equipment_name}\n{equipment.get_brief_description()}\n"
+            result += f" {equipment.name}\n{equipment.get_brief_description()} 数量:{quantity}\n"
         return result
 
 

@@ -113,8 +113,8 @@ async def is_sign(user_id: str):
     return True
 
 
-@Decorator
-async def get_info(user_id: str):
+@add_Decorator
+def get_info(user_id: str):
     # sourcery skip: inline-immediately-returned-variable
     user: User_info = User.get(user_id=user_id)
     return user

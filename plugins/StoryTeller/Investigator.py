@@ -448,11 +448,12 @@ class Investigator:
         )
         res = {}
         for Inventory in items:
-            res[Inventory.item_id] = Inventory.item_name
+            res[Inventory.item_id] = Inventory.quantity
         return res
 
     def str_equipments(self) -> str:
         """获取已有的装备"""
+
         equipments = self.get_equipments()
         all_equipments = equipment_repo.brief_equipment(equipments)
         res = "已装备：\n"

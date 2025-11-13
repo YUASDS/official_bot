@@ -18,7 +18,7 @@ from nonebot.permission import SUPERUSER
 from nonebot.plugin import PluginMetadata
 
 from .Equipment import Equipment
-from .start import check, set_attr, check_issurvive, Adventure
+from .start import get_qq_equipment, set_attr, check_issurvive, Adventure
 from .Investigator import (
     Investigator,
     CreateInvestigator,
@@ -96,8 +96,7 @@ async def handle_equipments(event: Event):
         qq = "console_user"
     else:
         qq = str(event.get_user_id())
-    inv = Investigator.load(qq)
-    equipments = "\n已有装备：\n" + inv.str_equipments()
+    equipments = get_qq_equipment(qq)
     await investigator_equipments_cmd.finish(equipments)
 
 
