@@ -347,6 +347,17 @@ class Investigator:
             model = investigator_repo.create_and_save(qq, name_if_new, default_data)
         return cls(model)
 
+    def update_equipment(self):
+        model = investigator_repo.find_by_qq(self.qq)
+        if not model:
+            logger.info(f"未找到QQ:{self.qq}的调查员，将创建新角色。")
+            default_data = InvestigatorGenerator.generate_investigator_data()[0]
+            model = investigator_repo.create_and_save(self.qq, self.name, default_data)
+        self._equipped: Dict[str, str] = ujson.loads(
+            model.equipped_items or "{}"  # type:ignore
+        )
+        self._model = model
+
     def save(self) -> None:
         """将当前对象的状态持久化到数据库"""
 

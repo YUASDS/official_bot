@@ -97,6 +97,7 @@ class CombatSystem:
     def execute_action(self, action: str) -> Tuple:
         """根据当前回合执行行动分派。"""
         self.current_action = action
+        self.investigator.update_equipment()
         handler = {
             "inv": self._execute_player_action,
             "mon": self._execute_monster_action,
