@@ -36,7 +36,13 @@ class MonsterRepository:
         available_monsters = self._checkpoint_data.get(day_str)
         if not available_monsters:
             logger.error(f"找不到第 {day_str} 天的怪物配置。")
-            return None
+            if int(day_str) < 25:
+                available_monster = str(random.randint(1, 10))
+                logger.error(f"替换为ID= {available_monster} 的怪物配置。")
+                return available_monster
+            else:
+                return None
+
         return random.choice(available_monsters)
 
 
