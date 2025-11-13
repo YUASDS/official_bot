@@ -447,18 +447,20 @@ class Investigator:
             InventoryItemModel.investigator == investigator
         )
         res = {}
+        res2 = {}
         for Inventory in items:
             res[Inventory.item_id] = Inventory.quantity
-        return res
+            res[Inventory.item_id] = Inventory.item_name
+        return res, res2
 
     def str_equipments(self) -> str:
         """获取已有的装备"""
 
-        equipments = self.get_equipments()
+        equipments, res_name = self.get_equipments()
         all_equipments = equipment_repo.brief_equipment(equipments)
         res = "已装备：\n"
         for key, value in self._equipped.items():
-            res += f"{key}：{equipments.get(value)}\n"
+            res += f"{key}：{res_name.get(value)}\n"
         return all_equipments + res
 
     def model_to_dict(self) -> Dict[str, Any]:
