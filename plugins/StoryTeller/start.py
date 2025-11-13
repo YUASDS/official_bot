@@ -67,7 +67,7 @@ def get_qq_equipment(qq: str):
 
     info = get_info(qq)
     wupa = f"\n当前乌帕数量：{info.gold}\n"
-    return f"{wupa}\n已有装备：\n{inv.str_equipments()}"
+    return f"{wupa}已有装备：\n{inv.str_equipments()}"
 
 
 if __name__ == "__main__":
