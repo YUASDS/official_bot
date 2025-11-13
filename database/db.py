@@ -50,21 +50,21 @@ db.create_tables([User], safe=True)
 def init_user(user_id: str):
     user = User.select().where(User.user_id == user_id)
     if not user.exists():
-        p = User(user_id=user_id, gold=60)
+        p = User(user_id=user_id, gold=0)
         p.save()
         logger.info(f"已初始化{user_id}")
 
 
 def Decorator(func):
-    async def init(*args, **kwargs):
+    def init(*args, **kwargs):
         try:
-            return await func(*args, **kwargs)
+            return func(*args, **kwargs)
         except DoesNotExist:
             if args:
                 init_user(args[0])
             if kwargs:
                 init_user(kwargs["user_id"])
-            return await func(*args, **kwargs)
+            return func(*args, **kwargs)
 
     return init
 
@@ -113,7 +113,7 @@ async def is_sign(user_id: str):
     return True
 
 
-@add_Decorator
+@Decorator
 def get_info(user_id: str):
     # sourcery skip: inline-immediately-returned-variable
     user: User_info = User.get(user_id=user_id)

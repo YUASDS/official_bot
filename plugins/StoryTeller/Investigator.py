@@ -450,7 +450,7 @@ class Investigator:
         res2 = {}
         for Inventory in items:
             res[Inventory.item_id] = Inventory.quantity
-            res[Inventory.item_id] = Inventory.item_name
+            res2[Inventory.item_id] = Inventory.item_name
         return res, res2
 
     def str_equipments(self) -> str:
