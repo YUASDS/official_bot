@@ -526,8 +526,8 @@ class CombatSystem:
         # 应用护甲
         if armor > 0:
             val = max(1 if has_penetration else 0, val - armor)
-            expr = f"({expr})-{armor}"
-            damage = f"({damage})-{armor}"
+            expr = f"{expr}-{armor}"
+            damage = f"{damage}-{armor}"
         if (
             damage.isdigit()
             or int(damage.split("d")[0]) <= 1
