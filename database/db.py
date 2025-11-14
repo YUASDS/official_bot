@@ -127,7 +127,7 @@ def add_gold(user_id: str, num: int):
 
 
 @Decorator
-async def reduce_gold(user_id: str, num: int, force: bool = False):
+def reduce_gold(user_id: str, num: int, force: bool = False):
     init_user(user_id)
     gold_num = User.get(user_id=user_id).gold
     if gold_num < num:
