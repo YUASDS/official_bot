@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 from typing import Union
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -7,11 +8,13 @@ from loguru import logger
 import ujson
 from .TimeTool import date_today
 
+ORGIN_PATH = Path(__file__).parent.joinpath(f"day/")
 PATH = Path(__file__).parent.joinpath(f"day/{date_today()}.json")
+if not ORGIN_PATH.exists():
+    os.mkdir(ORGIN_PATH)
 if not PATH.exists():
-    PATH.touch()
     PATH.write_text("{}", encoding="utf-8")
-DATA: dict[str, dict[str, str]] = ujson.loads(PATH.read_text(encoding="utf-8"))
+DATA: dict[str, dict] = ujson.loads(PATH.read_text(encoding="utf-8"))
 logger.info(f"{date_today()}初始化完成")
 
 
@@ -32,11 +35,11 @@ def get_data(qq: Union[int, str], key: str):
     return DATA[qq].get(key, None)
 
 
-async def write_json():
+def write_json():
     PATH.write_text(ujson.dumps(DATA, ensure_ascii=False), encoding="utf-8")
 
 
-async def refresh():
+def refresh():
     global DATA, PATH
     PATH = Path(__file__).parent.joinpath(f"day/{date_today()}.json")
     if not PATH.exists():

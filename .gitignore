@@ -144,4 +144,5 @@ test
 logs
 .env.prod
 *.db
+util/day
 # End of https://www.toptal.com/developers/gitignore/api/python

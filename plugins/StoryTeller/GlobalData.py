@@ -39,6 +39,7 @@ class DataManager:
             self.monster_data = self._load_json_file(
                 base_path.joinpath("monster_data.json")
             )
+            self.shop_data = self._load_json_file(base_path.joinpath("shop_data.json"))
             logger.info("游戏数据文件加载成功")
         except Exception as e:
             logger.exception(f"数据文件加载失败: {e}")

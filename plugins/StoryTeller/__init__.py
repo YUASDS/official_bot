@@ -26,6 +26,7 @@ from .Investigator import (
     investigator_repo,
 )
 from .GlobalData import data_manager, Separator
+from .Shop import shop_today, buy_item
 
 # 定义插件元信息
 __plugin_meta__ = PluginMetadata(
@@ -39,15 +40,15 @@ __plugin_meta__ = PluginMetadata(
 
 # 创建命令处理器
 adventure_cmd = on_command(
-    "今日冒险", aliases={"/今日冒险", "/开始冒险"}, priority=10, block=True
+    "今日冒险", aliases={"今日冒险", "开始冒险"}, priority=10, block=True
 )
 create_investigator_cmd = on_command(
-    "创建调查员", aliases={"/调查员创建"}, priority=10, block=True
+    "创建调查员", aliases={"调查员创建"}, priority=10, block=True
 )
 investigator_info_cmd = on_command("调查员信息", priority=10, block=True)
 investigator_equipments_cmd = on_command("查看背包", priority=10, block=True)
 
-change_equipments_cmd = on_alconna(Alconna("/更换装备", Args["item_id", int]))
+change_equipments_cmd = on_alconna(Alconna("/使用物品", Args["item_id", int]))
 check_equipments_cmd = on_alconna(Alconna("/装备详情", Args["item_id", int]))
 
 
@@ -59,9 +60,35 @@ choose_investigator_cmd = on_alconna(Alconna("/选择调查员", Args["choose", 
 # set_skill_cmd = on_regex(r"^/st\s+(.+)$", priority=16, block=True)
 set_skill_cmd = on_alconna(Alconna("/st", Args["skill", str]))
 
+shop_cmd = on_command("今日商店", priority=10, block=True)
+buy_cmd = on_alconna(Alconna("/购买", Args["item_id", int], Args["num", int]))
+
 # 全局状态存储
 user_states: Dict[str, Any] = {}
 print("start")
+
+
+@buy_cmd.handle()
+async def handle_buy_cmd(
+    event: Event,
+    matched_item_id: Match[int] = AlconnaMatch("item_id"),
+    matched_num: Match[int] = AlconnaMatch("num"),
+):
+    logger.info("check_equipments_cmd")
+    item_id = str(matched_item_id.result)
+    num = matched_num.result
+    if isinstance(event, ConsoleMessageEvent):
+        qq = "console_user"
+    else:
+        qq = str(event.get_user_id())
+    res = buy_item(qq, item_id, num)
+    await check_equipments_cmd.finish(res)
+
+
+@shop_cmd.handle()
+async def handle_shop_cmd(event: Event):
+    res: str = shop_today()
+    await shop_cmd.finish(res)
 
 
 @check_equipments_cmd.handle()
