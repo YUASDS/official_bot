@@ -1,6 +1,6 @@
 from database.db import get_info
 from .Fight import start_combat
-from .Investigator import Investigator
+from .Investigator import Investigator, investigator_repo
 
 # from .Equipment import Equipment
 # from .dice import DiceRoll
@@ -68,6 +68,24 @@ def get_qq_equipment(qq: str):
     info = get_info(qq)
     wupa = f"\n当前乌帕数量：{info.gold}\n"
     return f"{wupa}已有装备：\n{inv.str_equipments()}"
+
+
+def use_item(adventure: Adventure, item_id: str):
+    if adventure.combat.current_turn != "inv":
+        return False, "怪物的回合无法更换装备"
+    else:
+        adventure.combat.current_turn = "mon"
+        res = investigator_repo.equip_item(adventure.qq, item_id)
+        if not res[0]:
+            return res
+        else:
+            new_res: list = [True]
+            prompt = adventure.combat._get_next_turn_prompt()
+            new_res.append(f"\n{res[1]}\n{prompt}")
+            if int(item_id) < 100:
+                adventure.combat._update_gun_status()
+            adventure.combat.investigator.update_equipment()
+            return new_res
 
 
 if __name__ == "__main__":

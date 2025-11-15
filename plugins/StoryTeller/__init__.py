@@ -18,7 +18,7 @@ from nonebot.permission import SUPERUSER
 from nonebot.plugin import PluginMetadata
 
 from .Equipment import Equipment
-from .start import get_qq_equipment, set_attr, check_issurvive, Adventure
+from .start import get_qq_equipment, use_item, check_issurvive, Adventure
 from .Investigator import (
     Investigator,
     CreateInvestigator,
@@ -111,8 +111,11 @@ async def handle_change_equipments(
     else:
         qq = str(event.get_user_id())
     item_id = matched_item_id.result
-
-    res = investigator_repo.equip_item(qq, str(item_id))
+    adventure = user_states.get(qq, {"adventure": None, "in_fight": False})
+    if adventure["in_fight"]:
+        res = use_item(adventure["adventure"], str(item_id))
+    else:
+        res = investigator_repo.equip_item(qq, item_id)
     await change_equipments_cmd.finish(res[1])
 
 
