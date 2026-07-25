@@ -30,6 +30,8 @@ class DataLoader:
             self.check_point = self._load_json(base_path / "check_point.json")
             self.monster_data = self._load_json(base_path / "monster_data.json")
             self.shop_data = self._load_json(base_path / "shop_data.json")
+            self.environment_data = self._load_json(base_path / "environment_data.json")
+            self.event_data = self._load_json(base_path / "event_data.json")
             logger.info("Game data loaded successfully.")
         except Exception as e:
             logger.exception(f"Failed to load game data: {e}")
@@ -39,6 +41,8 @@ class DataLoader:
             self.check_point = {}
             self.monster_data = {}
             self.shop_data = {}
+            self.environment_data = {}
+            self.event_data = {}
 
     def _load_json(self, path: Path) -> dict[str, Any]:
         if not path.exists():

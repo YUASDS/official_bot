@@ -39,9 +39,28 @@ class BattleService:
         self.is_madness = False
         self.madness_duration = 0
 
+        self.environment: dict[str, dict] = {}
+
+    def set_environment(self, env_data: dict) -> None:
+        self.environment = env_data
+
     def set_madness(self, is_madness: bool, duration: int = 5) -> None:
         self.is_madness = is_madness
         self.madness_duration = duration
+
+    def _get_player_modified_skill(self, skill_name: str, default: int = 0) -> int:
+        base = self.investigator.get_skill(skill_name, default)
+        player_mods = self.environment.get("玩家", {})
+        if skill_name in player_mods:
+            base += player_mods[skill_name]
+        return max(0, base)
+
+    def _get_monster_modified(self, attr: str, default: int = 0) -> int:
+        base = getattr(self.monster, attr, default)
+        monster_mods = self.environment.get("怪物", {})
+        if attr in monster_mods:
+            base += monster_mods[attr]
+        return base
 
     def _update_gun_status(self):
         gun_id = self.investigator.get_equipped_id("远程")
@@ -64,7 +83,9 @@ class BattleService:
         return data_loader.reply_data.get(key, f"[{key}]")
 
     def start_turn(self) -> str:
-        confrontation = ConfrontationRoll(self.investigator.get_skill("敏捷"), self.monster.dex)
+        player_dex = self._get_player_modified_skill("敏捷")
+        monster_dex = self._get_monster_modified("dex", 50)
+        confrontation = ConfrontationRoll(player_dex, monster_dex)
         player_starts = confrontation.get_result("先攻")
         self.current_turn = "inv" if player_starts else "mon"
 
@@ -77,7 +98,10 @@ class BattleService:
         self.available_actions = self.investigator.get_available_actions()
         turn_owner = "你的" if self.current_turn == "inv" else "怪物"
 
-        prompt = f"--- {turn_owner}回合 ---\n当前HP: {self.hp_record['inv']}\n请选择行动:\n"
+        prompt = f"--- {turn_owner}回合 ---\n当前HP: {self.hp_record['inv']}\n"
+        if self.environment:
+            prompt = f"【{self.environment.get('name', '当前环境')}: {self.environment.get('描述', '')}】\n{prompt}"
+        prompt += "请选择行动:\n"
         if self.gun:
             prompt = f"当前子弹: {self.bullet}/{self.max_bullet}\n" + prompt
 
@@ -137,8 +161,9 @@ class BattleService:
             return (f"装备ID {weapon_id} 无效！",)
 
         monster_action = self.monster.get_action(self.current_turn)
-        player_skill = self.investigator.get_skill(weapon.identify_skill, 25)
-        confrontation = ConfrontationRoll(player_skill, monster_action["skill"])
+        player_skill = self._get_player_modified_skill(weapon.identify_skill, 25)
+        monster_skill = monster_action["skill"] + self.environment.get("怪物", {}).get("反击技能", 0)
+        confrontation = ConfrontationRoll(player_skill, monster_skill)
 
         roll_desc = (
             f"{self.player_name}进行格斗: {confrontation.dice1}/{confrontation.skill1}【{self.get_success_record_description(confrontation.level1, weapon.identify_skill)}】\n"
@@ -195,6 +220,11 @@ class BattleService:
             .replace("$骰子", expr)
         )
         player_text = self._apply_damage_to_player(val)
+        # Apply environment monster damage buff
+        dmg_mod = self.environment.get("怪物", {}).get("伤害", "")
+        if dmg_mod:
+            _, extra = roll_dice(dmg_mod)
+            val += extra
         return monster_text, player_text
 
     def _get_player_damage_formula(self, weapon: Equipment) -> str:
@@ -225,7 +255,7 @@ class BattleService:
 
         self.bullet -= shot_count
         weapon = self.gun
-        player_skill = self.investigator.get_skill(weapon.identify_skill, 20)
+        player_skill = self._get_player_modified_skill(weapon.identify_skill, 20)
 
         if shot_count > 1:
             return self._multiple_shot(shot_count, weapon, player_skill)
@@ -297,10 +327,10 @@ class BattleService:
         used_skill = ""
         if player_action == "闪避":
             used_skill = "闪避"
-            player_skill = self.investigator.get_skill("闪避", 25)
+            player_skill = self._get_player_modified_skill("闪避", 25)
             action_reply = self._get_reply("闪避")
         else:
-            player_skill = self.investigator.get_skill("格斗", 25)
+            player_skill = self._get_player_modified_skill("格斗", 25)
             weapon_id = self.investigator.get_equipped_id("格斗")
             if not weapon_id:
                 return ("你没有装备武器来反击！",)
@@ -308,7 +338,8 @@ class BattleService:
             action_reply = weapon.reply
             used_skill = weapon.identify_skill
 
-        confrontation = ConfrontationRoll(monster_action["skill"], player_skill)
+        monster_skill = monster_action["skill"] + self.environment.get("怪物", {}).get("反击技能", 0)
+        confrontation = ConfrontationRoll(monster_skill, player_skill)
         roll_desc = (
             f"{self.monster.名字}进行攻击: {confrontation.dice1}/{confrontation.skill1}【{self.get_success_record_description(confrontation.level1)}】\n"
             f"{self.player_name}进行{player_action}: {confrontation.dice2}/{confrontation.skill2}【{self.get_success_record_description(confrontation.level2, used_skill)}】"
