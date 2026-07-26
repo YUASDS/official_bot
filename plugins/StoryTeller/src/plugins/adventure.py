@@ -2,7 +2,6 @@ from nonebot import on_command
 from nonebot.adapters import Event, Message
 from nonebot.exception import FinishedException
 from nonebot.params import CommandArg
-from nonebot_plugin_waiter import waiter
 from loguru import logger
 import random
 
@@ -12,6 +11,9 @@ from ..models.monster import Monster, monster_repo
 from ..services.data_loader import data_loader
 from ..utils.active_battles import battle_manager
 from database.db import add_gold
+
+# State for active random events (user_id -> event context)
+_event_states: dict[str, dict] = {}
 
 adventure_cmd = on_command("今日冒险", aliases={"daily_adventure", "开始冒险"}, priority=10, block=True)
 
@@ -75,15 +77,13 @@ async def handle_adventure(event: Event):
         if is_mad:
             service.set_madness(True, madness_duration)
 
-        battle_manager.add_battle(user_id, service)
         inv.is_adventure = True
         inv.save()
 
-        # --- Build header: env → day → monster → sanity ---
+        # --- Build header: env → day → event → monster → sanity ---
         header = f"{env_desc}\n{day_event}"
 
         # --- Random event (40% chance) ---
-        event_reply = ""
         if random.random() < 0.4 and data_loader.event_data:
             event_key = random.choice(list(data_loader.event_data.keys()))
             event_data = data_loader.event_data[event_key]
@@ -91,46 +91,20 @@ async def handle_adventure(event: Event):
             for opt in event_data["选项"]:
                 event_text += f"  /行动 {opt['输入']}\n"
 
-            await adventure_cmd.send(
-                f"{header}{event_text}\n{monster_intro}\n\n{san_desc}{madness_desc}"
-            )
+            battle_manager.add_battle(user_id, service)
+            _event_states[user_id] = {
+                "event": event_data,
+                "header": header,
+                "monster_intro": monster_intro,
+            }
 
-            @waiter(waits=["message"], keep_session=True)
-            async def wait_event_choice(event):
-                return event.get_plaintext().strip()
+            reply = f"{header}{event_text}\n{monster_intro}\n\n{san_desc}{madness_desc}"
+            await adventure_cmd.send(reply)
+            return
 
-            response = await wait_event_choice.wait(timeout=60)
-            if response:
-                response = response.removeprefix("/行动 ").removeprefix("/行动").strip()
-
-            matched = next(
-                (o for o in event_data["选项"] if o["输入"] == response), None
-            ) if response else None
-
-            if matched:
-                effects = matched.get("效果", {})
-                event_reply = matched["回复"]
-                if "san" in effects:
-                    san = inv.get_skill("san") + effects["san"]
-                    inv.set_skill("san", max(0, san))
-                if "hp" in effects:
-                    inv.hp = max(1, inv.hp + effects["hp"])
-                if "金币" in effects:
-                    add_gold(user_id, effects["金币"])
-                if "物品" in effects:
-                    inv.add_item_to_inventory(effects["物品"], 1)
-                if "技能" in effects:
-                    for sk_name, sk_delta in effects["技能"].items():
-                        sk_val = inv.get_skill(sk_name, 0) + sk_delta
-                        inv.set_skill(sk_name, max(0, sk_val))
-                inv.save()
-            else:
-                event_reply = "你犹豫不决，选择了最安全的方式——继续前进。"
-
-            reply = f"{header}\n{event_reply}\n\n{monster_intro}\n\n{service.start_turn()}"
-        else:
-            reply = f"{header}\n\n{monster_intro}\n\n{san_desc}{madness_desc}\n\n{service.start_turn()}"
-
+        # No event: start battle normally
+        battle_manager.add_battle(user_id, service)
+        reply = f"{header}\n\n{monster_intro}\n\n{san_desc}{madness_desc}\n\n{service.start_turn()}"
         await adventure_cmd.send(reply)
 
     except FinishedException:
@@ -144,12 +118,57 @@ combat_cmd = on_command("行动", aliases={"combat_action"}, priority=5, block=T
 @combat_cmd.handle()
 async def handle_combat(event: Event, msg: Message = CommandArg()):
     user_id = event.get_user_id()
-    battle = battle_manager.get_battle(user_id)
+    action = msg.extract_plain_text().strip()
 
+    # Check for pending event choice first
+    ev_state = _event_states.pop(user_id, None)
+    if ev_state:
+        event_data = ev_state["event"]
+        header = ev_state["header"]
+        monster_intro = ev_state["monster_intro"]
+        battle = battle_manager.get_battle(user_id)
+        if not battle:
+            await combat_cmd.finish("战斗状态异常。")
+
+        # Strip /行动 prefix
+        choice = action.removeprefix("/行动 ").removeprefix("/行动").strip()
+        matched = next(
+            (o for o in event_data["选项"] if o["输入"] == choice), None
+        ) if choice else None
+
+        if not action:
+            matched = None  # No choice typed
+
+        if matched:
+            effects = matched.get("效果", {})
+            event_reply = matched["回复"]
+            inv = battle.investigator
+            if "san" in effects:
+                san = inv.get_skill("san") + effects["san"]
+                inv.set_skill("san", max(0, san))
+            if "hp" in effects:
+                inv.hp = max(1, inv.hp + effects["hp"])
+            if "金币" in effects:
+                add_gold(user_id, effects["金币"])
+            if "物品" in effects:
+                inv.add_item_to_inventory(effects["物品"], 1)
+            if "技能" in effects:
+                for sk_name, sk_delta in effects["技能"].items():
+                    sk_val = inv.get_skill(sk_name, 0) + sk_delta
+                    inv.set_skill(sk_name, max(0, sk_val))
+            inv.save()
+        else:
+            event_reply = "你犹豫不决，选择了最安全的方式——继续前进。"
+
+        reply = f"{header}\n{event_reply}\n\n{monster_intro}\n\n{battle.start_turn()}"
+        await combat_cmd.send(reply)
+        return
+
+    # Normal combat flow
+    battle = battle_manager.get_battle(user_id)
     if not battle:
         await combat_cmd.finish("当前没有进行中的战斗。")
 
-    action = msg.extract_plain_text().strip()
     if not action:
         await combat_cmd.finish("请输入具体的行动指令。")
 
@@ -168,7 +187,6 @@ async def handle_combat(event: Event, msg: Message = CommandArg()):
 
     result = battle.execute_action(action)
     response = "\n".join([str(x) for x in result if x])
-
     await combat_cmd.send(response)
 
     if battle.fight_is_over():
