@@ -51,7 +51,7 @@ class Equipment:
         self.armor_point = int(self._data.get("armor", 0))
         self.identify_skill = self._data.get("check", "格斗") # Correct key from usage?
         self.reply = self._data.get("reply", "")
-        self.has_penetration = self._data.get("penetrate", False)
+        self.has_penetration = self._data.get("ex", False)
         self.bullet = self._data.get("bullet", 0)
         # Assuming max_bullet is synonymous with bullet in static data
         self.max_bullet = self.bullet
