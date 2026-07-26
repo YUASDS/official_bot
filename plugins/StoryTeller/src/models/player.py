@@ -27,6 +27,7 @@ class BaseModel(Model):
         db_path = Path(__file__).parent.parent.parent / "inv.db"
         database = SqliteDatabase(db_path)
 
+
 class InvestigatorModel(BaseModel):
     id = AutoField(primary_key=True)
     qq = CharField(unique=True, verbose_name="QQ号")
@@ -69,6 +70,7 @@ class InvestigatorModel(BaseModel):
     class Meta:
         db_table = "investigators"
 
+
 class InventoryItemModel(BaseModel):
     id = AutoField(primary_key=True)
     investigator = ForeignKeyField(InvestigatorModel, backref="inventory")
@@ -78,6 +80,7 @@ class InventoryItemModel(BaseModel):
 
     class Meta:
         db_table = "inventory"
+
 
 # --- Repository ---
 class InvestigatorRepository:
@@ -94,7 +97,9 @@ class InvestigatorRepository:
         except DoesNotExist:
             return None
 
-    def create_and_save(self, qq: str, name: str, data: dict[str, Any]) -> InvestigatorModel:
+    def create_and_save(
+        self, qq: str, name: str, data: dict[str, Any]
+    ) -> InvestigatorModel:
         with self.db.atomic():
             inv_model = InvestigatorModel.create(qq=qq, name=name, **data)
             default_weapon_id = "101"
@@ -102,9 +107,11 @@ class InvestigatorRepository:
                 investigator=inv_model,
                 item_id=default_weapon_id,
                 item_name="弹簧折刀",
-                quantity=1
+                quantity=1,
             )
-            inv_model.equipped_items = ujson.dumps({"近战": default_weapon_id}, ensure_ascii=False)
+            inv_model.equipped_items = ujson.dumps(
+                {"近战": default_weapon_id}, ensure_ascii=False
+            )
             inv_model.save()
         return inv_model
 
@@ -125,12 +132,18 @@ class InvestigatorRepository:
             inv_model.delete_instance()
         return True
 
-    def add_item_to_inventory(self, inv_model: InvestigatorModel, item_id: str, quantity: int = 1) -> None:
+    def add_item_to_inventory(
+        self, inv_model: InvestigatorModel, item_id: str, quantity: int = 1
+    ) -> None:
         with self.db.atomic():
-            existing_item = InventoryItemModel.select().where(
-                (InventoryItemModel.investigator == inv_model) &
-                (InventoryItemModel.item_id == item_id)
-            ).first()
+            existing_item = (
+                InventoryItemModel.select()
+                .where(
+                    (InventoryItemModel.investigator == inv_model)
+                    & (InventoryItemModel.item_id == item_id)
+                )
+                .first()
+            )
 
             item = Equipment(item_id)
             if existing_item:
@@ -141,18 +154,25 @@ class InvestigatorRepository:
                     investigator=inv_model,
                     item_id=item_id,
                     item_name=item.name,
-                    quantity=quantity
+                    quantity=quantity,
                 )
 
-    def remove_item_from_inventory(self, qq: str, item_id: str, quantity: int = 1) -> bool:
+    def remove_item_from_inventory(
+        self, qq: str, item_id: str, quantity: int = 1
+    ) -> bool:
         inv = self.find_by_qq(qq)
-        if not inv: return False
+        if not inv:
+            return False
 
         with self.db.atomic():
-            item = InventoryItemModel.select().where(
-                (InventoryItemModel.investigator == inv) &
-                (InventoryItemModel.item_id == item_id)
-            ).first()
+            item = (
+                InventoryItemModel.select()
+                .where(
+                    (InventoryItemModel.investigator == inv)
+                    & (InventoryItemModel.item_id == item_id)
+                )
+                .first()
+            )
             if item:
                 if item.quantity <= quantity:
                     item.delete_instance()
@@ -166,10 +186,14 @@ class InvestigatorRepository:
         inv_model = self.find_by_qq(qq)
         if not inv_model:
             return False, "调查员不存在"
-        item_record = InventoryItemModel.select().where(
-            (InventoryItemModel.investigator == inv_model) &
-            (InventoryItemModel.item_id == item_id)
-        ).first()
+        item_record = (
+            InventoryItemModel.select()
+            .where(
+                (InventoryItemModel.investigator == inv_model)
+                & (InventoryItemModel.item_id == item_id)
+            )
+            .first()
+        )
         if not item_record:
             return False, "背包中未找到物品"
         item = Equipment(item_id)
@@ -181,16 +205,31 @@ class InvestigatorRepository:
             inv_model.save()
         return True, f"装备物品成功，装备:{item.name}，部位:{part}"
 
+
 investigator_repo = InvestigatorRepository()
+
 
 # --- InvestigatorGenerator ---
 class InvestigatorGenerator:
     BASE_ATTRIBUTES = {
-        "力量": ("3d6", 5), "体质": ("3d6", 5), "体型": ("2d6+6", 5),
-        "敏捷": ("3d6", 5), "外貌": ("3d6", 5), "智力": ("3d6", 5),
-        "意志": ("3d6", 5), "教育": ("2d6+6", 5), "幸运": ("3d6", 5),
+        "力量": ("3d6", 5),
+        "体质": ("3d6", 5),
+        "体型": ("2d6+6", 5),
+        "敏捷": ("3d6", 5),
+        "外貌": ("3d6", 5),
+        "智力": ("3d6", 5),
+        "意志": ("3d6", 5),
+        "教育": ("2d6+6", 5),
+        "幸运": ("3d6", 5),
     }
-    DEFAULT_SKILLS = {"手枪": 20, "步枪": 25, "格斗": 25, "侦查": 25, "急救": 30, "医学": 1}
+    DEFAULT_SKILLS = {
+        "手枪": 20,
+        "步枪": 25,
+        "格斗": 25,
+        "侦查": 25,
+        "急救": 30,
+        "医学": 1,
+    }
 
     @classmethod
     def generate_investigator_data(cls, count: int = 1) -> list[dict[str, Any]]:
@@ -211,11 +250,14 @@ class InvestigatorGenerator:
 
         attributes.update(cls.DEFAULT_SKILLS)
         attributes["san"] = attributes["意志"]
-        attributes["db"] = calculate_damage_bonus(attributes["体型"], attributes["力量"])
+        attributes["db"] = calculate_damage_bonus(
+            attributes["体型"], attributes["力量"]
+        )
         attributes["hp"] = (attributes["体质"] + attributes["体型"]) // 10
         attributes["闪避"] = attributes["敏捷"] // 2
 
         return attributes
+
 
 # --- Investigator Domain Object ---
 class Investigator:
@@ -316,6 +358,7 @@ class Investigator:
         data = {k: self.get_skill(k, 0) for k in core}
         data["SAN"] = self.get_skill("san", 0)
         data["HP"] = self.hp
+        data["DB"] = self.db
         return data
 
     def get_equipments(self):
@@ -358,10 +401,7 @@ class Investigator:
                 item = Equipment(item_id)
                 if not item.is_valid:
                     continue
-                res += (
-                    f" {item.name}\n"
-                    f"{item.get_brief_description()} 数量：{qty}\n"
-                )
+                res += f" {item.name}\n" f"{item.get_brief_description()} 数量：{qty}\n"
         else:
             res += " 空\n"
 
@@ -376,10 +416,21 @@ class Investigator:
     def add_item_to_inventory(self, item_id, quantity=1) -> None:
         investigator_repo.add_item_to_inventory(self._model, item_id, quantity)
 
+
 # --- InvestigatorFormatter ---
 class InvestigatorFormatter:
     # Core attributes to display, in order
-    DISPLAY_ATTRS = ["力量", "体质", "体型", "敏捷", "外貌", "智力", "意志", "教育", "幸运"]
+    DISPLAY_ATTRS = [
+        "力量",
+        "体质",
+        "体型",
+        "敏捷",
+        "外貌",
+        "智力",
+        "意志",
+        "教育",
+        "幸运",
+    ]
 
     @staticmethod
     def _display_attrs(inv: dict) -> str:
@@ -387,18 +438,27 @@ class InvestigatorFormatter:
         parts = [f"{k}:{inv.get(k, 0)}" for k in InvestigatorFormatter.DISPLAY_ATTRS]
         parts.append(f"SAN:{inv.get('san', 0)}")
         parts.append(f"HP:{inv.get('hp', 0)}")
+        parts.append(f"DB:{inv.get('db', 0)}")
         return " ".join(parts)
 
     @staticmethod
-    def format_investigator_info(name: str, investigator_data: Union[dict, list[dict]]) -> str:
+    def format_investigator_info(
+        name: str, investigator_data: Union[dict, list[dict]]
+    ) -> str:
         if isinstance(investigator_data, list):
-            return InvestigatorFormatter._format_investigator_list(name, investigator_data)
-        return InvestigatorFormatter._format_single_investigator(name, investigator_data)
+            return InvestigatorFormatter._format_investigator_list(
+                name, investigator_data
+            )
+        return InvestigatorFormatter._format_single_investigator(
+            name, investigator_data
+        )
 
     @staticmethod
     def _format_investigator_list(name: str, investigators: list[dict]) -> str:
         header = f"{name}的调查员做成:\n"
-        body_lines = [InvestigatorFormatter._display_attrs(inv) for inv in investigators]
+        body_lines = [
+            InvestigatorFormatter._display_attrs(inv) for inv in investigators
+        ]
         return header + "\n".join(body_lines)
 
     @staticmethod
@@ -416,10 +476,13 @@ class InvestigatorFormatter:
         body_lines.append(current_line.strip())
         return header + "\n".join(body_lines)
 
+
 # --- CreateInvestigator ---
 class CreateInvestigator:
     def __init__(self, number: int = 1) -> None:
-        self.investigators_data = InvestigatorGenerator.generate_investigator_data(number)
+        self.investigators_data = InvestigatorGenerator.generate_investigator_data(
+            number
+        )
         self.select = {}
         self.skill_point = 0
 
@@ -432,6 +495,7 @@ class CreateInvestigator:
 
     def set_skill(self, skills: str):
         import re
+
         pattern = re.compile(r"[^\d\s]+|\d+")
         match = pattern.findall(skills)
         if not str.isdigit(match[-1]):
