@@ -313,8 +313,11 @@ class Investigator:
 
     def get_full_attributes_dict(self) -> dict[str, Any]:
         data = {}
+        # Internal fields to exclude from display
+        hidden = {"id", "qq", "db", "issurvive", "isadventure", "equipped_items"}
         for field in self._model._meta.fields:
-            data[field] = getattr(self._model, field)
+            if field not in hidden:
+                data[field] = getattr(self._model, field)
         data["hp"] = self.hp
         return data
 
@@ -332,10 +335,13 @@ class Investigator:
     def str_equipments(self) -> str:
         equipments, res_name = self.get_equipments()
         all_equipments = equipment_repo.brief_equipment(equipments)
-        res = "已装备：\n"
+        res = "===== 装备 =====\n"
         for key, value in self._equipped.items():
-            res += f"{key}：{res_name.get(value, value)}\n"
-        return all_equipments + res
+            if not key:
+                continue
+            item_name = res_name.get(value, value)
+            res += f"{key}：{item_name}\n"
+        return res + "\n" + all_equipments
 
     def model_to_dict(self) -> dict[str, Any]:
         data = {}
@@ -360,7 +366,7 @@ class InvestigatorFormatter:
         body_lines = []
         for inv in investigators:
             filtered = {k: v for k, v in inv.items()
-                        if not k.startswith("_") and k not in ("id", "equipped_items", "current_armor")}
+                        if not k.startswith("_") and k not in ("id", "equipped_items", "current_armor", "qq", "issurvive", "isadventure", "db")}
             body_lines.append(" ".join(f"{key}:{value}" for key, value in filtered.items()))
         return header + "\n".join(body_lines)
 
@@ -370,7 +376,7 @@ class InvestigatorFormatter:
         body_lines = []
         current_line = ""
         filtered = {k: v for k, v in investigator.items()
-                    if not k.startswith("_") and k not in ("id", "equipped_items", "current_armor")}
+                    if not k.startswith("_") and k not in ("id", "equipped_items", "current_armor", "qq", "issurvive", "isadventure", "db")}
         for key, value in filtered.items():
             attribute = f"{key}:{value} "
             if len(current_line) + len(attribute) > 60:

@@ -66,5 +66,11 @@ async def handle_info(event: Event) -> None:
     attrs = inv.get_full_attributes_dict()
     formatted = InvestigatorFormatter.format_investigator_info(inv.name, attrs)
     equip_str = inv.str_equipments()
-    res = f"{formatted}\n{equip_str}"
+    alt = "死亡" if not inv.is_survive else "存活"
+    res = (
+        f"===== {inv.name} =====\n"
+        f"状态：{alt}    第 {inv.day} 天\n\n"
+        f"{formatted}\n\n"
+        f"{equip_str}"
+    )
     await info_cmd.finish(res)
