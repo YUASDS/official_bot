@@ -314,7 +314,7 @@ class Investigator:
     def get_full_attributes_dict(self) -> dict[str, Any]:
         data = {}
         # Internal fields to exclude from display
-        hidden = {"id", "qq", "db", "issurvive", "isadventure", "equipped_items"}
+        hidden = {"id", "qq", "db", "name", "day", "issurvive", "isadventure", "equipped_items"}
         for field in self._model._meta.fields:
             if field not in hidden:
                 data[field] = getattr(self._model, field)
