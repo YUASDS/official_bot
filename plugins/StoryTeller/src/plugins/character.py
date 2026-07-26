@@ -69,9 +69,24 @@ async def handle_choose(event: Event, msg: Message = CommandArg()):
     if not ci.choose_investigator(idx):
         await choose_cmd.finish("选择失败。")
 
-    reply = InvestigatorFormatter.format_investigator_info(name, ci.select)
+    # Build display: core attrs + skills
+    core_attrs = ["力量", "体质", "体型", "敏捷", "外貌", "智力", "意志", "教育", "幸运"]
+    attr_line = " ".join(f"{k}:{ci.select.get(k, 0)}" for k in core_attrs)
+    attr_line += f" SAN:{ci.select.get('san', 0)} HP:{ci.select.get('hp', 0)}"
+
+    skill_keys = ["手枪", "步枪", "格斗", "侦查", "急救", "医学"]
+    skill_line = " ".join(f"{k}:{ci.select.get(k, 0)}" for k in skill_keys)
+
+    reply = (
+        f"\n名称：{name}\n"
+        f"角色属性:\n"
+        f" {attr_line}\n"
+        f"技能：\n"
+        f" {skill_line}\n"
+    )
     await choose_cmd.finish(
-        f"选择成功\n{reply}\n接下来需要分配技能了哦~\n"
+        f"选择成功\n{reply}\n"
+        f"接下来需要分配技能了哦~\n"
         f"共有【{ci.skill_point}】点技能点可以分配，请按格式输入技能分配（例如: /st 手枪30步枪20）\n"
         f"技能上限75"
     )
