@@ -24,8 +24,9 @@ async def handle_adventure(event: Event):
             await adventure_cmd.finish("当前调查员已死亡。请使用复活道具。")
         if battle_manager.get_battle(user_id):
             await adventure_cmd.finish("你正在战斗中！请继续战斗。")
-        if inv.is_adventure and not battle_manager.get_battle(user_id):
-            await adventure_cmd.finish("你今天已经尝试过冒险了。明天再来吧。")
+        # Daily limit disabled for testing
+        # if inv.is_adventure and not battle_manager.get_battle(user_id):
+        #     await adventure_cmd.finish("你今天已经尝试过冒险了。明天再来吧。")
 
         monster_id = monster_repo.find_random_id_for_day(inv.day)
         if not monster_id:
@@ -95,8 +96,8 @@ async def handle_adventure(event: Event):
             )
 
             @waiter(waits=["message"], keep_session=True)
-            async def wait_event_choice(ev):
-                return ev.get_plaintext().strip()
+            async def wait_event_choice(event):
+                return event.get_plaintext().strip()
 
             response = await wait_event_choice.wait(timeout=60)
             if response:
