@@ -378,6 +378,17 @@ class Investigator:
 
 # --- InvestigatorFormatter ---
 class InvestigatorFormatter:
+    # Core attributes to display, in order
+    DISPLAY_ATTRS = ["力量", "体质", "体型", "敏捷", "外貌", "智力", "意志", "教育", "幸运"]
+
+    @staticmethod
+    def _display_attrs(inv: dict) -> str:
+        """Build a single-line attribute string from investigator dict."""
+        parts = [f"{k}:{inv.get(k, 0)}" for k in InvestigatorFormatter.DISPLAY_ATTRS]
+        parts.append(f"SAN:{inv.get('san', 0)}")
+        parts.append(f"HP:{inv.get('hp', 0)}")
+        return " ".join(parts)
+
     @staticmethod
     def format_investigator_info(name: str, investigator_data: Union[dict, list[dict]]) -> str:
         if isinstance(investigator_data, list):
@@ -387,11 +398,7 @@ class InvestigatorFormatter:
     @staticmethod
     def _format_investigator_list(name: str, investigators: list[dict]) -> str:
         header = f"{name}的调查员做成:\n"
-        body_lines = []
-        for inv in investigators:
-            filtered = {k: v for k, v in inv.items()
-                        if not k.startswith("_") and k not in ("id", "equipped_items", "current_armor", "qq", "issurvive", "isadventure", "db")}
-            body_lines.append(" ".join(f"{key}:{value}" for key, value in filtered.items()))
+        body_lines = [InvestigatorFormatter._display_attrs(inv) for inv in investigators]
         return header + "\n".join(body_lines)
 
     @staticmethod
@@ -399,20 +406,14 @@ class InvestigatorFormatter:
         header = f"{name}的角色属性为:\n"
         body_lines = []
         current_line = ""
-        filtered = {k: v for k, v in investigator.items()
-                    if not k.startswith("_") and k not in ("id", "equipped_items", "current_armor", "qq", "issurvive", "isadventure", "db")}
-        for key, value in filtered.items():
-            attribute = f"{key}:{value} "
-            if len(current_line) + len(attribute) > 60:
+        attrs_str = InvestigatorFormatter._display_attrs(investigator)
+        for attr in attrs_str.split(" "):
+            if len(current_line) + len(attr) + 1 > 60:
                 body_lines.append(current_line.strip())
-                current_line = attribute
+                current_line = " " + attr
             else:
-                current_line += attribute
-            if key == "总点数":
-                body_lines.append(current_line.strip())
-                current_line = ""
-        if current_line:
-            body_lines.append(current_line.strip())
+                current_line += " " + attr
+        body_lines.append(current_line.strip())
         return header + "\n".join(body_lines)
 
 # --- CreateInvestigator ---
