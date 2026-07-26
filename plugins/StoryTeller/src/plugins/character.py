@@ -91,8 +91,8 @@ async def handle_info(event: Event) -> None:
     nl = "\n"
     res = (
         f"\n===== 调查员 =====\n"
-        f"状态：{survival}    时间：第 {inv.day} 天\n"
-        f"{nl.join(attr_lines)}\n\n"
+        f"状态：{survival}    \n时间：第 {inv.day} 天\n"
+        f"{nl.join(attr_lines)}\n"
         f"{inv.str_equipments()}"
     )
     await info_cmd.finish(res)
