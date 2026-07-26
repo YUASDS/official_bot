@@ -1,10 +1,8 @@
 from typing import Any
 
-from arclet.alconna import Alconna, Args
 from nonebot import on_command
 from nonebot.adapters import Event, Message
 from nonebot.params import CommandArg
-from nonebot_plugin_alconna import AlconnaMatch, Match, on_alconna
 
 from ..models.player import (
     CreateInvestigator,
@@ -20,9 +18,13 @@ create_cmd = on_command(
     "创建调查员", aliases={"create_investigator"}, priority=10, block=True
 )
 
-choose_cmd = on_alconna(Alconna("/选择调查员", Args["choice", int]))
+choose_cmd = on_command(
+    "选择调查员", aliases={"/选择调查员"}, priority=16, block=True
+)
 
-skill_cmd = on_alconna(Alconna("/st", Args["skills", str]))
+skill_cmd = on_command(
+    "st", aliases={"/st"}, priority=16, block=True
+)
 
 info_cmd = on_command(
     "调查员信息", aliases={"investigator_info", "查看状态"}, priority=10, block=True
@@ -46,22 +48,23 @@ async def handle_create(event: Event, msg: Message = CommandArg()):
 
 # --- /选择调查员 <N> ---
 @choose_cmd.handle()
-async def handle_choose(
-    event: Event,
-    choice: Match[int] = AlconnaMatch("choice"),
-):
+async def handle_choose(event: Event, msg: Message = CommandArg()):
     user_id = event.get_user_id()
     state = _user_states.get(user_id)
 
     if not state or "creator" not in state:
         await choose_cmd.finish("请先使用 /创建调查员 生成角色。")
 
-    ci: CreateInvestigator = state["creator"]
-    name: str = state["name"]
-    idx = choice.result
+    arg = msg.extract_plain_text().strip()
+    if not arg.isdigit():
+        await choose_cmd.finish("请输入数字，例如：/选择调查员 2")
 
+    idx = int(arg)
     if idx < 1 or idx > 3:
         await choose_cmd.finish("超过了可以选择的范围哦~")
+
+    ci: CreateInvestigator = state["creator"]
+    name: str = state["name"]
 
     if not ci.choose_investigator(idx):
         await choose_cmd.finish("选择失败。")
@@ -76,10 +79,7 @@ async def handle_choose(
 
 # --- /st <skills> ---
 @skill_cmd.handle()
-async def handle_skill(
-    event: Event,
-    skills: Match[str] = AlconnaMatch("skills"),
-):
+async def handle_skill(event: Event, msg: Message = CommandArg()):
     user_id = event.get_user_id()
     state = _user_states.get(user_id)
 
@@ -88,10 +88,14 @@ async def handle_skill(
 
     ci: CreateInvestigator = state["creator"]
     name: str = state["name"]
+    skills = msg.extract_plain_text().strip()
 
-    ok, msg = ci.set_skill(skills.result)
+    if not skills:
+        await skill_cmd.finish("请输入技能分配，例如：/st 手枪30步枪20")
+
+    ok, reply_msg = ci.set_skill(skills)
     if not ok:
-        await skill_cmd.finish(msg)
+        await skill_cmd.finish(reply_msg)
 
     inv = ci.create_investigator(user_id, name)
     attrs = InvestigatorFormatter.format_investigator_info(name, ci.select)
