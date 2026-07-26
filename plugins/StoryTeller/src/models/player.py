@@ -334,14 +334,41 @@ class Investigator:
 
     def str_equipments(self) -> str:
         equipments, res_name = self.get_equipments()
-        all_equipments = equipment_repo.brief_equipment(equipments)
+        # Equipped section
         res = "===== 装备 =====\n"
+        has_equipped = False
         for key, value in self._equipped.items():
             if not key:
                 continue
             item_name = res_name.get(value, value)
             res += f"{key}：{item_name}\n"
-        return res + "\n" + all_equipments
+            has_equipped = True
+
+        # Armor specifically
+        armor_id = self._equipped.get("防具")
+        if armor_id:
+            res += f"护甲：{res_name.get(armor_id, armor_id)}\n"
+        elif not armor_id:
+            res += "护甲：无\n"
+
+        # Separator
+        res += "\n"
+
+        # Backpack section
+        res += "===== 背包 =====\n"
+        if equipments:
+            for item_id, qty in equipments.items():
+                item = Equipment(item_id)
+                if not item.is_valid:
+                    continue
+                res += (
+                    f" {item.name}\n"
+                    f"{item.get_brief_description()} 数量：{qty}\n"
+                )
+        else:
+            res += " 空\n"
+
+        return res
 
     def model_to_dict(self) -> dict[str, Any]:
         data = {}
