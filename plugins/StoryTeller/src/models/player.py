@@ -312,13 +312,10 @@ class Investigator:
         return Equipment(armor_id).armor_point
 
     def get_full_attributes_dict(self) -> dict[str, Any]:
-        data = {}
-        # Internal fields to exclude from display
-        hidden = {"id", "qq", "db", "name", "day", "issurvive", "isadventure", "equipped_items"}
-        for field in self._model._meta.fields:
-            if field not in hidden:
-                data[field] = getattr(self._model, field)
-        data["hp"] = self.hp
+        core = ["力量", "体质", "体型", "敏捷", "外貌", "智力", "意志", "教育", "幸运"]
+        data = {k: self.get_skill(k, 0) for k in core}
+        data["SAN"] = self.get_skill("san", 0)
+        data["HP"] = self.hp
         return data
 
     def get_equipments(self):
