@@ -1,6 +1,8 @@
 from nonebot import on_command
 from nonebot.adapters import Event, Message
+from nonebot.exception import FinishedException
 from nonebot.params import CommandArg
+from nonebot_plugin_waiter import waiter
 from loguru import logger
 import random
 
@@ -92,7 +94,6 @@ async def handle_adventure(event: Event):
                 f"{header}{event_text}\n{monster_intro}\n\n{san_desc}{madness_desc}"
             )
 
-            from nonebot_plugin_waiter import waiter
             @waiter(waits=["message"], keep_session=True)
             async def wait_event_choice(ev):
                 return ev.get_plaintext().strip()
@@ -131,6 +132,8 @@ async def handle_adventure(event: Event):
 
         await adventure_cmd.send(reply)
 
+    except FinishedException:
+        raise
     except Exception as e:
         logger.exception(f"Error starting adventure for {user_id}: {e}")
         await adventure_cmd.finish("冒险启动时发生错误。")

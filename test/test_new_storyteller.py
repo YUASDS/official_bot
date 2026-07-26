@@ -35,6 +35,10 @@ mock_waiter.waiter = MagicMock()
 sys.modules['nonebot'].on_command = MagicMock()
 sys.modules['nonebot'].get_driver = MagicMock()
 
+# Mock exception module used by adventure.py
+mock_exception = MagicMock()
+sys.modules['nonebot.exception'] = mock_exception
+
 from plugins.StoryTeller.src.models.player import Investigator, investigator_repo, InvestigatorModel, InventoryItemModel
 from plugins.StoryTeller.src.models.monster import Monster, monster_repo
 from plugins.StoryTeller.src.models.item import Equipment, equipment_repo
