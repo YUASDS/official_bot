@@ -56,7 +56,7 @@ class DataLoader:
             return {}
 
     def get_event(self, day: str | int) -> str:
-        return self.reply_data.get(str(day), "")
+        return self.reply_data.get("event", {}).get(str(day), "")
 
 # Global instance
 data_loader = DataLoader()

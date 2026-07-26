@@ -43,7 +43,7 @@ class Equipment:
         self._data = equipment_repo.find_by_id(equipment_id) or {}
         self.name = self._data.get("name", "Unknown Item")
         self.type = self._data.get("type", "misc")
-        self.description = self._data.get("description", "No description available.")
+        self.description = self._data.get("des", "No description available.")
         self.price = self._data.get("price", 0)
         self.part = self._data.get("part", "misc")
         self.damage_dice = self._data.get("damage", "0")
