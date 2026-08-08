@@ -35,11 +35,11 @@ class ShopService:
         return shop_items
 
     def format_shop_text(self, shop_items: dict[str, int]) -> str:
-        res = "===== 今日商店 =====\n"
+        res = "\n════ 今日商店 ════\n\n"
         for item_id, price in shop_items.items():
             item = Equipment(item_id)
             if item.is_valid:
-                res += f"{item.name} (ID: {item.id}) - {price} 乌帕\n"
+                res += f" · {item.name}（ID: {item.id}）- {price} 乌帕\n"
         res += "\n输入 /购买 <物品ID> [数量] 进行购买"
         return res
 

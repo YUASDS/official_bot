@@ -49,7 +49,7 @@ class Equipment:
         self.damage_dice = self._data.get("damage", "0")
         self.skill_bonus = self._data.get("skill", []) # e.g. ["Fight", "Shoot"]
         self.armor_point = int(self._data.get("armor", 0))
-        self.identify_skill = self._data.get("check", "格斗") # Correct key from usage?
+        self.identify_skill = self._data.get("identify_skill", "格斗")
         self.reply = self._data.get("reply", "")
         self.has_penetration = self._data.get("ex", False)
         self.bullet = self._data.get("bullet", 0)

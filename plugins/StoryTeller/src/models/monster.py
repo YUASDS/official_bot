@@ -56,16 +56,16 @@ class Monster:
             raise ValueError(f"Monster ID '{monster_id}' not found in data.")
 
         self.is_valid = True
-        self.name = self._data.get("name", "未知怪物")
+        self.name = self._data.get("名字", "未知怪物")
         self.hp = self._data.get("hp", 10)
         self.max_hp = self.hp
-        self.san_loss = self._data.get("san_loss", "0/0")
-        self.description = self._data.get("intro", "一个看起来很恐怖的生物。")
+        self.san_loss = self._data.get("理智值丧失", "0/0")
+        self.description = self._data.get("出场", "一个看起来很恐怖的生物。")
         self.damage_dice = self._data.get("damage", "1d3")
-        self.dex = self._data.get("dex", 50)
-        self.str = self._data.get("str", 50)
+        self.dex = self._data.get("敏捷", 50)
+        self.str = self._data.get("力量", 50)
         self.fight = self._data.get("fight", 50)
-        self.armor = self._data.get("armor", 0)
+        self.armor = int(self._data.get("装甲", 0))
         self.is_alive = True
         self.敏捷 = self.dex
         self.名字 = self.name

@@ -23,16 +23,19 @@ async def handle_adventure(event: Event):
     try:
         inv = Investigator.load(user_id)
         if not inv.is_survive:
-            await adventure_cmd.finish("当前调查员已死亡。请使用复活道具。")
+            await adventure_cmd.finish("\n当前调查员已死亡。请使用复活道具。")
         if battle_manager.get_battle(user_id):
-            await adventure_cmd.finish("你正在战斗中！请继续战斗。")
+            await adventure_cmd.finish("\n你正在战斗中！请继续战斗。")
+
+        inv.restore_hp()
+        inv.save()
         # Daily limit disabled for testing
         # if inv.is_adventure and not battle_manager.get_battle(user_id):
         #     await adventure_cmd.finish("你今天已经尝试过冒险了。明天再来吧。")
 
         monster_id = monster_repo.find_random_id_for_day(inv.day)
         if not monster_id:
-            await adventure_cmd.finish("找不到今天的怪物配置。")
+            await adventure_cmd.finish("\n找不到今天的怪物配置。")
         monster = Monster(monster_id)
         monster_intro = getattr(monster, "出场", f"一只{monster.name}出现了！")
         day_event = data_loader.get_event(inv.day)
@@ -58,7 +61,11 @@ async def handle_adventure(event: Event):
             if current_san <= 0:
                 inv.is_survive = False
                 inv.save()
-                await adventure_cmd.finish(f"{san_desc}\n你的理智归零，陷入了永久的疯狂。游戏结束。")
+                await adventure_cmd.finish(
+                    f"{san_desc}\n\n"
+                    "你的理智归零，陷入了永久的疯狂。\n"
+                    "—— 游戏结束 ——"
+                )
 
             from ..services.dice_roller import roll_dice
             int_val = inv.get_skill("智力")
@@ -66,9 +73,15 @@ async def handle_adventure(event: Event):
             if int_check_res <= int_val:
                 _, madness_duration = roll_dice("1d10")
                 is_mad = True
-                madness_desc = f"\n智力检定({int_check_res}/{int_val})成功，陷入了临时疯狂({madness_duration}回合)！"
+                madness_desc = (
+                    f"\n【智力检定】{int_check_res}/{int_val} → 成功\n"
+                    f" 陷入了临时疯狂（{madness_duration}回合）！"
+                )
             else:
-                madness_desc = f"\n智力检定({int_check_res}/{int_val})失败。你的大脑拒绝理解这一恐怖。"
+                madness_desc = (
+                    f"\n【智力检定】{int_check_res}/{int_val} → 失败\n"
+                    " 你的大脑拒绝理解这一恐怖。"
+                )
 
         # --- Battle service ---
         service = BattleService(inv, monster)
@@ -80,16 +93,15 @@ async def handle_adventure(event: Event):
         inv.is_adventure = True
         inv.save()
 
-        # --- Build header: env → day → event → monster → sanity ---
-        header = f"{env_desc}\n{day_event}"
+        header = f"\n{env_desc}\n{day_event}" if env_desc else f"\n{day_event}"
 
         # --- Random event (40% chance) ---
         if random.random() < 0.4 and data_loader.event_data:
             event_key = random.choice(list(data_loader.event_data.keys()))
             event_data = data_loader.event_data[event_key]
-            event_text = f"\n\n【奇遇】\n{event_data['描述']}\n"
+            event_text = f"\n\n── 【奇遇】 ──\n{event_data['描述']}\n"
             for opt in event_data["选项"]:
-                event_text += f"  /行动 {opt['输入']}\n"
+                event_text += f" · /行动 {opt['输入']}\n"
 
             battle_manager.add_battle(user_id, service)
             _event_states[user_id] = {
@@ -98,20 +110,28 @@ async def handle_adventure(event: Event):
                 "monster_intro": monster_intro,
             }
 
-            reply = f"{header}{event_text}\n{monster_intro}\n\n{san_desc}{madness_desc}"
+            reply = (
+                f"{header}{event_text}\n"
+                f"{monster_intro}\n"
+                f"{san_desc}{madness_desc}"
+            )
             await adventure_cmd.send(reply)
             return
 
-        # No event: start battle normally
         battle_manager.add_battle(user_id, service)
-        reply = f"{header}\n\n{monster_intro}\n\n{san_desc}{madness_desc}\n\n{service.start_turn()}"
+        reply = (
+            f"{header}\n\n"
+            f"{monster_intro}\n"
+            f"{san_desc}{madness_desc}\n\n"
+            f"{service.start_turn()}"
+        )
         await adventure_cmd.send(reply)
 
     except FinishedException:
         raise
     except Exception as e:
         logger.exception(f"Error starting adventure for {user_id}: {e}")
-        await adventure_cmd.finish("冒险启动时发生错误。")
+        await adventure_cmd.finish("\n冒险启动时发生错误。")
 
 combat_cmd = on_command("行动", aliases={"combat_action"}, priority=5, block=True)
 
@@ -128,7 +148,7 @@ async def handle_combat(event: Event, msg: Message = CommandArg()):
         monster_intro = ev_state["monster_intro"]
         battle = battle_manager.get_battle(user_id)
         if not battle:
-            await combat_cmd.finish("战斗状态异常。")
+            await combat_cmd.finish("\n战斗状态异常。")
 
         # Strip /行动 prefix
         choice = action.removeprefix("/行动 ").removeprefix("/行动").strip()
@@ -160,17 +180,22 @@ async def handle_combat(event: Event, msg: Message = CommandArg()):
         else:
             event_reply = "你犹豫不决，选择了最安全的方式——继续前进。"
 
-        reply = f"{header}\n{event_reply}\n\n{monster_intro}\n\n{battle.start_turn()}"
+        reply = (
+            f"{header}\n"
+            f"{event_reply}\n\n"
+            f"{monster_intro}\n\n"
+            f"{battle.start_turn()}"
+        )
         await combat_cmd.send(reply)
         return
 
     # Normal combat flow
     battle = battle_manager.get_battle(user_id)
     if not battle:
-        await combat_cmd.finish("当前没有进行中的战斗。")
+        await combat_cmd.finish("\n当前没有进行中的战斗。")
 
     if not action:
-        await combat_cmd.finish("请输入具体的行动指令。")
+        await combat_cmd.finish("\n请输入具体的行动指令。")
 
     if action.startswith("使用 "):
         item_id = action.split()[1]
@@ -186,7 +211,7 @@ async def handle_combat(event: Event, msg: Message = CommandArg()):
         return
 
     result = battle.execute_action(action)
-    response = "\n".join([str(x) for x in result if x])
+    response = "\n" + "\n".join([str(x) for x in result if x])
     await combat_cmd.send(response)
 
     if battle.fight_is_over():

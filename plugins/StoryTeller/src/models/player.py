@@ -18,7 +18,7 @@ from peewee import (
 
 from ..services.dice_roller import calculate_damage_bonus, roll_dice
 from ..utils.game_utils import action2part
-from .item import Equipment, equipment_repo
+from .item import Equipment
 
 
 # --- Database Model ---
@@ -68,7 +68,7 @@ class InvestigatorModel(BaseModel):
     equipped_items = TextField(default="{}", verbose_name="装备物品")
 
     class Meta:
-        db_table = "investigators"
+        table_name = "investigators"
 
 
 class InventoryItemModel(BaseModel):
@@ -79,7 +79,7 @@ class InventoryItemModel(BaseModel):
     quantity = IntegerField(default=1)
 
     class Meta:
-        db_table = "inventory"
+        table_name = "inventory"
 
 
 # --- Repository ---
@@ -353,6 +353,12 @@ class Investigator:
             return 0
         return Equipment(armor_id).armor_point
 
+    def get_max_hp(self) -> int:
+        return (self.get_skill("体质", 0) + self.get_skill("体型", 0)) // 10
+
+    def restore_hp(self) -> None:
+        self.hp = self.get_max_hp()
+
     def get_full_attributes_dict(self) -> dict[str, Any]:
         core = ["力量", "体质", "体型", "敏捷", "外貌", "智力", "意志", "教育", "幸运"]
         data = {k: self.get_skill(k, 0) for k in core}
@@ -374,36 +380,26 @@ class Investigator:
 
     def str_equipments(self) -> str:
         equipments, res_name = self.get_equipments()
-        # Equipped section
-        res = "===== 装备 =====\n"
-        has_equipped = False
+        res = "【装备】\n"
         for key, value in self._equipped.items():
             if not key:
                 continue
             item_name = res_name.get(value, value)
-            res += f"{key}：{item_name}\n"
-            has_equipped = True
+            res += f" {key}：{item_name}\n"
 
-        # Armor specifically
-        armor_id = self._equipped.get("防具")
-        if armor_id:
-            res += f"护甲：{res_name.get(armor_id, armor_id)}\n"
-        elif not armor_id:
-            res += "护甲：无\n"
+        if "防具" not in self._equipped:
+            res += " 护甲：无\n"
 
-        # Separator
-        res += "\n"
-
-        # Backpack section
-        res += "===== 背包 =====\n"
+        res += "\n【背包】\n"
         if equipments:
             for item_id, qty in equipments.items():
                 item = Equipment(item_id)
                 if not item.is_valid:
                     continue
-                res += f" {item.name}\n" f"{item.get_brief_description()} 数量：{qty}\n"
+                res += f" · {item.name} x{qty}\n"
+                res += f"  {item.get_brief_description()}\n"
         else:
-            res += " 空\n"
+            res += " （空）\n"
 
         return res
 
@@ -455,26 +451,25 @@ class InvestigatorFormatter:
 
     @staticmethod
     def _format_investigator_list(name: str, investigators: list[dict]) -> str:
-        header = f"{name}的调查员做成:\n"
-        body_lines = [
-            InvestigatorFormatter._display_attrs(inv) for inv in investigators
-        ]
-        return header + "\n".join(body_lines)
+        lines = [f"【{name}的调查员候补】\n"]
+        for i, inv in enumerate(investigators, 1):
+            lines.append(f" [{i}] {InvestigatorFormatter._display_attrs(inv)}")
+        return "\n".join(lines)
 
     @staticmethod
     def _format_single_investigator(name: str, investigator: dict) -> str:
-        header = f"{name}的角色属性为:\n"
-        body_lines = []
-        current_line = ""
         attrs_str = InvestigatorFormatter._display_attrs(investigator)
+        body_lines: list[str] = []
+        current_line = ""
         for attr in attrs_str.split(" "):
-            if len(current_line) + len(attr) + 1 > 60:
+            if current_line and len(current_line) + len(attr) + 1 > 40:
                 body_lines.append(current_line.strip())
-                current_line = " " + attr
+                current_line = attr
             else:
                 current_line += " " + attr
-        body_lines.append(current_line.strip())
-        return header + "\n".join(body_lines)
+        if current_line.strip():
+            body_lines.append(current_line.strip())
+        return f"【{name}的属性】\n" + "\n".join(body_lines)
 
 
 # --- CreateInvestigator ---

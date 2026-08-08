@@ -6,7 +6,7 @@ from database.db import add_gold
 
 from ..models.item import Equipment
 from .damage_calculator import calculate_damage as calc_dmg
-from .data_loader import Separator, data_loader
+from .data_loader import data_loader
 from .dice_roller import (
     ConfrontationRoll,
     DiceRoll,
@@ -40,6 +40,8 @@ class BattleService:
         self.madness_duration = 0
 
         self.environment: dict[str, dict] = {}
+        self._weapon_reply_shown = False
+        self.fled = False
 
     def set_environment(self, env_data: dict) -> None:
         self.environment = env_data
@@ -82,6 +84,22 @@ class BattleService:
     def _get_reply(self, key: str) -> str:
         return data_loader.reply_data.get(key, f"[{key}]")
 
+    @staticmethod
+    def _fill_damage(template: str, expr: str, val: int) -> str:
+        """填充伤害模板：$骰子=骰子表达式，$伤害=数值。expr 形如 '1d4=3'。"""
+        dice_expr = expr.split("=")[0]
+        return (
+            template.replace("$骰子=$伤害", f"{dice_expr}={val}")
+            .replace("$骰子", dice_expr)
+            .replace("$伤害", str(val))
+        )
+
+    def _get_weapon_reply(self, weapon: Equipment) -> str:
+        if self._weapon_reply_shown:
+            return ""
+        self._weapon_reply_shown = True
+        return weapon.reply
+
     def start_turn(self) -> str:
         player_dex = self._get_player_modified_skill("敏捷")
         monster_dex = self._get_monster_modified("dex", 50)
@@ -89,25 +107,41 @@ class BattleService:
         player_starts = confrontation.get_result("先攻")
         self.current_turn = "inv" if player_starts else "mon"
 
-        dex1 = f"{self.player_name}进行敏捷鉴定: {confrontation.dice1}/{confrontation.skill1}【{self.get_success_record_description(confrontation.level1)}】"
-        dex2 = f"{self.monster.名字}进行敏捷鉴定: {confrontation.dice2}/{confrontation.skill2}【{self.get_success_record_description(confrontation.level2)}】"
+        desc1 = self.get_success_record_description(confrontation.level1)
+        desc2 = self.get_success_record_description(confrontation.level2)
+        dex1 = (
+            f"{self.player_name} 敏捷鉴定："
+            f"{confrontation.dice1}/{confrontation.skill1}"
+            f"【{desc1}】"
+        )
+        dex2 = (
+            f"{self.monster.名字} 敏捷鉴定："
+            f"{confrontation.dice2}/{confrontation.skill2}"
+            f"【{desc2}】"
+        )
 
-        return f"{dex1}\n{dex2}\n{self._get_next_turn_prompt()}"
+        return f"【先攻判定】\n{dex1}\n{dex2}\n\n{self._get_next_turn_prompt()}"
 
     def _get_next_turn_prompt(self) -> str:
         self.available_actions = self.investigator.get_available_actions()
         turn_owner = "你的" if self.current_turn == "inv" else "怪物"
 
-        prompt = f"--- {turn_owner}回合 ---\n当前HP: {self.hp_record['inv']}\n"
+        lines: list[str] = []
         if self.environment:
-            prompt = f"【{self.environment.get('name', '当前环境')}: {self.environment.get('描述', '')}】\n{prompt}"
-        prompt += "请选择行动:\n"
+            env_name = self.environment.get("name", "当前环境")
+            lines.append(f"【{env_name}】")
         if self.gun:
-            prompt = f"当前子弹: {self.bullet}/{self.max_bullet}\n" + prompt
+            lines.append(f"弹药：{self.bullet}/{self.max_bullet}")
+        lines.append(f"── {turn_owner}回合 ──")
+        lines.append(
+            f"HP：{self.hp_record['inv']}"
+            f"｜怪物HP：{self.hp_record['mon']}"
+        )
+        lines.append("请选择行动：")
 
         actions = self.available_actions.get(self.current_turn, [])
-        prompt += "".join([f"【/行动 {action}】\n" for action in actions])
-        return prompt.strip()
+        lines.append(" ".join(f"【/行动 {a}】" for a in actions))
+        return "\n".join(lines)
 
     def execute_action(self, action: str) -> tuple:
         self.current_action = action
@@ -139,6 +173,7 @@ class BattleService:
             "二连射": lambda: self._ranged_attack(2),
             "三连射": lambda: self._ranged_attack(3),
             "换弹": self._reload_weapon,
+            "逃跑": self._flee,
         }
         handler = action_handlers.get(action)
         if handler:
@@ -154,11 +189,11 @@ class BattleService:
     def _melee_attack(self) -> tuple:
         weapon_id = self.investigator.get_equipped_id(self.current_action)
         if not weapon_id:
-            return ("你没有装备格斗武器！",)
+            return ("你没有装备格斗武器！", self._end_turn())
 
         weapon = Equipment(weapon_id)
         if not weapon.is_valid:
-            return (f"装备ID {weapon_id} 无效！",)
+            return (f"装备ID {weapon_id} 无效！", self._end_turn())
 
         monster_action = self.monster.get_action(self.current_turn)
         player_skill = self._get_player_modified_skill(weapon.identify_skill, 25)
@@ -166,14 +201,18 @@ class BattleService:
         confrontation = ConfrontationRoll(player_skill, monster_skill)
 
         roll_desc = (
-            f"{self.player_name}进行格斗: {confrontation.dice1}/{confrontation.skill1}【{self.get_success_record_description(confrontation.level1, weapon.identify_skill)}】\n"
-            f"{self.monster.名字}进行反击: {confrontation.dice2}/{confrontation.skill2}【{self.get_success_record_description(confrontation.level2)}】"
+            f"{self.player_name} 进行格斗鉴定："
+            f"{confrontation.dice1}/{confrontation.skill1}"
+            f"【{self.get_success_record_description(confrontation.level1, weapon.identify_skill)}】\n"
+            f"{self.monster.名字} 进行反击鉴定："
+            f"{confrontation.dice2}/{confrontation.skill2}"
+            f"【{self.get_success_record_description(confrontation.level2)}】"
         )
 
         if confrontation.level1 == SuccessLevel.CRITICAL_FAILURE:
             failure_desc = self._handle_player_critical_failure(weapon)
             return (
-                weapon.reply,
+                self._get_weapon_reply(weapon),
                 monster_action["counterattack"],
                 roll_desc,
                 failure_desc,
@@ -189,14 +228,18 @@ class BattleService:
         damage_formula = self._get_player_damage_formula(weapon)
         expr, val = calc_dmg(damage_formula, confrontation.level1, weapon.has_penetration)
         reply_key = "格斗大成功" if confrontation.level1 > SuccessLevel.HARD_SUCCESS else "格斗成功"
-        player_text = (
-            self._get_reply(reply_key)
-            .replace("$装备", weapon.name)
-            .replace("$伤害", str(val))
-            .replace("$骰子", expr)
-        )
+        player_text = self._fill_damage(
+            self._get_reply(reply_key), expr, val
+        ).replace("$装备", weapon.name)
         monster_text = self._apply_damage_to_monster(val)
-        return (weapon.reply, monster_action["counterattack"], roll_desc, player_text, monster_text, self._end_turn())
+        return (
+            self._get_weapon_reply(weapon),
+            monster_action["counterattack"],
+            roll_desc,
+            player_text,
+            monster_text,
+            self._end_turn(),
+        )
 
     def _handle_player_melee_failure(self, confrontation, weapon, monster_action, roll_desc):
         if confrontation.level1 < 1 and confrontation.level2 < 1:
@@ -204,7 +247,14 @@ class BattleService:
             monster_text = monster_action.get("counter_false", "")
         else:
             monster_text, player_text = self._handle_monster_attack_success(monster_action, confrontation)
-        return (weapon.reply, monster_action["counterattack"], roll_desc, player_text, monster_text, self._end_turn())
+        return (
+            self._get_weapon_reply(weapon),
+            monster_action["counterattack"],
+            roll_desc,
+            player_text,
+            monster_text,
+            self._end_turn(),
+        )
 
     def _handle_monster_attack_success(self, monster_action, confrontation):
         armor = self.investigator.get_armor_value()
@@ -214,10 +264,10 @@ class BattleService:
             monster_action.get("ex", False),
             armor,
         )
-        monster_text = (
-            monster_action.get("attack_succ", monster_action.get("desc", "攻击"))
-            .replace("$伤害", str(val))
-            .replace("$骰子", expr)
+        monster_text = self._fill_damage(
+            monster_action.get("attack_succ", monster_action.get("desc", "攻击")),
+            expr,
+            val,
         )
         player_text = self._apply_damage_to_player(val)
         # Apply environment monster damage buff
@@ -263,21 +313,25 @@ class BattleService:
 
     def _single_shot(self, weapon: Equipment, player_skill: int) -> tuple:
         roll = DiceRoll(player_skill)
-        roll_description = f"{self.player_name}进行{weapon.identify_skill}鉴定,{roll.dice}/{roll.skill}【{self.get_success_record_description(roll.level, weapon.identify_skill)}】"
+        roll_description = (
+            f"{self.player_name} 进行{weapon.identify_skill}鉴定："
+            f"{roll.dice}/{roll.skill}"
+            f"【{self.get_success_record_description(roll.level, weapon.identify_skill)}】"
+        )
 
         if roll.level > SuccessLevel.FAILURE:
             expr, val = calc_dmg(weapon.damage_dice, roll.level, weapon.has_penetration)
             reply_template = self._get_reply("射击大成功") if roll.level > SuccessLevel.HARD_SUCCESS else self._get_reply("射击成功")
-            player_text = reply_template.replace("$伤害", str(val)).replace("$骰子", expr)
+            player_text = self._fill_damage(reply_template, expr, val)
             monster_text = self._apply_damage_to_monster(val)
-            return (weapon.reply, roll_description, player_text, monster_text, self._end_turn())
+            return (self._get_weapon_reply(weapon), roll_description, player_text, monster_text, self._end_turn())
         if roll.level == SuccessLevel.CRITICAL_FAILURE:
             player_text = self._get_reply("射击大失败").replace("$装备", weapon.name)
             self.investigator.break_equipped_item("远程")
             self._update_gun_status()
-            return (weapon.reply, roll_description, player_text, "", self._end_turn())
+            return (self._get_weapon_reply(weapon), roll_description, player_text, "", self._end_turn())
         player_text = self._get_reply("射击失败")
-        return (weapon.reply, roll_description, player_text, "", self._end_turn())
+        return (self._get_weapon_reply(weapon), roll_description, player_text, "", self._end_turn())
 
     def _multiple_shot(self, shot_count: int, weapon: Equipment, player_skill: int) -> tuple:
         roll_descriptions = []
@@ -288,8 +342,10 @@ class BattleService:
         for _i in range(shot_count):
             roll = PenaltyDiceRoll(player_skill)
             roll_descriptions.append(
-                f"{self.player_name}进行{weapon.identify_skill}鉴定,P={roll.dice}[惩罚骰:{roll.penalty_rolls}] "
-                f"{roll.final_result}/{roll.skill}【{self.get_success_record_description(roll.level, weapon.identify_skill)}】"
+                f"{self.player_name} 进行{weapon.identify_skill}鉴定："
+                f"{roll.final_result}/{roll.skill}"
+                f"【{self.get_success_record_description(roll.level, weapon.identify_skill)}】"
+                f"（惩罚骰:{roll.penalty_rolls}）"
             )
 
             if roll.level == SuccessLevel.CRITICAL_FAILURE:
@@ -300,7 +356,7 @@ class BattleService:
                 break
             if roll.level > SuccessLevel.FAILURE:
                 expr, val = calc_dmg(weapon.damage_dice, roll.level, weapon.has_penetration)
-                player_texts.append(f"{expr}={val}")
+                player_texts.append(f"{expr}（{val}点）")
                 total_damage += val
 
         roll_description = "\n".join(roll_descriptions)
@@ -312,13 +368,36 @@ class BattleService:
         else:
             monster_text = ""
 
-        return (weapon.reply, roll_description, player_text, monster_text, self._end_turn())
+        return (self._get_weapon_reply(weapon), roll_description, player_text, monster_text, self._end_turn())
 
     def _reload_weapon(self) -> tuple:
         if self.max_bullet > 0:
             self.bullet = self.max_bullet
             return ("换弹完成", self._end_turn())
         return ("你没有可换弹的武器。",)
+
+    def _flee(self) -> tuple:
+        flee_skill = self._get_player_modified_skill("敏捷", 25)
+        roll = DiceRoll(flee_skill)
+        desc = self.get_success_record_description(roll.level)
+        if roll.level > SuccessLevel.FAILURE:
+            self.fled = True
+            self.investigator.hp = self.hp_record["inv"]
+            self.investigator.is_adventure = False
+            self.investigator.save()
+            return (
+                f"【逃跑检定】{roll.dice}/{roll.skill}【{desc}】\n"
+                "你转身狂奔，成功脱离了战斗！",
+            )
+        monster_action = self.monster.get_action(self.current_turn)
+        expr, val = calc_dmg(monster_action["damage"])
+        self.hp_record["inv"] = max(0, self.hp_record["inv"] - val)
+        return (
+            f"【逃跑检定】{roll.dice}/{roll.skill}【{desc}】\n"
+            f"逃跑失败！怪物趁机攻击，{expr}，"
+            f"造成{val}点伤害。",
+            self._end_turn(),
+        )
 
     # --- Defensive ---
     def _handle_defensive_action(self, player_action: str) -> tuple:
@@ -333,16 +412,20 @@ class BattleService:
             player_skill = self._get_player_modified_skill("格斗", 25)
             weapon_id = self.investigator.get_equipped_id("格斗")
             if not weapon_id:
-                return ("你没有装备武器来反击！",)
+                return ("你没有装备武器来反击！", self._end_turn())
             weapon = Equipment(weapon_id)
-            action_reply = weapon.reply
+            action_reply = self._get_weapon_reply(weapon)
             used_skill = weapon.identify_skill
 
         monster_skill = monster_action["skill"] + self.environment.get("怪物", {}).get("反击技能", 0)
         confrontation = ConfrontationRoll(monster_skill, player_skill)
         roll_desc = (
-            f"{self.monster.名字}进行攻击: {confrontation.dice1}/{confrontation.skill1}【{self.get_success_record_description(confrontation.level1)}】\n"
-            f"{self.player_name}进行{player_action}: {confrontation.dice2}/{confrontation.skill2}【{self.get_success_record_description(confrontation.level2, used_skill)}】"
+            f"{self.monster.名字} 进行攻击鉴定："
+            f"{confrontation.dice1}/{confrontation.skill1}"
+            f"【{self.get_success_record_description(confrontation.level1)}】\n"
+            f"{self.player_name} 进行{player_action}鉴定："
+            f"{confrontation.dice2}/{confrontation.skill2}"
+            f"【{self.get_success_record_description(confrontation.level2, used_skill)}】"
         )
 
         if confrontation.level2 == SuccessLevel.CRITICAL_FAILURE and weapon:
@@ -378,12 +461,9 @@ class BattleService:
         damage_formula = self._get_player_damage_formula(weapon)
         expr, val = calc_dmg(damage_formula)
 
-        player_text = (
-            self._get_reply("反击成功")
-            .replace("$装备", weapon.name)
-            .replace("$伤害", str(val))
-            .replace("$骰子", expr)
-        )
+        player_text = self._fill_damage(
+            self._get_reply("反击成功"), expr, val
+        ).replace("$装备", weapon.name)
         monster_text = self._apply_damage_to_monster(val)
         return player_text, monster_text
 
@@ -429,17 +509,21 @@ class BattleService:
         if self.hp_record["inv"] <= 0:
             self.investigator.is_survive = False
             self.investigator.save()
-            return f"{self.player_name}死亡..."
+            return f"\n—— {self.player_name} 倒下了…… ——"
         if self.hp_record["mon"] <= 0:
             return self._handle_victory()
         return None
 
     def _handle_victory(self) -> str:
-        sep = Separator
-
         search_skill = self.investigator.get_skill("侦查", 25)
         search_roll = DiceRoll(search_skill)
-        search_desc = f"{self.player_name}进行侦查: {search_roll.dice}/{search_roll.skill}【{self.get_success_record_description(search_roll.level, '侦查')}】"
+        search_desc_level = self.get_success_record_description(
+            search_roll.level, "侦查"
+        )
+        search_desc = (
+            f"【侦查检定】{search_roll.dice}/{search_roll.skill}"
+            f"【{search_desc_level}】"
+        )
 
         bonus_text = ""
         if search_roll.level > SuccessLevel.FAILURE:
@@ -453,20 +537,34 @@ class BattleService:
         self.investigator.hp = self.hp_record["inv"]
         self.investigator.day += 1
 
-        en_skill = "成长鉴定:\n"
+        growth_lines: list[str] = []
         for skill_name in self.succeded_skill:
             skill = self.investigator.get_skill(skill_name, 25)
             dice = DiceRoll(skill)
             des = self.get_success_record_description(dice.level)
-            en_skill += f"进行【{skill_name}】成长鉴定：{dice.dice}/{skill}【{des}】\n"
+            growth_lines.append(
+                f" 【{skill_name}】{dice.dice}/{skill}【{des}】"
+            )
             if dice.level < 1:
                 _expr, res = roll_dice("1d10")
-                en_skill += f"技能成长：1d10={res}\n"
+                growth_lines.append(f"  → 技能成长：1d10={res}")
                 skill += res
                 self.investigator.set_skill(skill_name, skill)
 
         self.investigator.save()
-        return f"{getattr(self.monster, '结局', '怪物倒下了。')}{sep}{search_desc}{sep}{bonus_text}{sep}{en_skill}"
 
-    def fight_is_over(self):
-        return self.hp_record["inv"] <= 0 or self.hp_record["mon"] <= 0
+        ending = getattr(self.monster, "结局", "怪物倒下了。")
+        parts = [
+            f"\n── 胜利 ──\n\n{ending}",
+            f"\n{search_desc}\n{bonus_text}",
+        ]
+        if growth_lines:
+            parts.append("\n【成长鉴定】\n" + "\n".join(growth_lines))
+        return "\n".join(parts)
+
+    def fight_is_over(self) -> bool:
+        return (
+            self.fled
+            or self.hp_record["inv"] <= 0
+            or self.hp_record["mon"] <= 0
+        )

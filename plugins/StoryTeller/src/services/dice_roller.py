@@ -64,6 +64,8 @@ class BonusDiceRoll(DiceRoll):
             bonus_result = self.dice
             if self.dice // 10 > bonus_val:
                 bonus_result = self.dice % 10 + bonus_val * 10
+                if bonus_result == 0:
+                    bonus_result = 100
             self.final_result = min(bonus_result, self.final_result)
 
 class PenaltyDiceRoll(DiceRoll):
@@ -117,11 +119,16 @@ def calculate_damage_bonus(size: int, strength: int) -> str:
     Calculate Extra Damage Bonus (DB) based on Size (SIZ) and Strength (STR).
     """
     total = size + strength
-    if total < 65: return "-2"
-    if total < 85: return "-1"
-    if total < 125: return "0"
-    if total < 165: return "1d4"
-    if total < 205: return "1d6"
+    if total < 65:
+        return "-2"
+    if total < 85:
+        return "-1"
+    if total < 125:
+        return "0"
+    if total < 165:
+        return "1d4"
+    if total < 205:
+        return "1d6"
 
     additional_dice = (total - 205) // 80 + 2
     return f"{additional_dice}d6"

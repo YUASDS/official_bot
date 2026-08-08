@@ -5,7 +5,8 @@ class BattleManager:
 
     @classmethod
     def get_instance(cls):
-        if not cls._instance: cls._instance = cls()
+        if not cls._instance:
+            cls._instance = cls()
         return cls._instance
 
     def add_battle(self, user_id, service) -> None:

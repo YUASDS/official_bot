@@ -42,7 +42,10 @@ async def handle_create(event: Event, msg: Message = CommandArg()):
     _user_states[user_id] = {"creator": ci, "name": name}
 
     await create_cmd.finish(
-        f"欢迎来到克苏鲁的世界~\n请选择你想要创建的调查员属性:\n/选择调查员 [1-3]\n{formatted}"
+        "\n── 欢迎来到克苏鲁的世界 ──\n\n"
+        f"{formatted}\n\n"
+        "请选择你想要创建的调查员属性：\n"
+        " · /选择调查员 [1-3]"
     )
 
 
@@ -53,42 +56,41 @@ async def handle_choose(event: Event, msg: Message = CommandArg()):
     state = _user_states.get(user_id)
 
     if not state or "creator" not in state:
-        await choose_cmd.finish("请先使用 /创建调查员 生成角色。")
+        await choose_cmd.finish("\n请先使用 /创建调查员 生成角色。")
 
     arg = msg.extract_plain_text().strip()
     if not arg.isdigit():
-        await choose_cmd.finish("请输入数字，例如：/选择调查员 2")
+        await choose_cmd.finish("\n请输入数字，例如：/选择调查员 2")
 
     idx = int(arg)
     if idx < 1 or idx > 3:
-        await choose_cmd.finish("超过了可以选择的范围哦~")
+        await choose_cmd.finish("\n超过了可以选择的范围哦~")
 
     ci: CreateInvestigator = state["creator"]
     name: str = state["name"]
 
     if not ci.choose_investigator(idx):
-        await choose_cmd.finish("选择失败。")
+        await choose_cmd.finish("\n选择失败。")
 
-    # Build display: core attrs + skills
-    core_attrs = ["力量", "体质", "体型", "敏捷", "外貌", "智力", "意志", "教育", "幸运"]
+    core_attrs = [
+        "力量", "体质", "体型", "敏捷",
+        "外貌", "智力", "意志", "教育", "幸运",
+    ]
     attr_line = " ".join(f"{k}:{ci.select.get(k, 0)}" for k in core_attrs)
     attr_line += f" SAN:{ci.select.get('san', 0)} HP:{ci.select.get('hp', 0)}"
 
     skill_keys = ["手枪", "步枪", "格斗", "侦查", "急救", "医学"]
     skill_line = " ".join(f"{k}:{ci.select.get(k, 0)}" for k in skill_keys)
 
-    reply = (
-        f"\n名称：{name}\n"
-        f"角色属性:\n"
-        f" {attr_line}\n"
-        f"技能：\n"
-        f" {skill_line}\n"
-    )
     await choose_cmd.finish(
-        f"选择成功\n{reply}\n"
+        "\n── 选择成功 ──\n\n"
+        f"名称：{name}\n"
+        f"属性：{attr_line}\n"
+        f"技能：{skill_line}\n\n"
         f"接下来需要分配技能了哦~\n"
-        f"共有【{ci.skill_point}】点技能点可以分配，请按格式输入技能分配（例如: /st 手枪30步枪20）\n"
-        f"技能上限75"
+        f"共有【{ci.skill_point}】点技能点可以分配\n"
+        "请按格式输入（例如：/st 手枪30步枪20）\n"
+        "技能上限 75"
     )
 
 
@@ -99,24 +101,24 @@ async def handle_skill(event: Event, msg: Message = CommandArg()):
     state = _user_states.get(user_id)
 
     if not state or "creator" not in state:
-        await skill_cmd.finish("请先使用 /创建调查员 生成角色。")
+        await skill_cmd.finish("\n请先使用 /创建调查员 生成角色。")
 
     ci: CreateInvestigator = state["creator"]
     name: str = state["name"]
     skills = msg.extract_plain_text().strip()
 
     if not skills:
-        await skill_cmd.finish("请输入技能分配，例如：/st 手枪30步枪20")
+        await skill_cmd.finish("\n请输入技能分配，例如：/st 手枪30步枪20")
 
     ok, reply_msg = ci.set_skill(skills)
     if not ok:
-        await skill_cmd.finish(reply_msg)
+        await skill_cmd.finish(f"\n{reply_msg}")
 
     inv = ci.create_investigator(user_id, name)
     attrs = InvestigatorFormatter.format_investigator_info(name, ci.select)
     del _user_states[user_id]
 
-    await skill_cmd.finish(f"调查员 {inv.name} 创建完成了哦~\n{attrs}")
+    await skill_cmd.finish(f"\n── 调查员 {inv.name} 创建完成 ──\n\n{attrs}")
 
 
 # --- /调查员信息 ---
@@ -127,21 +129,22 @@ async def handle_info(event: Event):
     survival = "死亡" if not inv.is_survive else "存活"
 
     attr_pairs = [f"{k}:{v}" for k, v in attrs.items()]
-    attr_lines = []
-    current = "属性:\n"
+    attr_lines: list[str] = []
+    current = ""
     for pair in attr_pairs:
-        if len(current) + len(pair) + 1 > 60:
-            attr_lines.append(current.rstrip())
-            current = " " + pair
+        if current and len(current) + len(pair) + 1 > 40:
+            attr_lines.append(current.strip())
+            current = pair
         else:
             current += " " + pair
-    attr_lines.append(current.rstrip())
+    if current.strip():
+        attr_lines.append(current.strip())
 
     nl = "\n"
     res = (
-        f"\n===== 调查员 =====\n"
-        f"状态：{survival}    \n时间：第 {inv.day} 天\n"
-        f"{nl.join(attr_lines)}\n"
+        "\n════ 调查员档案 ════\n\n"
+        f"状态：{survival}｜时间：第 {inv.day} 天\n\n"
+        f"【属性】\n{nl.join(attr_lines)}\n\n"
         f"{inv.str_equipments()}"
     )
     await info_cmd.finish(res)

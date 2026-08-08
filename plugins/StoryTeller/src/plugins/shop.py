@@ -8,7 +8,6 @@ shop_cmd = on_command("今日商店", aliases={"today_shop", "商店"}, priority
 
 @shop_cmd.handle()
 async def handle_shop(event: Event) -> None:
-    # Determine seed from date or something
     items = shop_service.get_todays_shop("seed")
     text = shop_service.format_shop_text(items)
     await shop_cmd.finish(text)
@@ -17,14 +16,13 @@ buy_cmd = on_command("购买", aliases={"buy_item"}, priority=10, block=True)
 
 @buy_cmd.handle()
 async def handle_buy(event: Event, msg: Message = CommandArg()) -> None:
-    # Args: item_id [quantity]
     args = msg.extract_plain_text().strip().split()
     if not args:
-        await buy_cmd.finish("请输入物品ID和数量（可选）。")
+        await buy_cmd.finish("\n请输入物品ID和数量（可选）。")
 
     item_id = args[0]
     quantity = int(args[1]) if len(args) > 1 and args[1].isdigit() else 1
 
     items = shop_service.get_todays_shop("seed")
     res = shop_service.buy_item(event.get_user_id(), item_id, quantity, items)
-    await buy_cmd.finish(res)
+    await buy_cmd.finish(f"\n{res}")
