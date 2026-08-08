@@ -8,9 +8,11 @@ from ..models.player import (
     CreateInvestigator,
     Investigator,
     InvestigatorFormatter,
+    investigator_repo,
 )
 from ..services.data_loader import data_loader
-from ..utils.md_format import md_message
+from ..utils.active_battles import battle_manager
+from ..utils.md_format import build_keyboard, md_message
 
 # --- State storage ---
 _user_states: dict[str, Any] = {}
@@ -32,6 +34,10 @@ skill_cmd = on_command(
 
 info_cmd = on_command(
     "调查员信息", aliases={"investigator_info", "查看状态"}, priority=10, block=True
+)
+
+use_item_cmd = on_command(
+    "使用物品", aliases={"equip_item", "装备"}, priority=10, block=True
 )
 
 
@@ -151,4 +157,41 @@ async def handle_info(event: Event, bot: Bot):
         f"{_t('character.info_attrs')}\n{chr(10).join(attr_rows)}\n\n"
         f"{inv.str_equipments()}"
     )
-    await info_cmd.finish(md_message(res, bot))
+    msg = md_message(res, bot)
+
+    # 背包物品「使用」按钮（QQ 平台）
+    equipments, res_name = inv.get_equipments()
+    item_ids = list(equipments.keys())[:6]
+    if item_ids:
+        kb_rows = [
+            [
+                (
+                    _t("player.use_button", name=res_name.get(item_id, item_id)),
+                    f"equip:{item_id}",
+                )
+                for item_id in item_ids[i : i + 3]
+            ]
+            for i in range(0, len(item_ids), 3)
+        ]
+        kb = build_keyboard(kb_rows)
+        if kb is not None and not isinstance(msg, str):
+            msg.append(kb)
+    await info_cmd.finish(msg)
+
+
+# --- /使用物品 <ID> ---
+@use_item_cmd.handle()
+async def handle_use_item(event: Event, bot: Bot, msg: Message = CommandArg()):
+    user_id = event.get_user_id()
+    item_id = msg.extract_plain_text().strip()
+    if not item_id:
+        await use_item_cmd.finish(md_message(f"\n{_t('player.use_need_id')}", bot))
+
+    ok, res = investigator_repo.equip_item(user_id, item_id)
+    if ok:
+        battle = battle_manager.get_battle(user_id)
+        if battle:
+            battle.investigator.update_equipment()
+            if battle.current_turn == "inv":
+                battle._update_gun_status()
+    await use_item_cmd.finish(md_message(f"\n{res}", bot))

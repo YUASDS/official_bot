@@ -175,8 +175,6 @@ async def handle_adventure(event: Event, bot: Bot):
             battle_manager.add_battle(user_id, service)
             _event_states[user_id] = {
                 "event": event_data,
-                "header": header,
-                "monster_intro": monster_intro,
             }
 
             # 事件选项按钮
@@ -197,6 +195,7 @@ async def handle_adventure(event: Event, bot: Bot):
         service.roll_initiative()
         reply = (
             f"{title}\n\n"
+            f"{data_loader.get_text('battle.day_line', day=inv.day)}\n\n"
             f"{service.get_status_table()}\n\n"
             f"{data_loader.get_text('report.rule')}\n\n"
             f"{anomaly}\n\n"
@@ -223,8 +222,6 @@ async def handle_combat(event: Event, bot: Bot, msg: Message = CommandArg()):
     ev_state = _event_states.pop(user_id, None)
     if ev_state:
         event_data = ev_state["event"]
-        header = ev_state["header"]
-        monster_intro = ev_state["monster_intro"]
         battle = battle_manager.get_battle(user_id)
         if not battle:
             await combat_cmd.finish(md_message(f"\n{data_loader.get_text('adventure.battle_state_error')}", bot))
@@ -259,12 +256,7 @@ async def handle_combat(event: Event, bot: Bot, msg: Message = CommandArg()):
         else:
             event_reply = data_loader.get_text("adventure.event_default")
 
-        reply = (
-            f"{header}\n"
-            f"{event_reply}\n\n"
-            f"{monster_intro}\n\n"
-            f"{battle.start_turn()}"
-        )
+        reply = f"{event_reply}\n\n{battle.start_turn()}"
         await combat_cmd.send(_send_turn(battle, bot, reply))
         return
 
@@ -343,6 +335,8 @@ try:
             await handle_combat_action(user_id, payload, bot, group_openid, token)
         elif kind == "event":
             await handle_event_choice(user_id, payload, bot, group_openid)
+        elif kind == "equip":
+            await handle_equip_button(user_id, payload, bot, group_openid)
         else:
             logger.debug(f"Unknown button callback: {button_data}")
 
@@ -379,6 +373,23 @@ async def handle_combat_action(
         battle_manager.remove_battle(user_id)
 
 
+async def handle_equip_button(
+    user_id: str,
+    item_id: str,
+    bot: Bot,
+    group_openid: str = "",
+) -> None:
+    """背包「使用」按钮回调：直接装备物品。"""
+    ok, res = investigator_repo.equip_item(user_id, item_id)
+    if ok:
+        battle = battle_manager.get_battle(user_id)
+        if battle:
+            battle.investigator.update_equipment()
+            if battle.current_turn == "inv":
+                battle._update_gun_status()
+    await _send_to_user(bot, user_id, md_message(f"\n{res}", bot), group_openid)
+
+
 async def handle_event_choice(
     user_id: str, choice: str, bot: Bot, group_openid: str = ""
 ) -> None:
@@ -390,8 +401,6 @@ async def handle_event_choice(
         return
 
     event_data = ev_state["event"]
-    header = ev_state["header"]
-    monster_intro = ev_state["monster_intro"]
     matched = next(
         (o for o in event_data["选项"] if o["输入"] == choice), None
     )
@@ -417,12 +426,7 @@ async def handle_event_choice(
     else:
         event_reply = data_loader.get_text("adventure.event_default")
 
-    reply = (
-        f"{header}\n"
-        f"{event_reply}\n\n"
-        f"{monster_intro}\n\n"
-        f"{battle.start_turn()}"
-    )
+    reply = f"{event_reply}\n\n{battle.start_turn()}"
     await _send_to_user(bot, user_id, _send_turn(battle, bot, reply), group_openid)
 
 

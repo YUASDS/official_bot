@@ -4,7 +4,7 @@ from nonebot.plugin import PluginMetadata
 # Import handlers from new plugin structure
 from .src.plugins.adventure import adventure_cmd, combat_cmd
 from .src.plugins.shop import shop_cmd, buy_cmd
-from .src.plugins.character import create_cmd, info_cmd, choose_cmd, skill_cmd
+from .src.plugins.character import create_cmd, info_cmd, choose_cmd, skill_cmd, use_item_cmd
 from .src.plugins.help import help_cmd
 
 # Define plugin metadata

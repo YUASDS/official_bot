@@ -189,11 +189,19 @@ class BattleService:
         )
 
     def get_action_section(self) -> str:
-        """【行动·抉择】行动列表小节。"""
+        """【行动·抉择】行动列表小节：攻击类一行，其余逐个列出。"""
         t = self._t
         actions = self.get_available_actions_for_turn()
+        attack_list = data_loader.get_text("battle.attack_actions") or []
+        attack = [a for a in actions if a in attack_list]
+        others = [a for a in actions if a not in attack_list]
+
         lines = [report_section(t("report.action_title"))]
-        lines += [t("report.action", action=a) for a in actions]
+        if attack:
+            codes = " ".join(t("report.action_code", action=a) for a in attack)
+            lines.append(t("report.action_group", actions=codes))
+        for a in others:
+            lines.append(t("report.action", action=a))
         return "\n".join(lines)
 
     def start_turn(self) -> str:
@@ -235,12 +243,92 @@ class BattleService:
         """单段叙事引用块（空文本返回空串）。"""
         return report_quote([text]) if text else ""
 
-    def _exchange(self, *texts: str) -> str:
-        """【战斗·交锋】小节：分节头 + 叙事引用块。"""
-        texts = [t for t in texts if t]
-        if not texts:
+    def _exchange(self, monster: list[str], player: list[str]) -> str:
+        """【战斗·交锋】小节：怪物叙述与玩家叙述分两段引用块。"""
+        t = self._t
+        monster = [x for x in monster if x]
+        player = [x for x in player if x]
+        if not monster and not player:
             return ""
-        return f"{report_section(self._t('battle.exchange_title'))}\n{report_quote(texts)}"
+
+        blocks: list[str] = []
+        if monster:
+            blocks.append(
+                t(
+                    "report.exchange_mon",
+                    icon=t("report.icon_mon"),
+                    name=self.monster.名字,
+                )
+                + "\n"
+                + report_quote(monster)
+            )
+        if player:
+            blocks.append(
+                t(
+                    "report.exchange_inv",
+                    icon=t("report.icon_inv"),
+                    name=self.player_name,
+                )
+                + "\n"
+                + report_quote(player)
+            )
+        return (
+            f"{report_section(t('battle.exchange_title'))}\n"
+            + "\n\n".join(blocks)
+        )
+
+    def _get_mini_status_table(self) -> str:
+        """回合中的迷你状态表（SAN + HP，无先攻列）。"""
+        t = self._t
+        inv = self.investigator
+        max_san = inv.get_skill("意志") or inv.get_skill("san", 0)
+        rows = [
+            t(
+                "report.status_inv_mini",
+                icon=t("report.icon_inv"),
+                name=self.player_name,
+                san=inv.get_skill("san", 0),
+                max_san=max_san,
+                hp=self.hp_record["inv"],
+                max_hp=inv.get_max_hp(),
+            ),
+            t(
+                "report.status_mon_mini",
+                icon=t("report.icon_mon"),
+                name=self.monster.名字,
+                hp=self.hp_record["mon"],
+                max_hp=self.monster.max_hp,
+            ),
+        ]
+        return "\n".join(
+            [t("report.status_mini_header"), t("report.status_mini_sep"), *rows]
+        )
+
+    def _settlement(self) -> str:
+        """【结算·战报】小节：战斗结束时的状态汇总。"""
+        t = self._t
+        inv = self.investigator
+        max_san = inv.get_skill("意志") or inv.get_skill("san", 0)
+        rows = [
+            t("battle.settle_header"),
+            t("battle.settle_sep"),
+            t(
+                "battle.settle_row",
+                label=t("battle.settle_hp"),
+                value=f"{self.hp_record['inv']}/{inv.get_max_hp()}",
+            ),
+            t(
+                "battle.settle_row",
+                label=t("battle.settle_san"),
+                value=f"{inv.get_skill('san', 0)}/{max_san}",
+            ),
+            t(
+                "battle.settle_row",
+                label=t("battle.settle_day"),
+                value=str(inv.day),
+            ),
+        ]
+        return f"{report_section(t('battle.settle_title'))}\n" + "\n".join(rows)
 
     def _get_next_turn_prompt(self) -> str:
         self.available_actions = self.investigator.get_available_actions()
@@ -251,24 +339,16 @@ class BattleService:
             else t("battle.monster_turn")
         )
 
-        lines = [t("battle.turn_line", owner=owner)]
-        lines.append(
-            t(
-                "battle.status_line",
-                inv=self.player_name,
-                inv_hp=self.hp_record["inv"],
-                inv_max=self.investigator.get_max_hp(),
-                mon=self.monster.名字,
-                mon_hp=self.hp_record["mon"],
-                mon_max=self.monster.max_hp,
-            )
-        )
+        lines = [
+            t("battle.turn_line", owner=owner),
+            self._get_mini_status_table(),
+        ]
         if self.gun:
             lines.append(
                 t("battle.ammo_label", bullet=self.bullet, max_bullet=self.max_bullet)
             )
         lines.append(self.get_action_section())
-        return "\n".join(lines)
+        return "\n\n".join(lines)
 
     def execute_action(self, action: str) -> tuple:
         self.current_action = action
@@ -350,9 +430,8 @@ class BattleService:
         if confrontation.level1 == SuccessLevel.CRITICAL_FAILURE:
             failure_desc = self._handle_player_critical_failure(weapon)
             exchange = self._exchange(
-                self._get_weapon_reply(weapon),
-                monster_action["counterattack"],
-                failure_desc,
+                [monster_action["counterattack"]],
+                [self._get_weapon_reply(weapon), failure_desc],
             )
             return (roll_desc, exchange, self._end_turn())
 
@@ -369,10 +448,8 @@ class BattleService:
         ).replace("$装备", weapon.name)
         monster_text = self._apply_damage_to_monster(val)
         exchange = self._exchange(
-            self._get_weapon_reply(weapon),
-            monster_action["counterattack"],
-            player_text,
-            monster_text,
+            [monster_action["counterattack"], monster_text],
+            [self._get_weapon_reply(weapon), player_text],
         )
         return (roll_desc, exchange, self._end_turn())
 
@@ -383,10 +460,8 @@ class BattleService:
         else:
             monster_text, player_text = self._handle_monster_attack_success(monster_action, confrontation)
         exchange = self._exchange(
-            self._get_weapon_reply(weapon),
-            monster_action["counterattack"],
-            monster_text,
-            player_text,
+            [monster_action["counterattack"], monster_text],
+            [self._get_weapon_reply(weapon), player_text],
         )
         return (roll_desc, exchange, self._end_turn())
 
@@ -457,16 +532,16 @@ class BattleService:
             reply_template = self._get_reply("射击大成功") if roll.level > SuccessLevel.HARD_SUCCESS else self._get_reply("射击成功")
             player_text = self._fill_damage(reply_template, expr, val)
             monster_text = self._apply_damage_to_monster(val)
-            exchange = self._exchange(self._get_weapon_reply(weapon), player_text, monster_text)
+            exchange = self._exchange([monster_text], [self._get_weapon_reply(weapon), player_text])
             return (roll_description, exchange, self._end_turn())
         if roll.level == SuccessLevel.CRITICAL_FAILURE:
             player_text = self._get_reply("射击大失败").replace("$装备", weapon.name)
             self.investigator.break_equipped_item("远程")
             self._update_gun_status()
-            exchange = self._exchange(self._get_weapon_reply(weapon), player_text)
+            exchange = self._exchange([], [self._get_weapon_reply(weapon), player_text])
             return (roll_description, exchange, self._end_turn())
         player_text = self._get_reply("射击失败")
-        exchange = self._exchange(self._get_weapon_reply(weapon), player_text)
+        exchange = self._exchange([], [self._get_weapon_reply(weapon), player_text])
         return (roll_description, exchange, self._end_turn())
 
     def _multiple_shot(self, shot_count: int, weapon: Equipment, player_skill: int) -> tuple:
@@ -515,7 +590,10 @@ class BattleService:
         else:
             monster_text = ""
 
-        exchange = self._exchange(self._get_weapon_reply(weapon), player_text, monster_text)
+        exchange = self._exchange(
+            [monster_text],
+            [self._get_weapon_reply(weapon), player_text],
+        )
         return (roll_description, exchange, self._end_turn())
 
     def _reload_weapon(self) -> tuple:
@@ -605,11 +683,11 @@ class BattleService:
             player_text, monster_text = self._handle_player_counter_success(weapon)
 
         exchange = self._exchange(
-            monster_action.get("attack", monster_action.get("desc", "攻击")),
-            action_reply,
-            monster_text,
-            player_text,
-            critical_text,
+            [
+                monster_action.get("attack", monster_action.get("desc", "攻击")),
+                monster_text,
+            ],
+            [action_reply, player_text, critical_text],
         )
 
         return (roll_desc, exchange, self._end_turn())
@@ -670,7 +748,11 @@ class BattleService:
         if self.hp_record["inv"] <= 0:
             self.investigator.is_survive = False
             self.investigator.save()
-            return self._t("battle.death_text", name=self.player_name)
+            return (
+                f"{self._t('battle.death_text', name=self.player_name)}\n\n"
+                f"{self._settlement()}\n\n"
+                f"{self._t('battle.death_hint')}"
+            )
         if self.hp_record["mon"] <= 0:
             return self._handle_victory()
         return None
@@ -719,6 +801,7 @@ class BattleService:
         ]
         if growth_lines:
             parts.append(f"{self._t('battle.victory_growth')}\n" + "\n".join(growth_lines))
+        parts.append(self._settlement())
         return "\n\n".join(parts)
 
     def fight_is_over(self) -> bool:
