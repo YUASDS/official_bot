@@ -29,19 +29,28 @@ def _send_turn(battle: BattleService, bot: Bot, text: str) -> Message:
     """构造战斗回合消息（MD 文本 + 行动按钮）。
 
     按钮回调数据携带回合令牌（token），点击后旧按钮自动失效。
-    战斗结束后不再附加按钮。
+    战斗结束后不再附加行动按钮；角色死亡时附加「创建调查员」按钮。
     """
     msg = md_message(text, bot)
-    if not isinstance(msg, str) and not battle.fight_is_over():
-        actions = battle.get_available_actions_for_turn()
-        if actions:
-            token = battle.get_turn_token()
-            rows = [[(a, f"action:{a}:{token}") for a in actions[:4]]]
-            if len(actions) > 4:
-                rows.append([(a, f"action:{a}:{token}") for a in actions[4:]])
-            kb = build_keyboard(rows)
+    if isinstance(msg, str):
+        return msg
+    if battle.fight_is_over():
+        if battle.hp_record["inv"] <= 0:
+            kb = build_keyboard(
+                [[(data_loader.get_text("character.create_button"), "create")]]
+            )
             if kb is not None:
                 msg.append(kb)
+        return msg
+    actions = battle.get_available_actions_for_turn()
+    if actions:
+        token = battle.get_turn_token()
+        rows = [[(a, f"action:{a}:{token}") for a in actions[:4]]]
+        if len(actions) > 4:
+            rows.append([(a, f"action:{a}:{token}") for a in actions[4:]])
+        kb = build_keyboard(rows)
+        if kb is not None:
+            msg.append(kb)
     return msg
 
 adventure_cmd = on_command("今日冒险", aliases={"daily_adventure", "开始冒险"}, priority=10, block=True)
@@ -337,6 +346,14 @@ try:
             await handle_event_choice(user_id, payload, bot, group_openid)
         elif kind == "equip":
             await handle_equip_button(user_id, payload, bot, group_openid)
+        elif kind == "choose":
+            await handle_choose_button(user_id, payload, bot, group_openid)
+        elif kind == "buy":
+            await handle_buy_button(user_id, payload, bot, group_openid)
+        elif kind == "info":
+            await handle_info_button(user_id, bot, group_openid)
+        elif kind == "create":
+            await handle_create_button(user_id, bot, group_openid)
         else:
             logger.debug(f"Unknown button callback: {button_data}")
 
@@ -388,6 +405,80 @@ async def handle_equip_button(
             if battle.current_turn == "inv":
                 battle._update_gun_status()
     await _send_to_user(bot, user_id, md_message(f"\n{res}", bot), group_openid)
+
+
+async def handle_choose_button(
+    user_id: str,
+    idx: str,
+    bot: Bot,
+    group_openid: str = "",
+) -> None:
+    """候选「选择」按钮回调。"""
+    from ..plugins.character import choose_reply
+
+    reply = choose_reply(user_id, int(idx)) if idx.isdigit() else None
+    if reply is None:
+        reply = f"\n{data_loader.get_text('character.need_create')}"
+    await _send_to_user(bot, user_id, md_message(reply, bot), group_openid)
+
+
+async def handle_create_button(
+    user_id: str,
+    bot: Bot,
+    group_openid: str = "",
+) -> None:
+    """死亡后「创建调查员」按钮回调。"""
+    from ..plugins.character import build_create_reply
+
+    reply = build_create_reply(user_id, "调查员")
+    msg = md_message(reply, bot)
+    kb = build_keyboard(
+        [
+            [
+                (
+                    data_loader.get_text("character.choose_button", index=i),
+                    f"choose:{i}",
+                )
+                for i in range(1, 4)
+            ]
+        ]
+    )
+    if kb is not None and not isinstance(msg, str):
+        msg.append(kb)
+    await _send_to_user(bot, user_id, msg, group_openid)
+
+
+async def handle_buy_button(
+    user_id: str,
+    item_id: str,
+    bot: Bot,
+    group_openid: str = "",
+) -> None:
+    """商店「购买」按钮回调（默认数量 1）。"""
+    from ..services.shop_service import shop_service
+
+    items = shop_service.get_todays_shop("seed")
+    ok, res = shop_service.buy_item(user_id, item_id, 1, items)
+    msg = md_message(f"\n{res}", bot)
+
+    if ok:
+        kb = build_keyboard(
+            [[(data_loader.get_text("character.info_button"), "info")]]
+        )
+        if kb is not None and not isinstance(msg, str):
+            msg.append(kb)
+    await _send_to_user(bot, user_id, msg, group_openid)
+
+
+async def handle_info_button(
+    user_id: str,
+    bot: Bot,
+    group_openid: str = "",
+) -> None:
+    """「调查员信息」按钮回调。"""
+    from ..plugins.character import build_info_message
+
+    await _send_to_user(bot, user_id, build_info_message(user_id, bot), group_openid)
 
 
 async def handle_event_choice(

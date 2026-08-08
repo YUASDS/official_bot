@@ -45,10 +45,10 @@ class ShopService:
         res += f"\n{t('shop.buy_hint')}"
         return res
 
-    def buy_item(self, user_qq: str, item_id: str, quantity: int, shop_items: dict[str, int]) -> str:
+    def buy_item(self, user_qq: str, item_id: str, quantity: int, shop_items: dict[str, int]) -> tuple[bool, str]:
         t = data_loader.get_text
         if item_id not in shop_items:
-            return t("shop.item_not_on_sale")
+            return False, t("shop.item_not_on_sale")
 
         price = shop_items[item_id]
         total_cost = price * quantity
@@ -60,9 +60,9 @@ class ShopService:
             if inv:
                 item = Equipment(item_id)
                 investigator_repo.add_item_to_inventory(inv, item_id, quantity)
-                return t("shop.buy_success", quantity=quantity, name=item.name, cost=total_cost)
+                return True, t("shop.buy_success", quantity=quantity, name=item.name, cost=total_cost)
             add_gold(user_qq, total_cost)
-            return t("shop.no_investigator")
-        return t("shop.not_enough_gold")
+            return False, t("shop.no_investigator")
+        return False, t("shop.not_enough_gold")
 
 shop_service = ShopService()

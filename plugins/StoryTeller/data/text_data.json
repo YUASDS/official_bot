@@ -134,7 +134,10 @@
         "attr_table_header": "| 属性 | 数值 |",
         "attr_table_sep": "| :--- | :--- |",
         "attr_table_row": "| {name} | `{value}` |",
-        "skill_table_header": "| 技能 | 数值 |"
+        "skill_table_header": "| 技能 | 数值 |",
+        "choose_button": "选择 {index}",
+        "create_button": "🧭 创建调查员",
+        "info_button": "📋 调查员信息"
     },
     "shop": {
         "input_hint": "请输入物品ID和数量（可选）。",
@@ -146,7 +149,8 @@
         "item_header": "| ID | 商品 | 价格 |",
         "item_sep": "| :--- | :--- | :--- |",
         "item_line": "| {id} | {name} | {price} 乌帕 |",
-        "buy_hint": "输入 /购买 <物品ID> [数量] 进行购买"
+        "buy_hint": "输入 /购买 <物品ID> [数量] 进行购买",
+        "buy_button": "购买 {name}"
     },
     "player": {
         "unknown_item": "未知物品",

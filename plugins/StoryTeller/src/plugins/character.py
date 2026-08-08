@@ -42,48 +42,20 @@ use_item_cmd = on_command(
 
 
 # --- /创建调查员 ---
-@create_cmd.handle()
-async def handle_create(event: Event, bot: Bot, msg: Message = CommandArg()):
-    user_id = event.get_user_id()
-    name = msg.extract_plain_text().strip() or "调查员"
-
+def build_create_reply(user_id: str, name: str) -> str:
+    """构建候选列表回复，并保存创建状态（供命令与按钮共用）。"""
     ci = CreateInvestigator(3)
     formatted = InvestigatorFormatter.format_investigator_info(name, ci.investigators_data)
     _user_states[user_id] = {"creator": ci, "name": name}
-
-    await create_cmd.finish(
-        md_message(
-            f"\n{_t('character.create_title')}\n\n"
-            f"{formatted}\n\n"
-            f"{_t('character.choose_hint')}",
-            bot,
-        )
+    return (
+        f"\n{_t('character.create_title')}\n\n"
+        f"{formatted}\n\n"
+        f"{_t('character.choose_hint')}"
     )
 
 
-# --- /选择调查员 <N> ---
-@choose_cmd.handle()
-async def handle_choose(event: Event, bot: Bot, msg: Message = CommandArg()):
-    user_id = event.get_user_id()
-    state = _user_states.get(user_id)
-
-    if not state or "creator" not in state:
-        await choose_cmd.finish(md_message(f"\n{_t('character.need_create')}", bot))
-
-    arg = msg.extract_plain_text().strip()
-    if not arg.isdigit():
-        await choose_cmd.finish(md_message(f"\n{_t('character.need_number')}", bot))
-
-    idx = int(arg)
-    if idx < 1 or idx > 3:
-        await choose_cmd.finish(md_message(f"\n{_t('character.out_of_range')}", bot))
-
-    ci: CreateInvestigator = state["creator"]
-    name: str = state["name"]
-
-    if not ci.choose_investigator(idx):
-        await choose_cmd.finish(md_message(f"\n{_t('character.choose_failed')}", bot))
-
+def _choose_success_text(ci: CreateInvestigator, name: str) -> str:
+    """选择成功面板：属性/技能表格。"""
     core_attrs = [
         "力量", "体质", "体型", "敏捷",
         "外貌", "智力", "意志", "教育", "幸运",
@@ -99,16 +71,63 @@ async def handle_choose(event: Event, bot: Bot, msg: Message = CommandArg()):
     for k in skill_keys:
         skill_rows.append(_t("character.attr_table_row", name=k, value=ci.select.get(k, 0)))
 
-    await choose_cmd.finish(
-        md_message(
-            f"\n{_t('character.choose_success')}\n\n"
-            f"{_t('character.name_label', name=name)}\n\n"
-            f"{chr(10).join(attr_rows)}\n\n"
-            f"{chr(10).join(skill_rows)}\n\n"
-            f"{_t('character.skill_alloc_hint', points=ci.skill_point)}",
-            bot,
-        )
+    return (
+        f"\n{_t('character.choose_success')}\n\n"
+        f"{_t('character.name_label', name=name)}\n\n"
+        f"{_t('character.info_attrs')}\n{chr(10).join(attr_rows)}\n\n"
+        f"{chr(10).join(skill_rows)}\n\n"
+        f"{_t('character.skill_alloc_hint', points=ci.skill_point)}"
     )
+
+
+def choose_reply(user_id: str, idx: int) -> str | None:
+    """按钮/命令共用：选择候选，返回成功面板；无状态或失败返回 None。"""
+    state = _user_states.get(user_id)
+    if not state or "creator" not in state:
+        return None
+    ci: CreateInvestigator = state["creator"]
+    if not ci.choose_investigator(idx):
+        return None
+    return _choose_success_text(ci, state["name"])
+
+
+@create_cmd.handle()
+async def handle_create(event: Event, bot: Bot, msg: Message = CommandArg()):
+    user_id = event.get_user_id()
+    name = msg.extract_plain_text().strip() or "调查员"
+
+    reply = build_create_reply(user_id, name)
+    send_msg = md_message(reply, bot)
+
+    # 候选「选择」按钮（QQ 平台）
+    kb = build_keyboard(
+        [[(_t("character.choose_button", index=i), f"choose:{i}") for i in range(1, 4)]]
+    )
+    if kb is not None and not isinstance(send_msg, str):
+        send_msg.append(kb)
+    await create_cmd.finish(send_msg)
+
+
+# --- /选择调查员 <N> ---
+@choose_cmd.handle()
+async def handle_choose(event: Event, bot: Bot, msg: Message = CommandArg()):
+    user_id = event.get_user_id()
+
+    if user_id not in _user_states or "creator" not in _user_states.get(user_id, {}):
+        await choose_cmd.finish(md_message(f"\n{_t('character.need_create')}", bot))
+
+    arg = msg.extract_plain_text().strip()
+    if not arg.isdigit():
+        await choose_cmd.finish(md_message(f"\n{_t('character.need_number')}", bot))
+
+    idx = int(arg)
+    if idx < 1 or idx > 3:
+        await choose_cmd.finish(md_message(f"\n{_t('character.out_of_range')}", bot))
+
+    reply = choose_reply(user_id, idx)
+    if reply is None:
+        await choose_cmd.finish(md_message(f"\n{_t('character.choose_failed')}", bot))
+    await choose_cmd.finish(md_message(reply, bot))
 
 
 # --- /st <skills> ---
@@ -141,9 +160,9 @@ async def handle_skill(event: Event, bot: Bot, msg: Message = CommandArg()):
 
 
 # --- /调查员信息 ---
-@info_cmd.handle()
-async def handle_info(event: Event, bot: Bot):
-    inv = Investigator.load(event.get_user_id())
+def build_info_message(user_id: str, bot: Bot):
+    """构建调查员档案消息（含背包「使用」按钮），命令与按钮共用。"""
+    inv = Investigator.load(user_id)
     attrs = inv.get_full_attributes_dict()
     survival = _t("character.dead") if not inv.is_survive else _t("character.survive")
 
@@ -176,7 +195,12 @@ async def handle_info(event: Event, bot: Bot):
         kb = build_keyboard(kb_rows)
         if kb is not None and not isinstance(msg, str):
             msg.append(kb)
-    await info_cmd.finish(msg)
+    return msg
+
+
+@info_cmd.handle()
+async def handle_info(event: Event, bot: Bot):
+    await info_cmd.finish(build_info_message(event.get_user_id(), bot))
 
 
 # --- /使用物品 <ID> ---
