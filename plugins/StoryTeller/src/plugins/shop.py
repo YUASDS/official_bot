@@ -5,6 +5,7 @@ from nonebot.params import CommandArg
 from ..models.item import Equipment
 from ..services.shop_service import shop_service
 from ..services.data_loader import data_loader
+from ..utils.buttons import _send_to_user, register_button_handler
 from ..utils.md_format import build_keyboard, md_message
 
 _t = data_loader.get_text
@@ -56,3 +57,29 @@ async def handle_buy(event: Event, bot: Bot, msg: Message = CommandArg()) -> Non
         if kb is not None and not isinstance(send_msg, str):
             send_msg.append(kb)
     await buy_cmd.finish(send_msg)
+
+
+# --- 按钮回调处理器 ---
+async def handle_buy_button(
+    user_id: str,
+    item_id: str,
+    bot: Bot,
+    group_openid: str = "",
+    token: int | None = None,
+) -> None:
+    """商店「购买」按钮回调（默认数量 1）。"""
+    items = shop_service.get_todays_shop("seed")
+    ok, res = shop_service.buy_item(user_id, item_id, 1, items)
+    msg = md_message(f"\n{res}", bot)
+
+    if ok:
+        kb = build_keyboard(
+            [[(data_loader.get_text("character.info_button"), "info")]]
+        )
+        if kb is not None and not isinstance(msg, str):
+            msg.append(kb)
+    await _send_to_user(bot, user_id, msg, group_openid)
+
+
+# --- 按钮回调注册 ---
+register_button_handler("buy", handle_buy_button)

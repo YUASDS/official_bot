@@ -12,6 +12,7 @@ from ..models.player import (
 )
 from ..services.data_loader import data_loader
 from ..utils.active_battles import battle_manager
+from ..utils.buttons import _send_to_user, register_button_handler
 from ..utils.md_format import build_keyboard, md_message
 
 # --- State storage ---
@@ -219,3 +220,77 @@ async def handle_use_item(event: Event, bot: Bot, msg: Message = CommandArg()):
             if battle.current_turn == "inv":
                 battle._update_gun_status()
     await use_item_cmd.finish(md_message(f"\n{res}", bot))
+
+
+# --- 按钮回调处理器 ---
+async def handle_equip_button(
+    user_id: str,
+    item_id: str,
+    bot: Bot,
+    group_openid: str = "",
+    token: int | None = None,
+) -> None:
+    """背包「使用」按钮回调：直接装备物品。"""
+    ok, res = investigator_repo.equip_item(user_id, item_id)
+    if ok:
+        battle = battle_manager.get_battle(user_id)
+        if battle:
+            battle.investigator.update_equipment()
+            if battle.current_turn == "inv":
+                battle._update_gun_status()
+    await _send_to_user(bot, user_id, md_message(f"\n{res}", bot), group_openid)
+
+
+async def handle_choose_button(
+    user_id: str,
+    idx: str,
+    bot: Bot,
+    group_openid: str = "",
+    token: int | None = None,
+) -> None:
+    """候选「选择」按钮回调。"""
+    reply = choose_reply(user_id, int(idx)) if idx.isdigit() else None
+    if reply is None:
+        reply = f"\n{_t('character.need_create')}"
+    await _send_to_user(bot, user_id, md_message(reply, bot), group_openid)
+
+
+async def handle_create_button(
+    user_id: str,
+    payload: str,
+    bot: Bot,
+    group_openid: str = "",
+    token: int | None = None,
+) -> None:
+    """死亡后「创建调查员」按钮回调。"""
+    reply = build_create_reply(user_id, "调查员")
+    msg = md_message(reply, bot)
+    kb = build_keyboard(
+        [
+            [
+                (_t("character.choose_button", index=i), f"choose:{i}")
+                for i in range(1, 4)
+            ]
+        ]
+    )
+    if kb is not None and not isinstance(msg, str):
+        msg.append(kb)
+    await _send_to_user(bot, user_id, msg, group_openid)
+
+
+async def handle_info_button(
+    user_id: str,
+    payload: str,
+    bot: Bot,
+    group_openid: str = "",
+    token: int | None = None,
+) -> None:
+    """「调查员信息」按钮回调。"""
+    await _send_to_user(bot, user_id, build_info_message(user_id, bot), group_openid)
+
+
+# --- 按钮回调注册 ---
+register_button_handler("equip", handle_equip_button)
+register_button_handler("choose", handle_choose_button)
+register_button_handler("create", handle_create_button)
+register_button_handler("info", handle_info_button)
