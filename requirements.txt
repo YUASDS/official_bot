@@ -28,12 +28,12 @@ mdit-py-plugins==0.5.0
 mdurl==0.1.2
 multidict==6.7.0
 nepattern==0.7.7
-nonebot-adapter-console==0.9.0
-nonebot-adapter-qq==1.6.5
+nonebot-adapter-console==0.10.0
+nonebot-adapter-qq==1.7.1
 nonebot-plugin-alconna==0.60.3
 nonebot-plugin-waiter==0.8.1
-nonebot2==2.4.4
-nonechat==0.6.1
+nonebot2==2.5.0
+nonechat==0.7.0
 packaging==25.0
 peewee==3.18.3
 pipx==1.8.0

@@ -5,11 +5,11 @@ description = "official_bot"
 readme = "README.md"
 requires-python = ">=3.9, <4.0"
 dependencies = [
-    "nonebot2[fastapi]>=2.4.4",
-    "nonebot2[websockets]>=2.4.4",
-    "nonebot-adapter-qq>=1.6.5",
+    "nonebot2[fastapi]>=2.5.0",
+    "nonebot2[websockets]>=2.5.0",
+    "nonebot-adapter-qq>=1.7.1",
     "nonebot-adapter-mirai>=2.3.3",
-    "nonebot-adapter-console>=0.9.0"
+    "nonebot-adapter-console>=0.10.0"
 ]
 
 [project.optional-dependencies]
