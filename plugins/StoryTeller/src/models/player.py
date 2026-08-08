@@ -16,6 +16,7 @@ from peewee import (
     TextField,
 )
 
+from ..services.data_loader import data_loader
 from ..services.dice_roller import calculate_damage_bonus, roll_dice
 from ..utils.game_utils import action2part
 from .item import Equipment
@@ -183,9 +184,10 @@ class InvestigatorRepository:
             return False
 
     def equip_item(self, qq: str, item_id: str):
+        t = data_loader.get_text
         inv_model = self.find_by_qq(qq)
         if not inv_model:
-            return False, "调查员不存在"
+            return False, t("player.investigator_not_found")
         item_record = (
             InventoryItemModel.select()
             .where(
@@ -195,7 +197,7 @@ class InvestigatorRepository:
             .first()
         )
         if not item_record:
-            return False, "背包中未找到物品"
+            return False, t("player.item_not_found")
         item = Equipment(item_id)
         part = item.part
         with self.db.atomic():
@@ -203,7 +205,7 @@ class InvestigatorRepository:
             equipped_data[part] = item_id
             inv_model.equipped_items = ujson.dumps(equipped_data, ensure_ascii=False)
             inv_model.save()
-        return True, f"装备物品成功，装备:{item.name}，部位:{part}"
+        return True, t("player.equip_success", name=item.name, part=part)
 
 
 investigator_repo = InvestigatorRepository()
@@ -379,27 +381,28 @@ class Investigator:
         return res, res_name
 
     def str_equipments(self) -> str:
+        t = data_loader.get_text
         equipments, res_name = self.get_equipments()
-        res = "【装备】\n"
+        res = f"{t('player.equipped')}\n"
         for key, value in self._equipped.items():
             if not key:
                 continue
             item_name = res_name.get(value, value)
-            res += f" {key}：{item_name}\n"
+            res += f" {t('player.slot_label', slot=key, name=item_name)}\n"
 
         if "防具" not in self._equipped:
-            res += " 护甲：无\n"
+            res += f" {t('player.armor_none')}\n"
 
-        res += "\n【背包】\n"
+        res += f"\n{t('player.backpack')}\n"
         if equipments:
             for item_id, qty in equipments.items():
                 item = Equipment(item_id)
                 if not item.is_valid:
                     continue
-                res += f" · {item.name} x{qty}\n"
+                res += f" {t('player.item_line', name=item.name, quantity=qty)}\n"
                 res += f"  {item.get_brief_description()}\n"
         else:
-            res += " （空）\n"
+            res += f" {t('player.backpack_empty')}\n"
 
         return res
 
@@ -451,7 +454,7 @@ class InvestigatorFormatter:
 
     @staticmethod
     def _format_investigator_list(name: str, investigators: list[dict]) -> str:
-        lines = [f"【{name}的调查员候补】\n"]
+        lines = [f"{data_loader.get_text('player.attrs_title', name=name)}\n"]
         for i, inv in enumerate(investigators, 1):
             lines.append(f" [{i}] {InvestigatorFormatter._display_attrs(inv)}")
         return "\n".join(lines)
@@ -469,7 +472,7 @@ class InvestigatorFormatter:
                 current_line += " " + attr
         if current_line.strip():
             body_lines.append(current_line.strip())
-        return f"【{name}的属性】\n" + "\n".join(body_lines)
+        return f"{data_loader.get_text('player.attrs_single', name=name)}\n" + "\n".join(body_lines)
 
 
 # --- CreateInvestigator ---
@@ -491,29 +494,30 @@ class CreateInvestigator:
     def set_skill(self, skills: str):
         import re
 
+        t = data_loader.get_text
         pattern = re.compile(r"[^\d\s]+|\d+")
         match = pattern.findall(skills)
         if not str.isdigit(match[-1]):
-            return False, "技能设置错误了哦~"
+            return False, t("character.skill_set_error")
         a = iter(match)
         match_dic = dict(zip(a, a))
         for key in match_dic:
             match_dic[key] = int(match_dic[key])
         tol = sum(match_dic.values())
         if tol > self.skill_point:
-            return False, "当前总点数过多了哦~"
+            return False, t("character.skill_too_many")
         if tol < self.skill_point:
-            return False, "当前总点数过少了哦~"
+            return False, t("character.skill_too_few")
         user_select_tmp = self.select.copy()
         for key in match_dic:
             if key in user_select_tmp:
                 user_select_tmp[key] += match_dic[key]
                 if user_select_tmp[key] > 75:
-                    return False, f"当前技能{key}点数高于了75哦~"
+                    return False, t("character.skill_over_cap", name=key)
             else:
-                return False, f"不存在技能{key}~"
+                return False, t("character.skill_not_exist", name=key)
         self.select.update(user_select_tmp)
-        return True, "技能设置成功啦~"
+        return True, t("character.skill_set_ok")
 
     def create_investigator(self, qq: str, name: str) -> Investigator:
         if not self.select:

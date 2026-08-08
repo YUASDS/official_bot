@@ -41,9 +41,9 @@ class Equipment:
     def __init__(self, equipment_id: str) -> None:
         self.id = equipment_id
         self._data = equipment_repo.find_by_id(equipment_id) or {}
-        self.name = self._data.get("name", "Unknown Item")
+        self.name = self._data.get("name", data_loader.get_text("player.unknown_item"))
         self.type = self._data.get("type", "misc")
-        self.description = self._data.get("des", "No description available.")
+        self.description = self._data.get("des", data_loader.get_text("player.no_description"))
         self.price = self._data.get("price", 0)
         self.part = self._data.get("part", "misc")
         self.damage_dice = self._data.get("damage", "0")
@@ -65,7 +65,7 @@ class Equipment:
 
     def get_brief_description(self) -> str:
         if not self.is_valid:
-            return f"ID: {self.id}\n无效物品"
+            return f"ID: {self.id}\n{data_loader.get_text('player.invalid_item')}"
         attributes = [
             ("ID", self.id),
             ("护甲", str(self.armor_point) if self.armor_point else ""),
@@ -77,7 +77,7 @@ class Equipment:
 
     def get_full_description(self) -> str:
         if not self.is_valid:
-            return f"ID: {self.id}\n无效物品"
+            return f"ID: {self.id}\n{data_loader.get_text('player.invalid_item')}"
         skill_str = ", ".join(self.skill_bonus) if isinstance(self.skill_bonus, list) else str(self.skill_bonus)
         attributes = [
             ("ID", self.id),

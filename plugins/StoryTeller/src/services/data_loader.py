@@ -20,8 +20,6 @@ class DataLoader:
 
     def load_data(self) -> None:
         """Load all JSON data files"""
-        # Adjust path to find data directory relative to this file
-        # src/services/data_loader.py -> ... -> plugins/StoryTeller/data
         base_path = Path(__file__).parent.parent.parent.joinpath("data")
 
         try:
@@ -32,10 +30,10 @@ class DataLoader:
             self.shop_data = self._load_json(base_path / "shop_data.json")
             self.environment_data = self._load_json(base_path / "environment_data.json")
             self.event_data = self._load_json(base_path / "event_data.json")
+            self.text_data = self._load_json(base_path / "text_data.json")
             logger.info("Game data loaded successfully.")
         except Exception as e:
             logger.exception(f"Failed to load game data: {e}")
-            # Initialize with empty dicts to prevent crashes
             self.reply_data = {}
             self.goods_data = {}
             self.check_point = {}
@@ -43,6 +41,7 @@ class DataLoader:
             self.shop_data = {}
             self.environment_data = {}
             self.event_data = {}
+            self.text_data = {}
 
     def _load_json(self, path: Path) -> dict[str, Any]:
         if not path.exists():
@@ -57,6 +56,24 @@ class DataLoader:
 
     def get_event(self, day: str | int) -> str:
         return self.reply_data.get("event", {}).get(str(day), "")
+
+    def get_text(self, key: str, default: str = "", **kwargs: Any) -> str:
+        """从 text_data.json 按 key 取文本，支持 {placeholder} 格式化。
+
+        key 支持点号路径，如 "battle.no_melee_weapon"。
+        """
+        value = self.text_data.get(key)
+        if value is None and "." in key:
+            section, sub = key.split(".", 1)
+            value = self.text_data.get(section, {}).get(sub)
+        if value is None:
+            value = default if default else key
+        if kwargs:
+            try:
+                value = value.format(**kwargs)
+            except (KeyError, IndexError, ValueError):
+                pass
+        return value
 
 # Global instance
 data_loader = DataLoader()

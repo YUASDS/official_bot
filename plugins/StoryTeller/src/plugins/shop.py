@@ -3,6 +3,9 @@ from nonebot.adapters import Event, Message
 from nonebot.params import CommandArg
 
 from ..services.shop_service import shop_service
+from ..services.data_loader import data_loader
+
+_t = data_loader.get_text
 
 shop_cmd = on_command("今日商店", aliases={"today_shop", "商店"}, priority=10, block=True)
 
@@ -18,7 +21,7 @@ buy_cmd = on_command("购买", aliases={"buy_item"}, priority=10, block=True)
 async def handle_buy(event: Event, msg: Message = CommandArg()) -> None:
     args = msg.extract_plain_text().strip().split()
     if not args:
-        await buy_cmd.finish("\n请输入物品ID和数量（可选）。")
+        await buy_cmd.finish(f"\n{_t('shop.input_hint')}")
 
     item_id = args[0]
     quantity = int(args[1]) if len(args) > 1 and args[1].isdigit() else 1

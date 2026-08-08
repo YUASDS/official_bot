@@ -35,17 +35,19 @@ class ShopService:
         return shop_items
 
     def format_shop_text(self, shop_items: dict[str, int]) -> str:
-        res = "\n════ 今日商店 ════\n\n"
+        t = data_loader.get_text
+        res = f"\n{t('shop.title')}\n\n"
         for item_id, price in shop_items.items():
             item = Equipment(item_id)
             if item.is_valid:
-                res += f" · {item.name}（ID: {item.id}）- {price} 乌帕\n"
-        res += "\n输入 /购买 <物品ID> [数量] 进行购买"
+                res += f" {t('shop.item_line', name=item.name, id=item.id, price=price)}\n"
+        res += f"\n{t('shop.buy_hint')}"
         return res
 
     def buy_item(self, user_qq: str, item_id: str, quantity: int, shop_items: dict[str, int]) -> str:
+        t = data_loader.get_text
         if item_id not in shop_items:
-            return "该物品今日未出售。"
+            return t("shop.item_not_on_sale")
 
         price = shop_items[item_id]
         total_cost = price * quantity
@@ -57,9 +59,9 @@ class ShopService:
             if inv:
                 item = Equipment(item_id)
                 investigator_repo.add_item_to_inventory(inv, item_id, quantity)
-                return f"成功购买了 {quantity} x {item.name}，花费 {total_cost} 乌帕。"
+                return t("shop.buy_success", quantity=quantity, name=item.name, cost=total_cost)
             add_gold(user_qq, total_cost)
-            return "调查员不存在，购买已取消。"
-        return "乌帕不足。"
+            return t("shop.no_investigator")
+        return t("shop.not_enough_gold")
 
 shop_service = ShopService()

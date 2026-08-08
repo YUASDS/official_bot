@@ -9,9 +9,12 @@ from ..models.player import (
     Investigator,
     InvestigatorFormatter,
 )
+from ..services.data_loader import data_loader
 
 # --- State storage ---
 _user_states: dict[str, Any] = {}
+
+_t = data_loader.get_text
 
 # --- Commands ---
 create_cmd = on_command(
@@ -42,10 +45,9 @@ async def handle_create(event: Event, msg: Message = CommandArg()):
     _user_states[user_id] = {"creator": ci, "name": name}
 
     await create_cmd.finish(
-        "\n── 欢迎来到克苏鲁的世界 ──\n\n"
+        f"\n{_t('character.create_title')}\n\n"
         f"{formatted}\n\n"
-        "请选择你想要创建的调查员属性：\n"
-        " · /选择调查员 [1-3]"
+        f"{_t('character.choose_hint')}"
     )
 
 
@@ -56,21 +58,21 @@ async def handle_choose(event: Event, msg: Message = CommandArg()):
     state = _user_states.get(user_id)
 
     if not state or "creator" not in state:
-        await choose_cmd.finish("\n请先使用 /创建调查员 生成角色。")
+        await choose_cmd.finish(f"\n{_t('character.need_create')}")
 
     arg = msg.extract_plain_text().strip()
     if not arg.isdigit():
-        await choose_cmd.finish("\n请输入数字，例如：/选择调查员 2")
+        await choose_cmd.finish(f"\n{_t('character.need_number')}")
 
     idx = int(arg)
     if idx < 1 or idx > 3:
-        await choose_cmd.finish("\n超过了可以选择的范围哦~")
+        await choose_cmd.finish(f"\n{_t('character.out_of_range')}")
 
     ci: CreateInvestigator = state["creator"]
     name: str = state["name"]
 
     if not ci.choose_investigator(idx):
-        await choose_cmd.finish("\n选择失败。")
+        await choose_cmd.finish(f"\n{_t('character.choose_failed')}")
 
     core_attrs = [
         "力量", "体质", "体型", "敏捷",
@@ -83,14 +85,11 @@ async def handle_choose(event: Event, msg: Message = CommandArg()):
     skill_line = " ".join(f"{k}:{ci.select.get(k, 0)}" for k in skill_keys)
 
     await choose_cmd.finish(
-        "\n── 选择成功 ──\n\n"
-        f"名称：{name}\n"
-        f"属性：{attr_line}\n"
-        f"技能：{skill_line}\n\n"
-        f"接下来需要分配技能了哦~\n"
-        f"共有【{ci.skill_point}】点技能点可以分配\n"
-        "请按格式输入（例如：/st 手枪30步枪20）\n"
-        "技能上限 75"
+        f"\n{_t('character.choose_success')}\n\n"
+        f"{_t('character.name_label', name=name)}\n"
+        f"{_t('character.attr_label', attrs=attr_line)}\n"
+        f"{_t('character.skill_label', skills=skill_line)}\n\n"
+        f"{_t('character.skill_alloc_hint', points=ci.skill_point)}"
     )
 
 
@@ -101,14 +100,14 @@ async def handle_skill(event: Event, msg: Message = CommandArg()):
     state = _user_states.get(user_id)
 
     if not state or "creator" not in state:
-        await skill_cmd.finish("\n请先使用 /创建调查员 生成角色。")
+        await skill_cmd.finish(f"\n{_t('character.need_create')}")
 
     ci: CreateInvestigator = state["creator"]
     name: str = state["name"]
     skills = msg.extract_plain_text().strip()
 
     if not skills:
-        await skill_cmd.finish("\n请输入技能分配，例如：/st 手枪30步枪20")
+        await skill_cmd.finish(f"\n{_t('character.need_skill_input')}")
 
     ok, reply_msg = ci.set_skill(skills)
     if not ok:
@@ -118,7 +117,7 @@ async def handle_skill(event: Event, msg: Message = CommandArg()):
     attrs = InvestigatorFormatter.format_investigator_info(name, ci.select)
     del _user_states[user_id]
 
-    await skill_cmd.finish(f"\n── 调查员 {inv.name} 创建完成 ──\n\n{attrs}")
+    await skill_cmd.finish(f"\n{_t('character.create_done', name=inv.name)}\n\n{attrs}")
 
 
 # --- /调查员信息 ---
@@ -126,7 +125,7 @@ async def handle_skill(event: Event, msg: Message = CommandArg()):
 async def handle_info(event: Event):
     inv = Investigator.load(event.get_user_id())
     attrs = inv.get_full_attributes_dict()
-    survival = "死亡" if not inv.is_survive else "存活"
+    survival = _t("character.dead") if not inv.is_survive else _t("character.survive")
 
     attr_pairs = [f"{k}:{v}" for k, v in attrs.items()]
     attr_lines: list[str] = []
@@ -142,9 +141,9 @@ async def handle_info(event: Event):
 
     nl = "\n"
     res = (
-        "\n════ 调查员档案 ════\n\n"
-        f"状态：{survival}｜时间：第 {inv.day} 天\n\n"
-        f"【属性】\n{nl.join(attr_lines)}\n\n"
+        f"\n{_t('character.info_title')}\n\n"
+        f"{_t('character.info_status', status=survival, day=inv.day)}\n\n"
+        f"{_t('character.info_attrs')}\n{nl.join(attr_lines)}\n\n"
         f"{inv.str_equipments()}"
     )
     await info_cmd.finish(res)

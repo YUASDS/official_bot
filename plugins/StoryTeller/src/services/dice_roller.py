@@ -12,15 +12,18 @@ class SuccessLevel:
 
 def get_success_description(rank: int) -> str:
     """Get success level description"""
+    from .data_loader import data_loader
+
+    t = data_loader.get_text
     success_descriptions = {
-        SuccessLevel.CRITICAL_FAILURE: "大失败",
-        SuccessLevel.FAILURE: "失败",
-        SuccessLevel.SUCCESS: "成功",
-        SuccessLevel.HARD_SUCCESS: "困难成功",
-        SuccessLevel.EXTREME_SUCCESS: "极难成功",
-        SuccessLevel.CRITICAL_SUCCESS: "大成功",
+        SuccessLevel.CRITICAL_FAILURE: t("dice.critical_failure"),
+        SuccessLevel.FAILURE: t("dice.failure"),
+        SuccessLevel.SUCCESS: t("dice.success"),
+        SuccessLevel.HARD_SUCCESS: t("dice.hard_success"),
+        SuccessLevel.EXTREME_SUCCESS: t("dice.extreme_success"),
+        SuccessLevel.CRITICAL_SUCCESS: t("dice.critical_success"),
     }
-    return success_descriptions.get(rank, "未知")
+    return success_descriptions.get(rank, t("dice.unknown"))
 
 class DiceRoll:
     """Base Dice Roll Class"""

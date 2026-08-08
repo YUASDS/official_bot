@@ -56,11 +56,11 @@ class Monster:
             raise ValueError(f"Monster ID '{monster_id}' not found in data.")
 
         self.is_valid = True
-        self.name = self._data.get("名字", "未知怪物")
+        self.name = self._data.get("名字", data_loader.get_text("monster.unknown"))
         self.hp = self._data.get("hp", 10)
         self.max_hp = self.hp
         self.san_loss = self._data.get("理智值丧失", "0/0")
-        self.description = self._data.get("出场", "一个看起来很恐怖的生物。")
+        self.description = self._data.get("出场", data_loader.get_text("monster.default_intro"))
         self.damage_dice = self._data.get("damage", "1d3")
         self.dex = self._data.get("敏捷", 50)
         self.str = self._data.get("力量", 50)
@@ -77,24 +77,31 @@ class Monster:
 
     def get_action(self, turn: str) -> dict[str, Any]:
         """获取怪物在此回合的行动详情"""
+        t = data_loader.get_text
         attack_options = self._data.get("攻击", {})
         if not attack_options:
-            return {"skill": 50, "damage": "1d3", "desc": "猛击", "counterattack": "猛击"}
+            return {
+                "skill": 50,
+                "damage": "1d3",
+                "desc": t("monster.default_action"),
+                "counterattack": t("monster.default_action"),
+            }
 
         chosen_action_key = random.choice(list(attack_options.keys()))
         action = attack_options[chosen_action_key]
         if "counterattack" not in action:
-            action["counterattack"] = action.get("desc", "攻击")
+            action["counterattack"] = action.get("desc", t("monster.default_action"))
         if "attack" not in action:
-            action["attack"] = action.get("desc", "攻击")
+            action["attack"] = action.get("desc", t("monster.default_action"))
         if "attack_succ" not in action:
-            action["attack_succ"] = action.get("desc", "攻击")
+            action["attack_succ"] = action.get("desc", t("monster.default_action"))
         if "attack_false" not in action:
-            action["attack_false"] = action.get("counterattack", "攻击")
+            action["attack_false"] = action.get("counterattack", t("monster.default_action"))
         return action
 
     def generate_loot(self):
         """Generate loot for this monster. Returns (gold, dropped_item, message)."""
+        t = data_loader.get_text
         reward_data = self._data.get("奖励", {})
         gold_max = reward_data.get("乌帕", 10)
         gold = random.randint(1, gold_max)
@@ -107,11 +114,16 @@ class Monster:
             from .item import Equipment
             dropped_item = Equipment(item_id)
             if dropped_item.is_valid:
-                message = f"获得了 {dropped_item.name}（{dropped_item.get_brief_description()}）和 {gold} 乌帕。"
+                message = t(
+                    "monster.loot_item",
+                    item=dropped_item.name,
+                    brief=dropped_item.get_brief_description(),
+                    gold=gold,
+                )
             else:
-                message = f"获得了 {gold} 乌帕。"
+                message = t("monster.loot_gold", gold=gold)
         else:
-            message = f"获得了 {gold} 乌帕。"
+            message = t("monster.loot_gold", gold=gold)
 
         return gold, dropped_item, message
 
