@@ -42,6 +42,14 @@ class BattleService:
         self.environment: dict[str, dict] = {}
         self._weapon_reply_shown = False
         self.fled = False
+        self._turn_counter = 0
+
+    def get_turn_token(self) -> int:
+        """当前回合令牌（用于按钮防重复点击）。"""
+        return self._turn_counter
+
+    def _advance_turn(self) -> None:
+        self._turn_counter += 1
 
     def set_environment(self, env_data: dict) -> None:
         self.environment = env_data
@@ -107,6 +115,7 @@ class BattleService:
         return weapon.reply
 
     def start_turn(self) -> str:
+        self._advance_turn()
         player_dex = self._get_player_modified_skill("敏捷")
         monster_dex = self._get_monster_modified("dex", 50)
         confrontation = ConfrontationRoll(player_dex, monster_dex)
@@ -135,6 +144,12 @@ class BattleService:
             f"{dex1}\n{dex2}\n\n"
             f"{self._get_next_turn_prompt()}"
         )
+
+    def get_available_actions_for_turn(self) -> list[str]:
+        """当前回合可用行动列表（供按钮展示）。"""
+        if not hasattr(self, "available_actions"):
+            self.available_actions = self.investigator.get_available_actions()
+        return self.available_actions.get(self.current_turn, [])
 
     def _get_next_turn_prompt(self) -> str:
         self.available_actions = self.investigator.get_available_actions()
@@ -549,6 +564,7 @@ class BattleService:
         end_message = self._check_combat_over()
         if end_message:
             return end_message
+        self._advance_turn()
         self.current_turn = "mon" if self.current_turn == "inv" else "inv"
         return self._get_next_turn_prompt()
 

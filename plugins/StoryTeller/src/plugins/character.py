@@ -1,7 +1,7 @@
 from typing import Any
 
 from nonebot import on_command
-from nonebot.adapters import Event, Message
+from nonebot.adapters import Bot, Event, Message
 from nonebot.params import CommandArg
 
 from ..models.player import (
@@ -10,6 +10,7 @@ from ..models.player import (
     InvestigatorFormatter,
 )
 from ..services.data_loader import data_loader
+from ..utils.md_format import md_message
 
 # --- State storage ---
 _user_states: dict[str, Any] = {}
@@ -36,7 +37,7 @@ info_cmd = on_command(
 
 # --- /创建调查员 ---
 @create_cmd.handle()
-async def handle_create(event: Event, msg: Message = CommandArg()):
+async def handle_create(event: Event, bot: Bot, msg: Message = CommandArg()):
     user_id = event.get_user_id()
     name = msg.extract_plain_text().strip() or "调查员"
 
@@ -45,34 +46,37 @@ async def handle_create(event: Event, msg: Message = CommandArg()):
     _user_states[user_id] = {"creator": ci, "name": name}
 
     await create_cmd.finish(
-        f"\n{_t('character.create_title')}\n\n"
-        f"{formatted}\n\n"
-        f"{_t('character.choose_hint')}"
+        md_message(
+            f"\n{_t('character.create_title')}\n\n"
+            f"{formatted}\n\n"
+            f"{_t('character.choose_hint')}",
+            bot,
+        )
     )
 
 
 # --- /选择调查员 <N> ---
 @choose_cmd.handle()
-async def handle_choose(event: Event, msg: Message = CommandArg()):
+async def handle_choose(event: Event, bot: Bot, msg: Message = CommandArg()):
     user_id = event.get_user_id()
     state = _user_states.get(user_id)
 
     if not state or "creator" not in state:
-        await choose_cmd.finish(f"\n{_t('character.need_create')}")
+        await choose_cmd.finish(md_message(f"\n{_t('character.need_create')}", bot))
 
     arg = msg.extract_plain_text().strip()
     if not arg.isdigit():
-        await choose_cmd.finish(f"\n{_t('character.need_number')}")
+        await choose_cmd.finish(md_message(f"\n{_t('character.need_number')}", bot))
 
     idx = int(arg)
     if idx < 1 or idx > 3:
-        await choose_cmd.finish(f"\n{_t('character.out_of_range')}")
+        await choose_cmd.finish(md_message(f"\n{_t('character.out_of_range')}", bot))
 
     ci: CreateInvestigator = state["creator"]
     name: str = state["name"]
 
     if not ci.choose_investigator(idx):
-        await choose_cmd.finish(f"\n{_t('character.choose_failed')}")
+        await choose_cmd.finish(md_message(f"\n{_t('character.choose_failed')}", bot))
 
     core_attrs = [
         "力量", "体质", "体型", "敏捷",
@@ -85,44 +89,49 @@ async def handle_choose(event: Event, msg: Message = CommandArg()):
     skill_line = " ".join(f"{k}:{ci.select.get(k, 0)}" for k in skill_keys)
 
     await choose_cmd.finish(
-        f"\n{_t('character.choose_success')}\n\n"
-        f"{_t('character.name_label', name=name)}\n"
-        f"{_t('character.attr_label', attrs=attr_line)}\n"
-        f"{_t('character.skill_label', skills=skill_line)}\n\n"
-        f"{_t('character.skill_alloc_hint', points=ci.skill_point)}"
+        md_message(
+            f"\n{_t('character.choose_success')}\n\n"
+            f"{_t('character.name_label', name=name)}\n"
+            f"{_t('character.attr_label', attrs=attr_line)}\n"
+            f"{_t('character.skill_label', skills=skill_line)}\n\n"
+            f"{_t('character.skill_alloc_hint', points=ci.skill_point)}",
+            bot,
+        )
     )
 
 
 # --- /st <skills> ---
 @skill_cmd.handle()
-async def handle_skill(event: Event, msg: Message = CommandArg()):
+async def handle_skill(event: Event, bot: Bot, msg: Message = CommandArg()):
     user_id = event.get_user_id()
     state = _user_states.get(user_id)
 
     if not state or "creator" not in state:
-        await skill_cmd.finish(f"\n{_t('character.need_create')}")
+        await skill_cmd.finish(md_message(f"\n{_t('character.need_create')}", bot))
 
     ci: CreateInvestigator = state["creator"]
     name: str = state["name"]
     skills = msg.extract_plain_text().strip()
 
     if not skills:
-        await skill_cmd.finish(f"\n{_t('character.need_skill_input')}")
+        await skill_cmd.finish(md_message(f"\n{_t('character.need_skill_input')}", bot))
 
     ok, reply_msg = ci.set_skill(skills)
     if not ok:
-        await skill_cmd.finish(f"\n{reply_msg}")
+        await skill_cmd.finish(md_message(f"\n{reply_msg}", bot))
 
     inv = ci.create_investigator(user_id, name)
     attrs = InvestigatorFormatter.format_investigator_info(name, ci.select)
     del _user_states[user_id]
 
-    await skill_cmd.finish(f"\n{_t('character.create_done', name=inv.name)}\n\n{attrs}")
+    await skill_cmd.finish(
+        md_message(f"\n{_t('character.create_done', name=inv.name)}\n\n{attrs}", bot)
+    )
 
 
 # --- /调查员信息 ---
 @info_cmd.handle()
-async def handle_info(event: Event):
+async def handle_info(event: Event, bot: Bot):
     inv = Investigator.load(event.get_user_id())
     attrs = inv.get_full_attributes_dict()
     survival = _t("character.dead") if not inv.is_survive else _t("character.survive")
@@ -146,4 +155,4 @@ async def handle_info(event: Event):
         f"{_t('character.info_attrs')}\n{nl.join(attr_lines)}\n\n"
         f"{inv.str_equipments()}"
     )
-    await info_cmd.finish(res)
+    await info_cmd.finish(md_message(res, bot))
