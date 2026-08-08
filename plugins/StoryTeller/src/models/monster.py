@@ -149,7 +149,8 @@ class Monster:
             return None
         try:
             return cls(monster_id)
-        except ValueError:
+        except ValueError as e:
+            logger.warning(f"Monster '{monster_id}' not found, using random fallback: {e}")
             keys = list(monster_repo._monster_data.keys())
             if keys:
                 return cls(random.choice(keys))

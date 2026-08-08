@@ -71,8 +71,10 @@ class DataLoader:
         if kwargs:
             try:
                 value = value.format(**kwargs)
-            except (KeyError, IndexError, ValueError):
-                pass
+            except (KeyError, IndexError, ValueError) as e:
+                logger.warning(
+                    f"Text format failed for key '{key}' with args {kwargs}: {e}"
+                )
         return value
 
 # Global instance

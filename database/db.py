@@ -79,7 +79,8 @@ def add_Decorator(func):
             if kwargs:
                 init_user(kwargs["user_id"])
             return func(*args, **kwargs)
-        except ValueError:
+        except ValueError as e:
+            logger.error(f"add_Decorator error in {func.__name__}: {e}")
             return 0
 
     return init
@@ -95,7 +96,8 @@ def Updata_Decorator(func):
             if kwargs:
                 init_user(kwargs["user_id"])
             return await func(*args, **kwargs)
-        except ValueError:
+        except ValueError as e:
+            logger.error(f"Updata_Decorator error in {func.__name__}: {e}")
             return 0
 
     return init
