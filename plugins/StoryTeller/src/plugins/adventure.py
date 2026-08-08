@@ -11,7 +11,14 @@ from ..models.player import Investigator, investigator_repo
 from ..models.monster import Monster, monster_repo
 from ..services.data_loader import data_loader
 from ..utils.active_battles import battle_manager
-from ..utils.md_format import build_keyboard, md_message
+from ..utils.md_format import (
+    build_keyboard,
+    md_message,
+    report_check_table,
+    report_quote,
+    report_section,
+)
+from ..services.dice_roller import get_success_icon, roll_dice
 from database.db import add_gold
 
 # State for active random events (user_id -> event context)
@@ -88,24 +95,38 @@ async def handle_adventure(event: Event, bot: Bot):
                     )
                 )
 
-            from ..services.dice_roller import roll_dice
             int_val = inv.get_skill("智力")
             _, int_check_res = roll_dice("1d100")
             if int_check_res <= int_val:
                 _, madness_duration = roll_dice("1d10")
                 is_mad = True
-                madness_desc = data_loader.get_text(
+                level_icon = get_success_icon(1)
+                level_text = data_loader.get_text("dice.success")
+                quote = data_loader.get_text(
                     "adventure.int_check_success",
-                    dice=int_check_res,
-                    target=int_val,
                     duration=madness_duration,
                 )
             else:
-                madness_desc = data_loader.get_text(
-                    "adventure.int_check_fail",
-                    dice=int_check_res,
-                    target=int_val,
-                )
+                level_icon = get_success_icon(0)
+                level_text = data_loader.get_text("dice.failure")
+                quote = data_loader.get_text("adventure.int_check_fail")
+
+            row = data_loader.get_text(
+                "adventure.int_check_row",
+                icon=data_loader.get_text("report.icon_brains"),
+                dice=int_check_res,
+                target=int_val,
+                result=data_loader.get_text(
+                    "report.check_result",
+                    icon=level_icon,
+                    level=level_text,
+                ),
+            )
+            madness_desc = (
+                f"\n{report_section(data_loader.get_text('adventure.int_check_title'))}\n"
+                f"{report_check_table([row])}\n"
+                f"{quote}"
+            )
 
         # --- Battle service ---
         service = BattleService(inv, monster)
@@ -117,13 +138,37 @@ async def handle_adventure(event: Event, bot: Bot):
         inv.is_adventure = True
         inv.save()
 
+        env_name = env.get("name", "") if env else ""
+        title = (
+            data_loader.get_text("battle.report_title", env=env_name)
+            if env_name
+            else data_loader.get_text("battle.report_title_default")
+        )
+        anomaly_title = (
+            data_loader.get_text("battle.anomaly_title", env=env_name)
+            if env_name
+            else data_loader.get_text("battle.anomaly_title_default")
+        )
+        anomaly_lines = [
+            env.get("描述", "") if env else "",
+            day_event,
+            monster_intro,
+        ]
+        anomaly = (
+            f"{report_section(anomaly_title)}\n"
+            f"{report_quote(anomaly_lines)}"
+        )
+
         header = f"\n{env_desc}\n{day_event}" if env_desc else f"\n{day_event}"
 
         # --- Random event (40% chance) ---
         if random.random() < 0.4 and data_loader.event_data:
             event_key = random.choice(list(data_loader.event_data.keys()))
             event_data = data_loader.event_data[event_key]
-            event_text = f"\n\n{data_loader.get_text('adventure.event_title')}\n{event_data['描述']}\n"
+            event_text = (
+                f"\n\n{data_loader.get_text('adventure.event_title')}\n"
+                f"{report_quote([event_data['描述']])}\n"
+            )
             for opt in event_data["选项"]:
                 event_text += f" {data_loader.get_text('adventure.event_choice', input=opt['输入'])}\n"
 
@@ -138,21 +183,26 @@ async def handle_adventure(event: Event, bot: Bot):
             event_kb = build_keyboard(
                 [[(opt["输入"], f"event:{opt['输入']}") for opt in event_data["选项"]]]
             )
-            event_msg = md_message(reply_text := (
+            event_msg = md_message(
                 f"{header}{event_text}\n"
                 f"{monster_intro}\n"
-                f"{san_desc}{madness_desc}"
-            ), bot)
+                f"{san_desc}{madness_desc}",
+                bot,
+            )
             if event_kb is not None and not isinstance(event_msg, str):
                 event_msg.append(event_kb)
             await adventure_cmd.send(event_msg)
             return
         battle_manager.add_battle(user_id, service)
+        service.roll_initiative()
         reply = (
-            f"{header}\n\n"
-            f"{monster_intro}\n"
+            f"{title}\n\n"
+            f"{service.get_status_table()}\n\n"
+            f"{data_loader.get_text('report.rule')}\n\n"
+            f"{anomaly}\n\n"
             f"{san_desc}{madness_desc}\n\n"
-            f"{service.start_turn()}"
+            f"{service.get_danger_section()}\n\n"
+            f"{service.get_action_section()}"
         )
         await adventure_cmd.send(_send_turn(service, bot, reply))
 
@@ -240,7 +290,7 @@ async def handle_combat(event: Event, bot: Bot, msg: Message = CommandArg()):
         return
 
     result = battle.execute_action(action)
-    response = "\n" + "\n".join([str(x) for x in result if x])
+    response = "\n" + "\n\n".join([str(x) for x in result if x])
     await combat_cmd.send(_send_turn(battle, bot, response))
 
     if battle.fight_is_over():
@@ -319,7 +369,7 @@ async def handle_combat_action(
         return
 
     result = battle.execute_action(action)
-    response = "\n" + "\n".join([str(x) for x in result if x])
+    response = "\n" + "\n\n".join([str(x) for x in result if x])
     await _send_to_user(bot, user_id, _send_turn(battle, bot, response), group_openid)
 
     if battle.fight_is_over():

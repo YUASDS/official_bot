@@ -1,7 +1,8 @@
 from ..models.monster import Monster
 from ..models.player import Investigator
+from ..utils.md_format import report_check_table, report_section
 from .data_loader import data_loader
-from .dice_roller import roll_dice
+from .dice_roller import get_success_icon, roll_dice
 
 
 def perform_sanity_check(
@@ -19,6 +20,7 @@ def perform_sanity_check(
         loss_fail_expr = san_loss_str
 
     current_san = investigator.get_skill("san")
+    max_san = investigator.get_skill("意志") or current_san
     _res, val = roll_dice("1d100")
 
     passed = val <= current_san
@@ -30,11 +32,27 @@ def perform_sanity_check(
     investigator.set_skill("san", investigator_san)
 
     t = data_loader.get_text
-    result_text = t("sanity.success") if passed else t("sanity.fail")
+    icon = get_success_icon(1) if passed else get_success_icon(0)
+    result_text = t("dice.success") if passed else t("dice.failure")
+    result = t(
+        "report.san_result",
+        icon=icon,
+        level=result_text,
+        expr=loss_expr,
+        value=loss_val,
+        cur=investigator_san,
+        max=max_san,
+    )
+    row = t(
+        "report.san_row",
+        icon=t("report.icon_brains"),
+        dice=val,
+        target=current_san,
+        result=result,
+    )
     desc = (
-        f"\n{t('sanity.title', dice=val, target=current_san, result=result_text)}\n"
-        f"  {t('sanity.loss', expr=loss_expr, value=loss_val)}"
-        f"｜{t('sanity.current_san', value=investigator_san)}"
+        f"{report_section(t('battle.sanity_title'))}\n"
+        f"{report_check_table([row])}"
     )
 
     return passed, desc, loss_val

@@ -383,26 +383,26 @@ class Investigator:
     def str_equipments(self) -> str:
         t = data_loader.get_text
         equipments, res_name = self.get_equipments()
-        res = f"{t('player.equipped')}\n"
+        res = f"{t('player.equipped')}\n{t('player.equip_header')}\n{t('player.equip_sep')}\n"
         for key, value in self._equipped.items():
             if not key:
                 continue
             item_name = res_name.get(value, value)
-            res += f" {t('player.slot_label', slot=key, name=item_name)}\n"
+            res += f"{t('player.equip_row', slot=key, name=item_name)}\n"
 
         if "防具" not in self._equipped:
-            res += f" {t('player.armor_none')}\n"
+            res += f"{t('player.equip_row', slot='防具', name=t('player.armor_none'))}\n"
 
         res += f"\n{t('player.backpack')}\n"
         if equipments:
+            res += f"{t('player.item_header')}\n{t('player.item_sep')}\n"
             for item_id, qty in equipments.items():
                 item = Equipment(item_id)
                 if not item.is_valid:
                     continue
-                res += f" {t('player.item_line', name=item.name, quantity=qty)}\n"
-                res += f"  {item.get_brief_description()}\n"
+                res += f"{t('player.item_line', name=item.name, quantity=qty, brief=item.get_brief_description())}\n"
         else:
-            res += f" {t('player.backpack_empty')}\n"
+            res += f"{t('player.backpack_empty')}\n"
 
         return res
 
@@ -441,6 +441,24 @@ class InvestigatorFormatter:
         return " ".join(parts)
 
     @staticmethod
+    def _attr_labels() -> dict[str, str]:
+        labels = {k: k for k in InvestigatorFormatter.DISPLAY_ATTRS}
+        labels.update({"san": "SAN", "hp": "HP", "db": "DB"})
+        return labels
+
+    @staticmethod
+    def _attr_table(inv: dict) -> str:
+        """构造 属性|数值 表格。"""
+        t = data_loader.get_text
+        labels = InvestigatorFormatter._attr_labels()
+        rows = [t("character.attr_table_header"), t("character.attr_table_sep")]
+        for key, label in labels.items():
+            rows.append(
+                t("character.attr_table_row", name=label, value=inv.get(key, 0))
+            )
+        return "\n".join(rows)
+
+    @staticmethod
     def format_investigator_info(
         name: str, investigator_data: Union[dict, list[dict]]
     ) -> str:
@@ -454,25 +472,27 @@ class InvestigatorFormatter:
 
     @staticmethod
     def _format_investigator_list(name: str, investigators: list[dict]) -> str:
-        lines = [f"{data_loader.get_text('player.attrs_title', name=name)}\n"]
+        t = data_loader.get_text
+        lines = [f"{t('player.attrs_title', name=name)}\n"]
+        lines.append(t("player.candidate_header"))
+        lines.append(t("player.candidate_sep"))
         for i, inv in enumerate(investigators, 1):
-            lines.append(f" [{i}] {InvestigatorFormatter._display_attrs(inv)}")
+            lines.append(
+                t(
+                    "player.candidate_row",
+                    index=i,
+                    attrs=InvestigatorFormatter._display_attrs(inv),
+                )
+            )
         return "\n".join(lines)
 
     @staticmethod
     def _format_single_investigator(name: str, investigator: dict) -> str:
-        attrs_str = InvestigatorFormatter._display_attrs(investigator)
-        body_lines: list[str] = []
-        current_line = ""
-        for attr in attrs_str.split(" "):
-            if current_line and len(current_line) + len(attr) + 1 > 40:
-                body_lines.append(current_line.strip())
-                current_line = attr
-            else:
-                current_line += " " + attr
-        if current_line.strip():
-            body_lines.append(current_line.strip())
-        return f"{data_loader.get_text('player.attrs_single', name=name)}\n" + "\n".join(body_lines)
+        t = data_loader.get_text
+        return (
+            f"{t('player.attrs_single', name=name)}\n"
+            f"{InvestigatorFormatter._attr_table(investigator)}"
+        )
 
 
 # --- CreateInvestigator ---

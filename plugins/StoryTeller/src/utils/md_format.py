@@ -52,10 +52,23 @@ def strip_markdown(text: str) -> str:
             lines.append("------------------")
             continue
 
+        # 引用块：> text
+        m = re.match(r"^>\s*(.*)$", stripped)
+        if m:
+            cleaned = _strip_inline(m.group(1))
+            lines.append(cleaned)
+            continue
+
+        # 表格：| a | b |，分隔行（| :--- |）跳过
+        if stripped.startswith("|") and stripped.endswith("|"):
+            cells = [c.strip() for c in stripped.strip("|").split("|")]
+            if all(re.fullmatch(r":?-{2,}:?", c) for c in cells):
+                continue
+            lines.append(" ｜ ".join(_strip_inline(c) for c in cells))
+            continue
+
         # 先去行内标记，再处理列表（避免列表项内残留 **）
-        cleaned = re.sub(r"\*\*(.+?)\*\*", r"\1", line)
-        cleaned = re.sub(r"\*(.+?)\*", r"\1", cleaned)
-        cleaned = re.sub(r"`(.+?)`", r"\1", cleaned)
+        cleaned = _strip_inline(line)
 
         # 列表项
         m = re.match(r"^\s*[-*]\s+(.+)$", cleaned)
@@ -66,6 +79,34 @@ def strip_markdown(text: str) -> str:
         lines.append(cleaned)
 
     return "\n".join(lines)
+
+
+def _strip_inline(text: str) -> str:
+    """去除行内加粗/斜体/行内代码标记。"""
+    text = re.sub(r"\*\*(.+?)\*\*", r"\1", text)
+    text = re.sub(r"\*(.+?)\*", r"\1", text)
+    text = re.sub(r"`(.+?)`", r"\1", text)
+    return text
+
+
+def report_section(title: str) -> str:
+    """构造分节头：**【{title}】**。"""
+    from ..services.data_loader import data_loader
+
+    return data_loader.get_text("report.section", title=title)
+
+
+def report_quote(lines: list[str]) -> str:
+    """构造引用块：每行 > 前缀，行尾双空格强制换行。"""
+    return "\n".join(f"> {line}  " for line in lines if line)
+
+
+def report_check_table(rows: list[str]) -> str:
+    """构造检定表格：表头 + 分隔行 + 数据行。"""
+    from ..services.data_loader import data_loader
+
+    t = data_loader.get_text
+    return "\n".join([t("report.check_header"), t("report.check_sep"), *rows])
 
 
 def output(text: str, bot: Any = None) -> str:

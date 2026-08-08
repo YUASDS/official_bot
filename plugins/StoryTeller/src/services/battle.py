@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Literal, Optional
 from database.db import add_gold
 
 from ..models.item import Equipment
+from ..utils.md_format import report_check_table, report_quote, report_section
 from .damage_calculator import calculate_damage as calc_dmg
 from .data_loader import data_loader
 from .dice_roller import (
@@ -13,6 +14,7 @@ from .dice_roller import (
     PenaltyDiceRoll,
     SuccessLevel,
     get_success_description,
+    get_success_icon,
     roll_dice,
 )
 
@@ -114,36 +116,91 @@ class BattleService:
         self._weapon_reply_shown = True
         return weapon.reply
 
-    def start_turn(self) -> str:
+    def roll_initiative(self) -> ConfrontationRoll:
+        """投掷先攻并确定当前回合，返回判定结果供状态表使用。"""
         self._advance_turn()
         player_dex = self._get_player_modified_skill("敏捷")
         monster_dex = self._get_monster_modified("dex", 50)
         confrontation = ConfrontationRoll(player_dex, monster_dex)
-        player_starts = confrontation.get_result("先攻")
-        self.current_turn = "inv" if player_starts else "mon"
+        self.initiative = confrontation
+        self.current_turn = "inv" if confrontation.get_result("先攻") else "mon"
+        return confrontation
 
-        desc1 = self.get_success_record_description(confrontation.level1)
-        desc2 = self.get_success_record_description(confrontation.level2)
-        dex1 = self._t(
-            "battle.dex_check",
-            name=self.player_name,
-            dice=confrontation.dice1,
-            target=confrontation.skill1,
-            result=desc1,
+    def get_status_table(self) -> str:
+        """当前回合行 + 双方状态表格（含先攻结果）。需先 roll_initiative()。"""
+        t = self._t
+        c = self.initiative
+        owner = (
+            t("battle.your_turn")
+            if self.current_turn == "inv"
+            else t("battle.monster_turn")
         )
-        dex2 = self._t(
-            "battle.dex_check",
-            name=self.monster.名字,
-            dice=confrontation.dice2,
-            target=confrontation.skill2,
-            result=desc2,
+        inv = self.investigator
+        max_san = inv.get_skill("意志") or inv.get_skill("san", 0)
+        r1 = t(
+            "report.init_result",
+            icon=get_success_icon(c.level1),
+            level=get_success_description(c.level1),
+            dice=c.dice1,
+            target=c.skill1,
         )
-
+        r2 = t(
+            "report.init_result",
+            icon=get_success_icon(c.level2),
+            level=get_success_description(c.level2),
+            dice=c.dice2,
+            target=c.skill2,
+        )
+        rows = [
+            t(
+                "report.status_inv",
+                icon=t("report.icon_inv"),
+                name=self.player_name,
+                san=inv.get_skill("san", 0),
+                max_san=max_san,
+                hp=self.hp_record["inv"],
+                max_hp=inv.get_max_hp(),
+                result=r1,
+            ),
+            t(
+                "report.status_mon",
+                icon=t("report.icon_mon"),
+                name=self.monster.名字,
+                hp=self.hp_record["mon"],
+                max_hp=self.monster.max_hp,
+                result=r2,
+            ),
+        ]
         return (
-            f"{self._t('battle.initiative_title')}\n"
-            f"{dex1}\n{dex2}\n\n"
-            f"{self._get_next_turn_prompt()}"
+            f"{t('battle.turn_line', owner=owner)}\n\n"
+            + "\n".join([t("report.status_header"), t("report.status_sep"), *rows])
         )
+
+    def get_danger_section(self) -> str:
+        """怪物回合的「濒危一刻」叙事小节（玩家回合返回空串）。"""
+        t = self._t
+        if self.current_turn != "mon":
+            return ""
+        action = self.monster.get_action("mon")
+        attack_text = action.get("attack", action.get("desc", ""))
+        return (
+            f"{report_section(t('battle.danger_title'))}\n"
+            f"{t('battle.danger_line', text=attack_text)}"
+        )
+
+    def get_action_section(self) -> str:
+        """【行动·抉择】行动列表小节。"""
+        t = self._t
+        actions = self.get_available_actions_for_turn()
+        lines = [report_section(t("report.action_title"))]
+        lines += [t("report.action", action=a) for a in actions]
+        return "\n".join(lines)
+
+    def start_turn(self) -> str:
+        """开场战报：状态表 + 濒危一刻 + 行动抉择。"""
+        self.roll_initiative()
+        parts = [self.get_status_table(), self.get_danger_section(), self.get_action_section()]
+        return "\n\n---\n\n".join(p for p in parts if p)
 
     def get_available_actions_for_turn(self) -> list[str]:
         """当前回合可用行动列表（供按钮展示）。"""
@@ -151,29 +208,66 @@ class BattleService:
             self.available_actions = self.investigator.get_available_actions()
         return self.available_actions.get(self.current_turn, [])
 
+    def _check_row(self, name: str, skill: str, dice: int, target: int, level: int) -> str:
+        """构造检定表格行。"""
+        t = self._t
+        icon = get_success_icon(level)
+        result = t(
+            "report.check_result",
+            icon=icon,
+            level=get_success_description(level),
+        )
+        return t(
+            "report.check_row",
+            icon=icon,
+            name=name,
+            skill=skill,
+            dice=dice,
+            target=target,
+            result=result,
+        )
+
+    def _check_section(self, skill: str, rows: list[str]) -> str:
+        """检定小节：分节头 + 表格。"""
+        return f"{report_section(self._t('battle.check_title', skill=skill))}\n{report_check_table(rows)}"
+
+    def _quote(self, text: str) -> str:
+        """单段叙事引用块（空文本返回空串）。"""
+        return report_quote([text]) if text else ""
+
+    def _exchange(self, *texts: str) -> str:
+        """【战斗·交锋】小节：分节头 + 叙事引用块。"""
+        texts = [t for t in texts if t]
+        if not texts:
+            return ""
+        return f"{report_section(self._t('battle.exchange_title'))}\n{report_quote(texts)}"
+
     def _get_next_turn_prompt(self) -> str:
         self.available_actions = self.investigator.get_available_actions()
-        owner = self._t("battle.your_turn") if self.current_turn == "inv" else self._t("battle.monster_turn")
+        t = self._t
+        owner = (
+            t("battle.your_turn")
+            if self.current_turn == "inv"
+            else t("battle.monster_turn")
+        )
 
-        lines: list[str] = []
-        if self.environment:
-            env_name = self.environment.get("name", "")
-            if env_name:
-                lines.append(f"【{env_name}】")
-        if self.gun:
-            lines.append(self._t("battle.ammo_label", bullet=self.bullet, max_bullet=self.max_bullet))
-        lines.append(self._t("battle.turn_title", owner=owner))
+        lines = [t("battle.turn_line", owner=owner)]
         lines.append(
-            self._t(
-                "battle.hp_label",
-                inv=self.hp_record["inv"],
-                mon=self.hp_record["mon"],
+            t(
+                "battle.status_line",
+                inv=self.player_name,
+                inv_hp=self.hp_record["inv"],
+                inv_max=self.investigator.get_max_hp(),
+                mon=self.monster.名字,
+                mon_hp=self.hp_record["mon"],
+                mon_max=self.monster.max_hp,
             )
         )
-        lines.append(self._t("battle.choose_action"))
-
-        actions = self.available_actions.get(self.current_turn, [])
-        lines.append(" ".join(self._t("battle.action_hint", action=a) for a in actions))
+        if self.gun:
+            lines.append(
+                t("battle.ammo_label", bullet=self.bullet, max_bullet=self.max_bullet)
+            )
+        lines.append(self.get_action_section())
         return "\n".join(lines)
 
     def execute_action(self, action: str) -> tuple:
@@ -233,34 +327,34 @@ class BattleService:
         monster_skill = monster_action["skill"] + self.environment.get("怪物", {}).get("反击技能", 0)
         confrontation = ConfrontationRoll(player_skill, monster_skill)
 
-        roll_desc = (
-            self._t(
-                "battle.fight_check",
-                name=self.player_name,
-                dice=confrontation.dice1,
-                target=confrontation.skill1,
-                result=self.get_success_record_description(confrontation.level1, weapon.identify_skill),
-            )
-            + "\n"
-            + self._t(
-                "battle.counter_check",
-                name=self.monster.名字,
-                dice=confrontation.dice2,
-                target=confrontation.skill2,
-                result=self.get_success_record_description(confrontation.level2),
-            )
+        roll_desc = self._check_section(
+            weapon.identify_skill,
+            [
+                self._check_row(
+                    self.player_name,
+                    weapon.identify_skill,
+                    confrontation.dice1,
+                    confrontation.skill1,
+                    confrontation.level1,
+                ),
+                self._check_row(
+                    self.monster.名字,
+                    "反击",
+                    confrontation.dice2,
+                    confrontation.skill2,
+                    confrontation.level2,
+                ),
+            ],
         )
 
         if confrontation.level1 == SuccessLevel.CRITICAL_FAILURE:
             failure_desc = self._handle_player_critical_failure(weapon)
-            return (
+            exchange = self._exchange(
                 self._get_weapon_reply(weapon),
                 monster_action["counterattack"],
-                roll_desc,
                 failure_desc,
-                "",
-                self._end_turn(),
             )
+            return (roll_desc, exchange, self._end_turn())
 
         if confrontation.get_result("反击"):
             return self._handle_player_melee_success(confrontation, weapon, monster_action, roll_desc)
@@ -274,14 +368,13 @@ class BattleService:
             self._get_reply(reply_key), expr, val
         ).replace("$装备", weapon.name)
         monster_text = self._apply_damage_to_monster(val)
-        return (
+        exchange = self._exchange(
             self._get_weapon_reply(weapon),
             monster_action["counterattack"],
-            roll_desc,
             player_text,
             monster_text,
-            self._end_turn(),
         )
+        return (roll_desc, exchange, self._end_turn())
 
     def _handle_player_melee_failure(self, confrontation, weapon, monster_action, roll_desc):
         if confrontation.level1 < 1 and confrontation.level2 < 1:
@@ -289,14 +382,13 @@ class BattleService:
             monster_text = monster_action.get("counter_false", "")
         else:
             monster_text, player_text = self._handle_monster_attack_success(monster_action, confrontation)
-        return (
+        exchange = self._exchange(
             self._get_weapon_reply(weapon),
             monster_action["counterattack"],
-            roll_desc,
-            player_text,
             monster_text,
-            self._end_turn(),
+            player_text,
         )
+        return (roll_desc, exchange, self._end_turn())
 
     def _handle_monster_attack_success(self, monster_action, confrontation):
         armor = self.investigator.get_armor_value()
@@ -355,13 +447,9 @@ class BattleService:
 
     def _single_shot(self, weapon: Equipment, player_skill: int) -> tuple:
         roll = DiceRoll(player_skill)
-        roll_description = self._t(
-            "battle.shoot_check",
-            name=self.player_name,
-            skill=weapon.identify_skill,
-            dice=roll.dice,
-            target=roll.skill,
-            result=self.get_success_record_description(roll.level, weapon.identify_skill),
+        roll_description = self._check_section(
+            weapon.identify_skill,
+            [self._check_row(self.player_name, weapon.identify_skill, roll.dice, roll.skill, roll.level)],
         )
 
         if roll.level > SuccessLevel.FAILURE:
@@ -369,33 +457,42 @@ class BattleService:
             reply_template = self._get_reply("射击大成功") if roll.level > SuccessLevel.HARD_SUCCESS else self._get_reply("射击成功")
             player_text = self._fill_damage(reply_template, expr, val)
             monster_text = self._apply_damage_to_monster(val)
-            return (self._get_weapon_reply(weapon), roll_description, player_text, monster_text, self._end_turn())
+            exchange = self._exchange(self._get_weapon_reply(weapon), player_text, monster_text)
+            return (roll_description, exchange, self._end_turn())
         if roll.level == SuccessLevel.CRITICAL_FAILURE:
             player_text = self._get_reply("射击大失败").replace("$装备", weapon.name)
             self.investigator.break_equipped_item("远程")
             self._update_gun_status()
-            return (self._get_weapon_reply(weapon), roll_description, player_text, "", self._end_turn())
+            exchange = self._exchange(self._get_weapon_reply(weapon), player_text)
+            return (roll_description, exchange, self._end_turn())
         player_text = self._get_reply("射击失败")
-        return (self._get_weapon_reply(weapon), roll_description, player_text, "", self._end_turn())
+        exchange = self._exchange(self._get_weapon_reply(weapon), player_text)
+        return (roll_description, exchange, self._end_turn())
 
     def _multiple_shot(self, shot_count: int, weapon: Equipment, player_skill: int) -> tuple:
-        roll_descriptions = []
+        rows = []
         total_damage = 0
         player_texts = []
         critical_failure = False
 
         for _i in range(shot_count):
             roll = PenaltyDiceRoll(player_skill)
-            roll_descriptions.append(
+            icon = get_success_icon(roll.level)
+            rows.append(
                 self._t(
-                    "battle.shoot_check",
+                    "report.check_row_penalty",
+                    icon=icon,
                     name=self.player_name,
                     skill=weapon.identify_skill,
                     dice=roll.final_result,
                     target=roll.skill,
-                    result=self.get_success_record_description(roll.level, weapon.identify_skill),
+                    rolls=",".join(map(str, roll.penalty_rolls)),
+                    result=self._t(
+                        "report.check_result",
+                        icon=icon,
+                        level=get_success_description(roll.level),
+                    ),
                 )
-                + self._t("battle.penalty_hint", rolls=roll.penalty_rolls)
             )
 
             if roll.level == SuccessLevel.CRITICAL_FAILURE:
@@ -409,7 +506,7 @@ class BattleService:
                 player_texts.append(self._t("battle.multi_shot_damage", expr=expr, value=val))
                 total_damage += val
 
-        roll_description = "\n".join(roll_descriptions)
+        roll_description = self._check_section(weapon.identify_skill, rows)
         player_text = "\n".join(player_texts)
 
         if not critical_failure and total_damage > 0:
@@ -418,7 +515,8 @@ class BattleService:
         else:
             monster_text = ""
 
-        return (self._get_weapon_reply(weapon), roll_description, player_text, monster_text, self._end_turn())
+        exchange = self._exchange(self._get_weapon_reply(weapon), player_text, monster_text)
+        return (roll_description, exchange, self._end_turn())
 
     def _reload_weapon(self) -> tuple:
         if self.max_bullet > 0:
@@ -429,9 +527,9 @@ class BattleService:
     def _flee(self) -> tuple:
         flee_skill = self._get_player_modified_skill("敏捷", 25)
         roll = DiceRoll(flee_skill)
-        desc = self.get_success_record_description(roll.level)
-        flee_check = self._t(
-            "battle.flee_check", dice=roll.dice, skill=roll.skill, result=desc
+        self.get_success_record_description(roll.level)
+        flee_check = self._check_section(
+            "逃跑", [self._check_row(self.player_name, "逃跑", roll.dice, flee_skill, roll.level)]
         )
         if roll.level > SuccessLevel.FAILURE:
             self.fled = True
@@ -439,14 +537,14 @@ class BattleService:
             self.investigator.is_adventure = False
             self.investigator.save()
             return (
-                f"{flee_check}\n"
+                f"{flee_check}\n\n"
                 f"{self._t('battle.flee_success')}",
             )
         monster_action = self.monster.get_action(self.current_turn)
         expr, val = calc_dmg(monster_action["damage"])
         self.hp_record["inv"] = max(0, self.hp_record["inv"] - val)
         return (
-            f"{flee_check}\n"
+            f"{flee_check}\n\n"
             f"{self._t('battle.flee_fail', damage_expr=expr, damage=val)}",
             self._end_turn(),
         )
@@ -455,9 +553,7 @@ class BattleService:
     def _handle_defensive_action(self, player_action: str) -> tuple:
         monster_action = self.monster.get_action(self.current_turn)
         weapon = None
-        used_skill = ""
         if player_action == "闪避":
-            used_skill = "闪避"
             player_skill = self._get_player_modified_skill("闪避", 25)
             action_reply = self._get_reply("闪避")
         else:
@@ -467,32 +563,33 @@ class BattleService:
                 return (self._t("battle.no_counter_weapon"), self._end_turn())
             weapon = Equipment(weapon_id)
             action_reply = self._get_weapon_reply(weapon)
-            used_skill = weapon.identify_skill
 
         monster_skill = monster_action["skill"] + self.environment.get("怪物", {}).get("反击技能", 0)
         confrontation = ConfrontationRoll(monster_skill, player_skill)
-        check_key = "battle.dodge_check" if player_action == "闪避" else "battle.counter_check"
-        roll_desc = (
-            self._t(
-                "battle.attack_check",
-                name=self.monster.名字,
-                dice=confrontation.dice1,
-                target=confrontation.skill1,
-                result=self.get_success_record_description(confrontation.level1),
-            )
-            + "\n"
-            + self._t(
-                check_key,
-                name=self.player_name,
-                dice=confrontation.dice2,
-                target=confrontation.skill2,
-                result=self.get_success_record_description(confrontation.level2, used_skill),
-            )
+        check_key = "闪避" if player_action == "闪避" else "反击"
+        roll_desc = self._check_section(
+            check_key,
+            [
+                self._check_row(
+                    self.monster.名字,
+                    "攻击",
+                    confrontation.dice1,
+                    confrontation.skill1,
+                    confrontation.level1,
+                ),
+                self._check_row(
+                    self.player_name,
+                    check_key,
+                    confrontation.dice2,
+                    confrontation.skill2,
+                    confrontation.level2,
+                ),
+            ],
         )
 
+        critical_text = ""
         if confrontation.level2 == SuccessLevel.CRITICAL_FAILURE and weapon:
             critical_text = self._handle_player_critical_failure(weapon)
-            roll_desc += f"\n{critical_text}"
 
         monster_succeeds = confrontation.get_result(player_action)
 
@@ -507,14 +604,15 @@ class BattleService:
         else:
             player_text, monster_text = self._handle_player_counter_success(weapon)
 
-        return (
+        exchange = self._exchange(
             monster_action.get("attack", monster_action.get("desc", "攻击")),
             action_reply,
-            roll_desc,
             monster_text,
             player_text,
-            self._end_turn(),
+            critical_text,
         )
+
+        return (roll_desc, exchange, self._end_turn())
 
     def _handle_player_counter_success(self, weapon: Optional[Equipment]) -> tuple[str, str]:
         if not weapon or not weapon.is_valid:
@@ -572,7 +670,7 @@ class BattleService:
         if self.hp_record["inv"] <= 0:
             self.investigator.is_survive = False
             self.investigator.save()
-            return f"\n{self._t('battle.death_text', name=self.player_name)}"
+            return self._t("battle.death_text", name=self.player_name)
         if self.hp_record["mon"] <= 0:
             return self._handle_victory()
         return None
@@ -580,14 +678,10 @@ class BattleService:
     def _handle_victory(self) -> str:
         search_skill = self.investigator.get_skill("侦查", 25)
         search_roll = DiceRoll(search_skill)
-        search_desc_level = self.get_success_record_description(
-            search_roll.level, "侦查"
-        )
-        search_desc = self._t(
-            "battle.search_check",
-            dice=search_roll.dice,
-            target=search_roll.skill,
-            result=search_desc_level,
+        self.get_success_record_description(search_roll.level, "侦查")
+        search_desc = self._check_section(
+            "侦查",
+            [self._check_row(self.player_name, "侦查", search_roll.dice, search_roll.skill, search_roll.level)],
         )
 
         bonus_text = ""
@@ -597,7 +691,7 @@ class BattleService:
             if dropped_item:
                 self.investigator.add_item_to_inventory(dropped_item.id, 1)
         else:
-            bonus_text = self._get_reply("侦查失败")
+            bonus_text = self._quote(self._get_reply("侦查失败"))
 
         self.investigator.hp = self.hp_record["inv"]
         self.investigator.day += 1
@@ -620,12 +714,12 @@ class BattleService:
 
         ending = getattr(self.monster, "结局", self._t("battle.monster_dead"))
         parts = [
-            f"\n{self._t('battle.victory_title')}\n\n{ending}",
-            f"\n{search_desc}\n{bonus_text}",
+            f"{self._t('battle.victory_title')}\n\n{ending}",
+            f"{search_desc}\n{bonus_text}",
         ]
         if growth_lines:
-            parts.append(f"\n{self._t('battle.victory_growth')}\n" + "\n".join(growth_lines))
-        return "\n".join(parts)
+            parts.append(f"{self._t('battle.victory_growth')}\n" + "\n".join(growth_lines))
+        return "\n\n".join(parts)
 
     def fight_is_over(self) -> bool:
         return (

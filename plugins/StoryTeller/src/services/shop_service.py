@@ -37,10 +37,11 @@ class ShopService:
     def format_shop_text(self, shop_items: dict[str, int]) -> str:
         t = data_loader.get_text
         res = f"\n{t('shop.title')}\n\n"
+        res += f"{t('shop.item_header')}\n{t('shop.item_sep')}\n"
         for item_id, price in shop_items.items():
             item = Equipment(item_id)
             if item.is_valid:
-                res += f" {t('shop.item_line', name=item.name, id=item.id, price=price)}\n"
+                res += f"{t('shop.item_line', id=item.id, name=item.name, price=price)}\n"
         res += f"\n{t('shop.buy_hint')}"
         return res
 

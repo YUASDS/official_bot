@@ -82,18 +82,23 @@ async def handle_choose(event: Event, bot: Bot, msg: Message = CommandArg()):
         "力量", "体质", "体型", "敏捷",
         "外貌", "智力", "意志", "教育", "幸运",
     ]
-    attr_line = " ".join(f"{k}:{ci.select.get(k, 0)}" for k in core_attrs)
-    attr_line += f" SAN:{ci.select.get('san', 0)} HP:{ci.select.get('hp', 0)}"
+    attr_rows = [_t("character.attr_table_header"), _t("character.attr_table_sep")]
+    for k in core_attrs:
+        attr_rows.append(_t("character.attr_table_row", name=k, value=ci.select.get(k, 0)))
+    for k, label in (("san", "SAN"), ("hp", "HP"), ("db", "DB")):
+        attr_rows.append(_t("character.attr_table_row", name=label, value=ci.select.get(k, 0)))
 
     skill_keys = ["手枪", "步枪", "格斗", "侦查", "急救", "医学"]
-    skill_line = " ".join(f"{k}:{ci.select.get(k, 0)}" for k in skill_keys)
+    skill_rows = [_t("character.skill_table_header"), _t("character.attr_table_sep")]
+    for k in skill_keys:
+        skill_rows.append(_t("character.attr_table_row", name=k, value=ci.select.get(k, 0)))
 
     await choose_cmd.finish(
         md_message(
             f"\n{_t('character.choose_success')}\n\n"
-            f"{_t('character.name_label', name=name)}\n"
-            f"{_t('character.attr_label', attrs=attr_line)}\n"
-            f"{_t('character.skill_label', skills=skill_line)}\n\n"
+            f"{_t('character.name_label', name=name)}\n\n"
+            f"{chr(10).join(attr_rows)}\n\n"
+            f"{chr(10).join(skill_rows)}\n\n"
             f"{_t('character.skill_alloc_hint', points=ci.skill_point)}",
             bot,
         )
@@ -136,23 +141,14 @@ async def handle_info(event: Event, bot: Bot):
     attrs = inv.get_full_attributes_dict()
     survival = _t("character.dead") if not inv.is_survive else _t("character.survive")
 
-    attr_pairs = [f"{k}:{v}" for k, v in attrs.items()]
-    attr_lines: list[str] = []
-    current = ""
-    for pair in attr_pairs:
-        if current and len(current) + len(pair) + 1 > 40:
-            attr_lines.append(current.strip())
-            current = pair
-        else:
-            current += " " + pair
-    if current.strip():
-        attr_lines.append(current.strip())
+    attr_rows = [_t("character.attr_table_header"), _t("character.attr_table_sep")]
+    for k, v in attrs.items():
+        attr_rows.append(_t("character.attr_table_row", name=k, value=v))
 
-    nl = "\n"
     res = (
         f"\n{_t('character.info_title')}\n\n"
         f"{_t('character.info_status', status=survival, day=inv.day)}\n\n"
-        f"{_t('character.info_attrs')}\n{nl.join(attr_lines)}\n\n"
+        f"{_t('character.info_attrs')}\n{chr(10).join(attr_rows)}\n\n"
         f"{inv.str_equipments()}"
     )
     await info_cmd.finish(md_message(res, bot))

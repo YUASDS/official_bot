@@ -25,6 +25,21 @@ def get_success_description(rank: int) -> str:
     }
     return success_descriptions.get(rank, t("dice.unknown"))
 
+def get_success_icon(rank: int) -> str:
+    """Get success level icon (report.icon_*)."""
+    from .data_loader import data_loader
+
+    t = data_loader.get_text
+    icons = {
+        SuccessLevel.CRITICAL_FAILURE: t("report.icon_critical_failure"),
+        SuccessLevel.FAILURE: t("report.icon_failure"),
+        SuccessLevel.SUCCESS: t("report.icon_success"),
+        SuccessLevel.HARD_SUCCESS: t("report.icon_hard_success"),
+        SuccessLevel.EXTREME_SUCCESS: t("report.icon_extreme_success"),
+        SuccessLevel.CRITICAL_SUCCESS: t("report.icon_critical_success"),
+    }
+    return icons.get(rank, t("report.icon_failure"))
+
 class DiceRoll:
     """Base Dice Roll Class"""
     def __init__(self, skill: int) -> None:

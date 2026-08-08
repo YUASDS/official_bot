@@ -110,7 +110,7 @@ class TestStoryTellerIntegration(unittest.TestCase):
 
         battle = BattleService(self.inv, m)
         start_msg = battle.start_turn()
-        self.assertIn("敏捷鉴定", start_msg)
+        self.assertIn("当前回合", start_msg)
         self.assertIn(battle.current_turn, ("inv", "mon"))
 
         # Pick appropriate action for current turn
