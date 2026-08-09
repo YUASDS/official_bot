@@ -14,9 +14,10 @@ shop_cmd = on_command("今日商店", aliases={"today_shop", "商店"}, priority
 
 @shop_cmd.handle()
 async def handle_shop(event: Event, bot: Bot) -> None:
+    user_id = event.get_user_id()
     items = shop_service.get_todays_shop("seed")
     text = shop_service.format_shop_text(items)
-    msg = md_message(text, bot)
+    msg = md_message(text, bot, mention=user_id)
 
     # 商品「购买」按钮（QQ 平台）
     kb_rows = []
@@ -40,16 +41,19 @@ buy_cmd = on_command("购买", aliases={"buy_item"}, priority=10, block=True)
 
 @buy_cmd.handle()
 async def handle_buy(event: Event, bot: Bot, msg: Message = CommandArg()) -> None:
+    user_id = event.get_user_id()
     args = msg.extract_plain_text().strip().split()
     if not args:
-        await buy_cmd.finish(md_message(f"\n{_t('shop.input_hint')}", bot))
+        await buy_cmd.finish(
+            md_message(f"\n{_t('shop.input_hint')}", bot, mention=user_id)
+        )
 
     item_id = args[0]
     quantity = int(args[1]) if len(args) > 1 and args[1].isdigit() else 1
 
     items = shop_service.get_todays_shop("seed")
-    ok, res = shop_service.buy_item(event.get_user_id(), item_id, quantity, items)
-    send_msg = md_message(f"\n{res}", bot)
+    ok, res = shop_service.buy_item(user_id, item_id, quantity, items)
+    send_msg = md_message(f"\n{res}", bot, mention=user_id)
 
     # 购买成功后附加「调查员信息」按钮（QQ 平台）
     if ok:
@@ -70,7 +74,7 @@ async def handle_buy_button(
     """商店「购买」按钮回调（默认数量 1）。"""
     items = shop_service.get_todays_shop("seed")
     ok, res = shop_service.buy_item(user_id, item_id, 1, items)
-    msg = md_message(f"\n{res}", bot)
+    msg = md_message(f"\n{res}", bot, mention=user_id)
 
     if ok:
         kb = build_keyboard(

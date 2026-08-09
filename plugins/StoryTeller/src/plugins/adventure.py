@@ -312,12 +312,12 @@ def _end_card_html(service: BattleService) -> str:
 
 
 def _send_turn(battle: BattleService, bot: Bot, text: str) -> Message:
-    """构造战斗回合消息（MD 文本 + 行动按钮）。
+    """构造战斗回合消息（MD 文本 + 行动按钮，开头 @ 战斗所属玩家）。
 
     按钮回调数据携带回合令牌（token），点击后旧按钮自动失效。
     战斗结束后不再附加行动按钮；角色死亡时附加「创建调查员」按钮。
     """
-    msg = md_message(text, bot)
+    msg = md_message(text, bot, mention=battle.investigator.qq)
     if isinstance(msg, str):
         return msg
     if battle.fight_is_over():
@@ -406,13 +406,15 @@ async def _send_sanity_zero(
     )
     img = await _render_pic(_battle_open_html(service, encounter))
     if img is None or not await _send_pic(bot, img, send):
-        await send(md_message(encounter, bot))
+        await send(md_message(encounter, bot, mention=inv.qq))
 
     img = await _render_pic(_sanity_zero_card_html(inv, san_loss))
     if img is None or not await _send_pic(bot, img, send):
         await send(
             md_message(
-                f"{san_desc}\n\n{data_loader.get_text('adventure.sanity_zero')}", bot
+                f"{san_desc}\n\n{data_loader.get_text('adventure.sanity_zero')}",
+                bot,
+                mention=inv.qq,
             )
         )
 
@@ -421,6 +423,7 @@ async def _send_sanity_zero(
             f"\n**{t('character.resurrect_button')}**\n{cmd_tag('/复活')}\n\n"
             f"**{t('character.create_button')}**\n{cmd_tag('/创建调查员')}",
             bot,
+            mention=inv.qq,
         )
     )
 
@@ -428,12 +431,14 @@ async def _send_sanity_zero(
 async def _send_end_buttons(battle: BattleService, bot: Bot, send: Callable) -> None:
     """战斗结束引导按钮：阵亡→复活/创建；胜利→调查员信息。"""
     t = data_loader.get_text
+    mention = battle.investigator.qq
     if battle.hp_record["inv"] <= 0:
         await send(
             md_message(
                 f"\n**{t('character.resurrect_button')}**\n{cmd_tag('/复活')}\n\n"
                 f"**{t('character.create_button')}**\n{cmd_tag('/创建调查员')}",
                 bot,
+                mention=mention,
             )
         )
     elif battle.hp_record["mon"] <= 0:
@@ -441,6 +446,7 @@ async def _send_end_buttons(battle: BattleService, bot: Bot, send: Callable) -> 
             md_message(
                 f"\n**{t('character.info_button')}**\n{cmd_tag('/调查员信息')}",
                 bot,
+                mention=mention,
             )
         )
 
@@ -462,7 +468,11 @@ async def _send_combat_result(
             img = await _render_pic(_battle_round_html(battle, result))
             if img is not None and not await _send_pic(bot, img, send):
                 combat_text = "\n" + "\n\n".join(str(x) for x in result[:-1] if x)
-                await send(md_message(combat_text, bot))
+                await send(
+                    md_message(
+                        combat_text, bot, mention=battle.investigator.qq
+                    )
+                )
 
         # 2. 结算卡片 + 结束引导按钮
         img = await _render_pic(_end_card_html(battle))
@@ -472,7 +482,11 @@ async def _send_combat_result(
 
         # 结算图片失败 → md 回退
         if result[-1]:
-            await send(md_message(str(result[-1]), bot))
+            await send(
+                md_message(
+                    str(result[-1]), bot, mention=battle.investigator.qq
+                )
+            )
         await _send_end_buttons(battle, bot, send)
         return
 
@@ -497,11 +511,19 @@ async def handle_adventure(event: Event, bot: Bot):
         inv = Investigator.load(user_id)
         if not inv.is_survive:
             await adventure_cmd.finish(
-                md_message(f"\n{data_loader.get_text('adventure.player_dead')}", bot)
+                md_message(
+                    f"\n{data_loader.get_text('adventure.player_dead')}",
+                    bot,
+                    mention=user_id,
+                )
             )
         if battle_manager.get_battle(user_id):
             await adventure_cmd.finish(
-                md_message(f"\n{data_loader.get_text('adventure.in_battle')}", bot)
+                md_message(
+                    f"\n{data_loader.get_text('adventure.in_battle')}",
+                    bot,
+                    mention=user_id,
+                )
             )
 
         inv.restore_hp()
@@ -511,7 +533,9 @@ async def handle_adventure(event: Event, bot: Bot):
         if not monster_id:
             await adventure_cmd.finish(
                 md_message(
-                    f"\n{data_loader.get_text('adventure.no_monster_config')}", bot
+                    f"\n{data_loader.get_text('adventure.no_monster_config')}",
+                    bot,
+                    mention=user_id,
                 )
             )
         monster = Monster(monster_id)
@@ -586,6 +610,7 @@ async def handle_adventure(event: Event, bot: Bot):
                     f"\n**{data_loader.get_text('adventure.event_title')}**\n\n"
                     f"{options}",
                     bot,
+                    mention=user_id,
                 )
             else:
                 event_text = (
@@ -594,7 +619,7 @@ async def handle_adventure(event: Event, bot: Bot):
                 )
                 for opt in event_data["选项"]:
                     event_text += f" {data_loader.get_text('adventure.event_choice', input=opt['输入'])}\n"
-                event_msg = md_message(f"{header}{event_text}", bot)
+                event_msg = md_message(f"{header}{event_text}", bot, mention=user_id)
             if event_kb is not None and not isinstance(event_msg, str):
                 event_msg.append(event_kb)
             await adventure_cmd.send(event_msg)
@@ -674,7 +699,11 @@ async def handle_adventure(event: Event, bot: Bot):
     except Exception as e:
         logger.exception(f"Error starting adventure for {user_id}: {e}")
         await adventure_cmd.finish(
-            md_message(f"\n{data_loader.get_text('adventure.start_error')}", bot)
+            md_message(
+                f"\n{data_loader.get_text('adventure.start_error')}",
+                bot,
+                mention=user_id,
+            )
         )
 
 
@@ -687,7 +716,9 @@ resurrect_cmd = on_command(
 async def handle_resurrect(event: Event, bot: Bot) -> None:
     """使用复活道具（死亡后）。"""
     user_id = event.get_user_id()
-    await resurrect_cmd.finish(md_message(f"\n{_do_resurrect(user_id)}", bot))
+    await resurrect_cmd.finish(
+        md_message(f"\n{_do_resurrect(user_id)}", bot, mention=user_id)
+    )
 
 
 async def handle_resurrect_button(
@@ -699,7 +730,10 @@ async def handle_resurrect_button(
 ) -> None:
     """死亡消息「使用复活道具」按钮回调。"""
     await _send_to_user(
-        bot, user_id, md_message(f"\n{_do_resurrect(user_id)}", bot), group_openid
+        bot,
+        user_id,
+        md_message(f"\n{_do_resurrect(user_id)}", bot, mention=user_id),
+        group_openid,
     )
 
 
@@ -814,7 +848,9 @@ async def handle_combat(event: Event, bot: Bot, msg: Message = CommandArg()):
         if not battle:
             await combat_cmd.finish(
                 md_message(
-                    f"\n{data_loader.get_text('adventure.battle_state_error')}", bot
+                    f"\n{data_loader.get_text('adventure.battle_state_error')}",
+                    bot,
+                    mention=user_id,
                 )
             )
 
@@ -884,12 +920,20 @@ async def handle_combat(event: Event, bot: Bot, msg: Message = CommandArg()):
     battle = battle_manager.get_battle(user_id)
     if not battle:
         await combat_cmd.finish(
-            md_message(f"\n{data_loader.get_text('adventure.no_active_battle')}", bot)
+            md_message(
+                f"\n{data_loader.get_text('adventure.no_active_battle')}",
+                bot,
+                mention=user_id,
+            )
         )
 
     if not action:
         await combat_cmd.finish(
-            md_message(f"\n{data_loader.get_text('adventure.need_action')}", bot)
+            md_message(
+                f"\n{data_loader.get_text('adventure.need_action')}",
+                bot,
+                mention=user_id,
+            )
         )
 
     if action.startswith(data_loader.get_text("adventure.use_item")):
@@ -902,7 +946,7 @@ async def handle_combat(event: Event, bot: Bot, msg: Message = CommandArg()):
             prompt = battle._get_next_turn_prompt()
             await combat_cmd.send(_send_turn(battle, bot, f"{msg_text}\n\n{prompt}"))
         else:
-            await combat_cmd.send(md_message(msg_text, bot))
+            await combat_cmd.send(md_message(msg_text, bot, mention=user_id))
         return
 
     result = battle.execute_action(action)
@@ -928,7 +972,11 @@ async def handle_combat_action(
         await _send_to_user(
             bot,
             user_id,
-            md_message(f"\n{data_loader.get_text('adventure.no_active_battle')}", bot),
+            md_message(
+                f"\n{data_loader.get_text('adventure.no_active_battle')}",
+                bot,
+                mention=user_id,
+            ),
             group_openid,
         )
         return
@@ -969,7 +1017,9 @@ async def handle_event_choice(
             bot,
             user_id,
             md_message(
-                f"\n{data_loader.get_text('adventure.battle_state_error')}", bot
+                f"\n{data_loader.get_text('adventure.battle_state_error')}",
+                bot,
+                mention=user_id,
             ),
             group_openid,
         )

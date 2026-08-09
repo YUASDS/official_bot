@@ -263,18 +263,20 @@ def build_keyboard(rows: list[list[tuple[str, str]]]) -> Any:
         return None
 
 
-def md_message(text: str, bot: Any = None) -> Union[str, Any]:
+def md_message(text: str, bot: Any = None, mention: str = "") -> Union[str, Any]:
     """将文本构造为待发送消息。
 
     - 未启用 md 或非 QQ 适配器：返回纯文本
     - QQ 适配器且启用 md：返回带 Markdown 消息段的消息对象
+    - mention 非空（QQ md）：消息开头插入 @提及，便于群聊多人区分
     """
     if bot is None or getattr(bot, "type", "") != QQ_BOT_TYPE or not is_md_enabled():
         return strip_markdown(text)
     try:
         from nonebot.adapters.qq.message import Markdown, Message, MessageMarkdown
 
-        segment = Markdown("markdown", data={"markdown": MessageMarkdown(content=text)})
+        content = f"<@{mention}> {text}" if mention else text
+        segment = Markdown("markdown", data={"markdown": MessageMarkdown(content=content)})
         return Message(segment)
     except Exception as e:
         logger.exception(f"Failed to build markdown message: {e}")

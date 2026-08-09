@@ -227,13 +227,13 @@ async def handle_create(event: Event, bot: Bot, msg: Message = CommandArg()):
                 ]
             ]
         )
-        btn_msg = md_message(f"\n{_t('character.choose_hint')}", bot)
+        btn_msg = md_message(f"\n{_t('character.choose_hint')}", bot, mention=user_id)
         if kb is not None and not isinstance(btn_msg, str):
             btn_msg.append(kb)
         await create_cmd.send(btn_msg)
         return
 
-    send_msg = md_message(reply, bot)
+    send_msg = md_message(reply, bot, mention=user_id)
     kb = build_keyboard(
         [[(_t("character.choose_button", index=i), f"choose:{i}") for i in range(1, 4)]]
     )
@@ -248,26 +248,34 @@ async def handle_choose(event: Event, bot: Bot, msg: Message = CommandArg()):
     user_id = event.get_user_id()
 
     if user_id not in _user_states or "creator" not in _user_states.get(user_id, {}):
-        await choose_cmd.finish(md_message(f"\n{_t('character.need_create')}", bot))
+        await choose_cmd.finish(
+            md_message(f"\n{_t('character.need_create')}", bot, mention=user_id)
+        )
 
     arg = msg.extract_plain_text().strip()
     if not arg.isdigit():
-        await choose_cmd.finish(md_message(f"\n{_t('character.need_number')}", bot))
+        await choose_cmd.finish(
+            md_message(f"\n{_t('character.need_number')}", bot, mention=user_id)
+        )
 
     idx = int(arg)
     if idx < 1 or idx > 3:
-        await choose_cmd.finish(md_message(f"\n{_t('character.out_of_range')}", bot))
+        await choose_cmd.finish(
+            md_message(f"\n{_t('character.out_of_range')}", bot, mention=user_id)
+        )
 
     reply = choose_reply(user_id, idx)
     if reply is None:
-        await choose_cmd.finish(md_message(f"\n{_t('character.choose_failed')}", bot))
+        await choose_cmd.finish(
+            md_message(f"\n{_t('character.choose_failed')}", bot, mention=user_id)
+        )
 
     # 选择成功图片卡片（含 /st 分配提示）；图片失败回退 md
     state = _user_states[user_id]
     img = await _render_pic(_choose_success_card_html(state["creator"], state["name"]))
     if img is not None and await _send_pic(bot, img, choose_cmd.send):
         return
-    await choose_cmd.finish(md_message(reply, bot))
+    await choose_cmd.finish(md_message(reply, bot, mention=user_id))
 
 
 # --- /st <skills> ---
@@ -277,18 +285,22 @@ async def handle_skill(event: Event, bot: Bot, msg: Message = CommandArg()):
     state = _user_states.get(user_id)
 
     if not state or "creator" not in state:
-        await skill_cmd.finish(md_message(f"\n{_t('character.need_create')}", bot))
+        await skill_cmd.finish(
+            md_message(f"\n{_t('character.need_create')}", bot, mention=user_id)
+        )
 
     ci: CreateInvestigator = state["creator"]
     name: str = state["name"]
     skills = msg.extract_plain_text().strip()
 
     if not skills:
-        await skill_cmd.finish(md_message(f"\n{_t('character.need_skill_input')}", bot))
+        await skill_cmd.finish(
+            md_message(f"\n{_t('character.need_skill_input')}", bot, mention=user_id)
+        )
 
     ok, reply_msg = ci.set_skill(skills)
     if not ok:
-        await skill_cmd.finish(md_message(f"\n{reply_msg}", bot))
+        await skill_cmd.finish(md_message(f"\n{reply_msg}", bot, mention=user_id))
 
     inv = ci.create_investigator(user_id, name)
     attrs = InvestigatorFormatter.format_investigator_info(name, ci.select)
@@ -301,12 +313,17 @@ async def handle_skill(event: Event, bot: Bot, msg: Message = CommandArg()):
             md_message(
                 f"\n{cmd_tag('/今日冒险', show=_t('adventure.adventure_button'))}",
                 bot,
+                mention=user_id,
             )
         )
         return
 
     await skill_cmd.finish(
-        md_message(f"\n{_t('character.create_done', name=inv.name)}\n\n{attrs}", bot)
+        md_message(
+            f"\n{_t('character.create_done', name=inv.name)}\n\n{attrs}",
+            bot,
+            mention=user_id,
+        )
     )
 
 
@@ -392,7 +409,7 @@ def _info_kb_msg(user_id: str, bot: Bot):
     if tags:
         parts.append("\n".join(tags))
     parts.append(cmd_tag("/今日冒险", show=_t("adventure.adventure_button")))
-    return md_message("\n\n".join(parts), bot)
+    return md_message("\n\n".join(parts), bot, mention=user_id)
 
 
 async def _send_info_flow(user_id: str, bot: Bot, send: Callable, finish: Callable) -> None:
@@ -431,7 +448,7 @@ async def build_info_message(user_id: str, bot: Bot):
     )
     if is_md_enabled():
         res += f"\n\n{cmd_tag('/今日冒险', show=_t('adventure.adventure_button'))}"
-    msg = md_message(res, bot)
+    msg = md_message(res, bot, mention=user_id)
 
     # 背包物品「使用」按钮（QQ 平台）
     equipments, res_name = inv.get_equipments()
@@ -470,7 +487,9 @@ async def handle_use_item(event: Event, bot: Bot, msg: Message = CommandArg()):
     user_id = event.get_user_id()
     item_id = msg.extract_plain_text().strip()
     if not item_id:
-        await use_item_cmd.finish(md_message(f"\n{_t('player.use_need_id')}", bot))
+        await use_item_cmd.finish(
+            md_message(f"\n{_t('player.use_need_id')}", bot, mention=user_id)
+        )
 
     ok, res = investigator_repo.equip_item(user_id, item_id)
     if ok:
@@ -479,7 +498,7 @@ async def handle_use_item(event: Event, bot: Bot, msg: Message = CommandArg()):
             battle.investigator.update_equipment()
             if battle.current_turn == "inv":
                 battle._update_gun_status()
-    await use_item_cmd.finish(md_message(f"\n{res}", bot))
+    await use_item_cmd.finish(md_message(f"\n{res}", bot, mention=user_id))
 
 
 # --- 按钮回调处理器 ---
@@ -498,7 +517,12 @@ async def handle_equip_button(
             battle.investigator.update_equipment()
             if battle.current_turn == "inv":
                 battle._update_gun_status()
-    await _send_to_user(bot, user_id, md_message(f"\n{res}", bot), group_openid)
+    await _send_to_user(
+        bot,
+        user_id,
+        md_message(f"\n{res}", bot, mention=user_id),
+        group_openid,
+    )
 
 
 async def handle_choose_button(
@@ -514,7 +538,7 @@ async def handle_choose_button(
         await _send_to_user(
             bot,
             user_id,
-            md_message(f"\n{_t('character.need_create')}", bot),
+            md_message(f"\n{_t('character.need_create')}", bot, mention=user_id),
             group_openid,
         )
         return
@@ -526,7 +550,7 @@ async def handle_choose_button(
     img = await _render_pic(_choose_success_card_html(state["creator"], state["name"]))
     if img is not None and await _send_pic(bot, img, _send):
         return
-    await _send(md_message(reply, bot))
+    await _send(md_message(reply, bot, mention=user_id))
 
 
 async def handle_create_button(
@@ -538,7 +562,7 @@ async def handle_create_button(
 ) -> None:
     """死亡后「创建调查员」按钮回调。"""
     reply = build_create_reply(user_id, "调查员")
-    msg = md_message(reply, bot)
+    msg = md_message(reply, bot, mention=user_id)
     kb = build_keyboard(
         [
             [
