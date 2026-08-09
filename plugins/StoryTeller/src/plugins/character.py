@@ -349,6 +349,33 @@ async def handle_skill(event: Event, bot: Bot, msg: Message = CommandArg()):
     )
 
 
+# --- 法术显示辅助 ---
+def _spell_data(spell_id: str) -> dict:
+    """法术原始数据；无效返回空 dict。"""
+    return data_loader.spell_data.get(spell_id) or {}
+
+
+def _spell_name(spell_id: str) -> str:
+    return _spell_data(spell_id).get("name", spell_id)
+
+
+def _spell_brief(spell_id: str) -> str:
+    """法术简述：MP/SAN/效果。"""
+    spell = _spell_data(spell_id)
+    if not spell:
+        return ""
+    effect = spell.get("effect", {})
+    etype = effect.get("type", "damage")
+    dice = effect.get("dice", "")
+    effect_key = {
+        "damage": "spell.effect_damage",
+        "heal": "spell.effect_heal",
+        "temp_hp": "spell.effect_temp_hp",
+    }.get(etype, "")
+    eff = _t(effect_key, dice=dice) if effect_key else ""
+    return f"MP {spell.get('mp_cost', 1)}｜SAN {spell.get('san_cost', 0)}｜{eff}"
+
+
 # --- /调查员信息 ---
 _CARD_TEMPLATE = Path(__file__).parent.parent.parent / "data" / "info_card.html"
 
@@ -385,6 +412,12 @@ def _info_card_html(inv: Investigator, gold: int) -> str:
         if item.is_valid
     ) or '<div class="row"><span class="k">（空）</span></div>'
 
+    spell_rows = "".join(
+        f'<div class="row"><span class="k">{_spell_name(sid)}</span>'
+        f'<span class="v">{_spell_brief(sid)}</span></div>'
+        for sid in inv.get_spells()
+    ) or f'<div class="row"><span class="k">{_t("spell.list_empty")}</span></div>'
+
     survival = _t("character.dead") if not inv.is_survive else _t("character.survive")
     html = _CARD_TEMPLATE.read_text(encoding="utf-8")
     return (
@@ -395,6 +428,7 @@ def _info_card_html(inv: Investigator, gold: int) -> str:
         .replace("__ATTRS__", attr_items)
         .replace("__EQUIPS__", equip_rows)
         .replace("__BAG__", bag_rows)
+        .replace("__SPELLS__", spell_rows)
     )
 
 
@@ -462,11 +496,16 @@ async def build_info_message(user_id: str, bot: Bot):
     for k, v in attrs.items():
         attr_rows.append(_t("character.attr_table_row", name=k, value=v))
 
+    spell_lines = [
+        f"{_spell_name(sid)}（{_spell_brief(sid)}）" for sid in inv.get_spells()
+    ]
     res = (
         f"\n{_t('character.info_title')}\n\n"
         f"{_t('character.info_status', status=survival, day=inv.day, gold=get_info(user_id).gold)}\n\n"
         f"{_t('character.info_attrs')}\n{chr(10).join(attr_rows)}\n\n"
-        f"{inv.str_equipments()}"
+        f"{inv.str_equipments()}\n\n"
+        f"{_t('spell_list_title')}\n"
+        + ("\n".join(spell_lines) if spell_lines else _t("spell.list_empty"))
     )
     if is_md_enabled():
         res += f"\n\n{cmd_tag('/今日冒险', show=_t('adventure.adventure_button'))}"

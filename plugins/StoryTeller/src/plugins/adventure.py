@@ -123,7 +123,7 @@ def _battle_title(service: BattleService) -> str:
 
 
 def _round_status_html(service: BattleService) -> str:
-    """回合卡片状态条（HP/SAN/弹药 chips）。"""
+    """回合卡片状态条（HP/SAN/弹药/MP/临时生命 chips）。"""
     inv = service.investigator
     max_san = inv.get_skill("意志") or inv.get_skill("san", 0)
     chips = [
@@ -140,6 +140,16 @@ def _round_status_html(service: BattleService) -> str:
         chips.append(
             f'<div class="chip"><span class="k">🔫 弹药</span> '
             f'<span class="v">{service.bullet}/{service.max_bullet}</span></div>'
+        )
+    if service.max_mp > 0:
+        chips.append(
+            f'<div class="chip"><span class="k">🔮 MP</span> '
+            f'<span class="v">{service.mp}/{service.max_mp}</span></div>'
+        )
+    if service.temp_hp > 0:
+        chips.append(
+            f'<div class="chip"><span class="k">🛡 临时生命</span> '
+            f'<span class="v">{service.temp_hp}</span></div>'
         )
     return "".join(chips)
 
@@ -298,6 +308,13 @@ def _end_card_html(service: BattleService) -> str:
             detail += (
                 f'<div class="rowline"><span class="k">📈 成长鉴定：</span>'
                 f'<span class="v">{g}</span></div>'
+            )
+        learn = ext.get("learn", [])
+        if learn:
+            g2 = "".join(x.strip() for x in learn)
+            detail += (
+                f'<div class="rowline"><span class="k">📜 研读·法术：</span>'
+                f'<span class="v">{g2}</span></div>'
             )
         detail += "</div>"
 

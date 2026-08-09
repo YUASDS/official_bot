@@ -52,6 +52,11 @@ class BattleService:
         self.end_parts: tuple[str, str] = ("", "")
         self.end_card_ext: dict = {}
 
+        # 法术资源：MP = 意志/5（战斗中不回复）；临时生命（先抵伤害）
+        self.max_mp = investigator.get_skill("意志", 0) // 5
+        self.mp = self.max_mp
+        self.temp_hp = 0
+
     def get_turn_token(self) -> int:
         """当前回合令牌（用于按钮防重复点击）。"""
         return self._turn_counter
@@ -355,6 +360,10 @@ class BattleService:
             lines.append(
                 t("battle.ammo_label", bullet=self.bullet, max_bullet=self.max_bullet)
             )
+        if self.max_mp > 0:
+            lines.append(f"**{t('spell.mp_label')}：{self.mp}/{self.max_mp}**")
+        if self.temp_hp > 0:
+            lines.append(f"**{t('spell.temp_hp_label')}：{self.temp_hp}**")
         lines.append(self.get_action_section())
         return "\n\n".join(lines)
 
@@ -371,6 +380,9 @@ class BattleService:
         return (self._t("battle.error_state"),)
 
     def _execute_player_action(self, action: str) -> tuple:
+        if action.startswith("施法"):
+            spell_id = action.removeprefix("施法").strip()
+            return self._cast_spell(spell_id)
         action_handlers = {
             "格斗": self._melee_attack,
             "射击": lambda: self._ranged_attack(1),
@@ -383,6 +395,105 @@ class BattleService:
         if handler:
             return handler()
         return (self._t("battle.unknown_player_action", action=action),)
+
+    # --- Spells ---
+    def _cast_spell(self, spell_id: str) -> tuple:
+        """释放法术：MP/SAN 校验 → 扣资源 → 对抗（部分法术）→ 效果结算。"""
+        t = self._t
+        if not self.investigator.has_spell(spell_id):
+            return (t("spell.not_learned"), self._end_turn())
+        spell = data_loader.spell_data.get(spell_id)
+        if not spell:
+            return (t("spell.not_learned"), self._end_turn())
+
+        mp_cost = int(spell.get("mp_cost", 1))
+        san_cost = int(spell.get("san_cost", 0))
+        if self.mp < mp_cost:
+            return (t("spell.no_mp", mp=self.mp, max_mp=self.max_mp), self._end_turn())
+        if self.investigator.get_skill("san", 0) < san_cost:
+            return (t("spell.no_san"), self._end_turn())
+
+        # 扣除资源（无论成败）
+        self.mp -= mp_cost
+        if san_cost:
+            san = max(0, self.investigator.get_skill("san", 0) - san_cost)
+            self.investigator.set_skill("san", san)
+        cost_line = t("spell.mp_cost", mp=mp_cost) + (
+            f"、{san_cost} 点理智" if san_cost else ""
+        )
+
+        monster_action = self.monster.get_action(self.current_turn)
+
+        # 对抗法术：法术技能 vs 怪物技能
+        if spell.get("对抗"):
+            player_skill = max(
+                1,
+                self._get_player_modified_skill(
+                    spell.get("learn_skill", "智力"), 25
+                ),
+            )
+            monster_skill = monster_action["skill"]
+            confrontation = ConfrontationRoll(player_skill, monster_skill)
+            roll_desc = self._check_section(
+                spell["name"],
+                [
+                    self._check_row(
+                        self.player_name,
+                        spell["name"],
+                        confrontation.dice1,
+                        confrontation.skill1,
+                        confrontation.level1,
+                    ),
+                    self._check_row(
+                        self.monster.名字,
+                        "抵抗",
+                        confrontation.dice2,
+                        confrontation.skill2,
+                        confrontation.level2,
+                    ),
+                ],
+            )
+            # 法术检定不参与成长鉴定
+            self.succeded_skill.discard(spell["name"])
+            if not confrontation.get_result("反击"):
+                fail_text = t("spell.cast_fail", mp=mp_cost, san=san_cost or 0)
+                return (
+                    roll_desc,
+                    self._exchange([monster_action["counterattack"]], [fail_text]),
+                    self._end_turn(),
+                )
+        else:
+            roll_desc = (
+                f"{report_section(t('spell.cast_title', name=spell['name']))}\n"
+                f"{report_quote([cost_line])}"
+            )
+
+        effect_text, monster_text = self._apply_spell_effect(spell)
+        player_text = f"{spell.get('回复', '')}\n\n{effect_text}"
+        exchange = self._exchange([monster_text], [player_text])
+        return (roll_desc, exchange, self._end_turn())
+
+    def _apply_spell_effect(self, spell: dict) -> tuple[str, str]:
+        """应用法术效果，返回 (玩家效果文本, 怪物反应文本)。"""
+        t = self._t
+        effect = spell.get("effect", {})
+        etype = effect.get("type", "damage")
+        dice = effect.get("dice", "1d3")
+        expr, val = roll_dice(dice)
+
+        if etype == "damage":
+            monster_text = self._apply_damage_to_monster(val)
+            return f"{expr}={val}，造成 {val} 点伤害", monster_text
+        if etype == "heal":
+            max_hp = self.investigator.get_max_hp()
+            before = self.hp_record["inv"]
+            self.hp_record["inv"] = min(max_hp, before + val)
+            healed = self.hp_record["inv"] - before
+            return t("spell.heal_self", value=healed), ""
+        if etype == "temp_hp":
+            self.temp_hp += val
+            return t("spell.temp_gain", value=val), ""
+        return "", ""
 
     def _resolve_madness(self) -> tuple:
         """疯狂失控：按战斗轮顺序自动结算，怪物行动一次+玩家随机行动一次为一回合，直至疯狂结束。"""
@@ -754,6 +865,11 @@ class BattleService:
         initial_hp = self.hp_record["inv"]
         armor = self.investigator.get_armor_value()
         actual_damage = max(0, damage - armor)
+        # 临时生命（护盾）优先抵扣
+        if self.temp_hp > 0:
+            absorbed = min(self.temp_hp, actual_damage)
+            self.temp_hp -= absorbed
+            actual_damage -= absorbed
         self.hp_record["inv"] = max(0, self.hp_record["inv"] - actual_damage)
 
         if actual_damage > initial_hp / 2:
@@ -835,6 +951,11 @@ class BattleService:
 
         self.investigator.save()
 
+        # 研读法术残卷：智力检定，成功学会（消耗残卷），失败扣 SAN（残卷保留）
+        learn_lines = self._learn_scrolls()
+        if learn_lines:
+            self.investigator.save()
+
         # 缓存结构化结算数据（供图片卡片渲染）
         self.end_card_ext = {
             "search": {
@@ -845,17 +966,76 @@ class BattleService:
             },
             "bonus": bonus_text,
             "growth": growth_lines,
+            "learn": learn_lines,
         }
 
         ending = getattr(self.monster, "结局", self._t("battle.monster_dead"))
         header = f"{self._t('battle.victory_title')}\n\n{ending}"
         detail_parts = [f"{search_desc}\n{bonus_text}"]
+        if learn_lines:
+            detail_parts.append(
+                f"{report_section(self._t('spell.learn_title'))}\n"
+                + "\n".join(learn_lines)
+            )
         if growth_lines:
             detail_parts.append(
                 f"{self._t('battle.victory_growth')}\n" + "\n".join(growth_lines)
             )
         detail_parts.append(self._settlement())
         return header, "\n\n".join(detail_parts)
+
+    def _learn_scrolls(self) -> list[str]:
+        """研读背包中的法术残卷（逐个智力检定）。返回学习结果行。"""
+        t = self._t
+        inv = self.investigator
+        from ..models.player import investigator_repo
+
+        learn_lines: list[str] = []
+        equipments, _ = inv.get_equipments()
+        for scroll_id in equipments:
+            item = Equipment(scroll_id)
+            spell_id = item.spell
+            if (
+                not item.is_valid
+                or item.type != "spell_scroll"
+                or not spell_id
+                or inv.has_spell(spell_id)
+            ):
+                continue
+            spell = data_loader.spell_data.get(spell_id)
+            if not spell:
+                continue
+            skill_name = spell.get("learn_skill", "智力")
+            skill_val = max(1, inv.get_skill(skill_name, 0))
+            roll = DiceRoll(skill_val)
+            icon = get_success_icon(roll.level)
+            level = get_success_description(roll.level)
+            row = t(
+                "spell.learn_row",
+                icon=icon,
+                dice=roll.dice,
+                target=roll.skill,
+                result=t(
+                    "report.check_result",
+                    icon=icon,
+                    level=level,
+                ),
+            )
+            learn_lines.append(f" {row}")
+            if roll.level > SuccessLevel.FAILURE:
+                inv.add_spell(spell_id)
+                investigator_repo.remove_item_from_inventory(
+                    inv.qq, scroll_id, 1
+                )
+                learn_lines.append(
+                    "  " + t("spell.learn_ok", name=spell["name"])
+                )
+            else:
+                learn_san = int(spell.get("learn_san", 2))
+                san = max(0, inv.get_skill("san", 0) - learn_san)
+                inv.set_skill("san", san)
+                learn_lines.append("  " + t("spell.learn_fail", san=learn_san))
+        return learn_lines
 
     def _handle_victory(self) -> str:
         header, detail = self._victory_parts()

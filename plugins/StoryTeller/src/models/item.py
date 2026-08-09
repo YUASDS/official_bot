@@ -55,6 +55,7 @@ class Equipment:
         self.bullet = self._data.get("bullet", 0)
         # Assuming max_bullet is synonymous with bullet in static data
         self.max_bullet = self.bullet
+        self.spell = self._data.get("spell", "")
 
     @property
     def is_valid(self) -> bool:

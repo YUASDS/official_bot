@@ -30,6 +30,7 @@ class DataLoader:
             self.shop_data = self._load_json(base_path / "shop_data.json")
             self.environment_data = self._load_json(base_path / "environment_data.json")
             self.event_data = self._load_json(base_path / "event_data.json")
+            self.spell_data = self._load_json(base_path / "spell_data.json")
             self.text_data = self._load_json(base_path / "text_data.json")
             logger.info("Game data loaded successfully.")
         except Exception as e:
@@ -41,6 +42,7 @@ class DataLoader:
             self.shop_data = {}
             self.environment_data = {}
             self.event_data = {}
+            self.spell_data = {}
             self.text_data = {}
 
     def _load_json(self, path: Path) -> dict[str, Any]:

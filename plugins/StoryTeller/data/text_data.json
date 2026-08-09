@@ -119,6 +119,32 @@
         "event_no_gold": "乌帕不足",
         "event_skip_battle": "（你避开了今日的战斗，安然度过这一天。）"
     },
+    "spell": {
+        "learn_title": "研读·法术",
+        "learn_desc": "你展开残卷，研读其中禁忌的知识……",
+        "learn_row": "| {icon} 研读残卷 | `{dice} / {target}` | {result} |",
+        "learn_check": "{icon} **{skill}检定**：`{dice} / {target}` {level}",
+        "learn_ok": "古老的咒文刻入你的记忆，你学会了 **{name}**。",
+        "learn_fail": "咒文在你的脑海中扭曲成无法辨认的符号。你消耗了 {san} 点理智，却一无所获——残卷仍在背包中，等待下次机会。",
+        "mp_label": "🔮 MP",
+        "temp_hp_label": "🛡 临时生命",
+        "list_title": "法术",
+        "list_empty": "（尚未学会任何法术）",
+        "list_line": "{name}：MP {mp}｜SAN {san}｜{effect}",
+        "effect_damage": "伤害 {dice}",
+        "effect_heal": "回复 HP {dice}",
+        "effect_temp_hp": "临时生命 {dice}",
+        "not_learned": "你尚未学会该法术。",
+        "no_mp": "法力不足！当前 MP {mp}/{max_mp}。",
+        "no_san": "理智不足，无法支付施法代价！",
+        "mp_cost": "你消耗了 {mp} 点 MP",
+        "cast_title": "施法·{name}",
+        "cast_fail": "法术在对抗中溃散，咒文反噬般灼烧你的舌尖——你消耗了 {mp} 点 MP、{san} 点理智，却一无所获。",
+        "heal_self": "你的伤口以违背自然的速度蠕动愈合，回复了 {value} 点生命。",
+        "temp_gain": "一层灰白的角质覆盖上你的皮肤，获得 {value} 点临时生命。",
+        "learn_hint": "战斗胜利后可研读背包中的法术残卷（智力检定）",
+        "hint": "战斗中可输入 /行动 施法<ID> 释放法术"
+    },
     "madness": {
         "victim": "「{name}」的意志在恐惧中彻底碎裂",
         "rambles": [

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import re
 from pathlib import Path
 from typing import Any, Optional, Union
@@ -69,6 +70,9 @@ class InvestigatorModel(BaseModel):
     # Equipment (JSON)
     equipped_items = TextField(default="{}", verbose_name="装备物品")
 
+    # Spells (JSON list of spell ids)
+    spells = TextField(default="[]", verbose_name="已学会法术")
+
     class Meta:
         table_name = "investigators"
 
@@ -91,7 +95,16 @@ class InvestigatorRepository:
         if db.is_closed():
             db.connect()
         db.create_tables([InvestigatorModel, InventoryItemModel], safe=True)
+        self._migrate(db)
         self.db = db
+
+    @staticmethod
+    def _migrate(db: Any) -> None:
+        """旧库补充新增列（spells）。"""
+        with contextlib.suppress(Exception):
+            db.execute_sql(
+                "ALTER TABLE investigators ADD COLUMN spells TEXT DEFAULT '[]'"
+            )
 
     def find_by_qq(self, qq: str) -> Optional[InvestigatorModel]:
         try:
@@ -364,6 +377,27 @@ class Investigator:
 
     def restore_hp(self) -> None:
         self.hp = self.get_max_hp()
+
+    def get_spells(self) -> list[str]:
+        """已学会法术 ID 列表（优先读取未保存的缓存值）。"""
+        raw = None
+        if hasattr(self, "update_data") and "spells" in self.update_data:
+            raw = self.update_data["spells"]
+        if raw is None:
+            raw = getattr(self._model, "spells", "[]") or "[]"
+        try:
+            return list(ujson.loads(raw))
+        except (ValueError, TypeError):
+            return []
+
+    def add_spell(self, spell_id: str) -> None:
+        spells = self.get_spells()
+        if spell_id not in spells:
+            spells.append(spell_id)
+        self.set_skill("spells", ujson.dumps(spells, ensure_ascii=False))
+
+    def has_spell(self, spell_id: str) -> bool:
+        return spell_id in self.get_spells()
 
     def get_full_attributes_dict(self) -> dict[str, Any]:
         core = ["力量", "体质", "体型", "敏捷", "外貌", "智力", "意志", "教育", "幸运"]
