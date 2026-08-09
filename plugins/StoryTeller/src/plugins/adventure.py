@@ -208,9 +208,9 @@ def _end_card_html(service: BattleService) -> str:
         )
         growth = ext.get("growth", [])
         if growth:
-            g = " ".join(x.strip() for x in growth)
+            g = "".join(x.strip() for x in growth)
             detail += (
-                f'<div class="rowline"><span class="k">📈 :</span>'
+                f'<div class="rowline"><span class="k">📈 成长鉴定：</span>'
                 f'<span class="v">{g}</span></div>'
             )
         detail += "</div>"
