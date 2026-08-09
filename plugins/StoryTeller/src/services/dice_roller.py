@@ -1,5 +1,7 @@
 import random
 
+from .data_loader import data_loader
+
 
 class SuccessLevel:
     """Success Level Constants"""
@@ -12,8 +14,6 @@ class SuccessLevel:
 
 def get_success_description(rank: int) -> str:
     """Get success level description"""
-    from .data_loader import data_loader
-
     t = data_loader.get_text
     success_descriptions = {
         SuccessLevel.CRITICAL_FAILURE: t("dice.critical_failure"),
@@ -27,8 +27,6 @@ def get_success_description(rank: int) -> str:
 
 def get_success_icon(rank: int) -> str:
     """Get success level icon (report.icon_*)."""
-    from .data_loader import data_loader
-
     t = data_loader.get_text
     icons = {
         SuccessLevel.CRITICAL_FAILURE: t("report.icon_critical_failure"),

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import random
 from typing import TYPE_CHECKING, Literal, Optional
 
 from database.db import add_gold
@@ -361,7 +362,6 @@ class BattleService:
         return (self._t("battle.error_state"),)
 
     def _execute_player_action(self, action: str) -> tuple:
-        import random
         if self.is_madness and self.madness_duration > 0:
             self.madness_duration -= 1
             available = self.investigator.get_available_actions().get("inv", [])

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any, Optional, Union
 
@@ -512,8 +513,6 @@ class CreateInvestigator:
         return False
 
     def set_skill(self, skills: str):
-        import re
-
         t = data_loader.get_text
         pattern = re.compile(r"[^\d\s]+|\d+")
         match = pattern.findall(skills)

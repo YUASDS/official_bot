@@ -9,6 +9,7 @@ from ..services.battle import BattleService
 from ..models.player import Investigator, investigator_repo
 from ..models.monster import Monster, monster_repo
 from ..services.data_loader import data_loader
+from ..services.sanity import perform_sanity_check
 from ..utils.active_battles import battle_manager
 from ..utils.buttons import (
     _send_to_user,
@@ -89,7 +90,6 @@ async def handle_adventure(event: Event, bot: Bot):
             env_desc = f"【{env_key}】{env.get('描述', '')}"
 
         # --- Sanity check ---
-        from ..services.sanity import perform_sanity_check
         san_passed, san_desc, _ = perform_sanity_check(inv, monster)
 
         madness_desc = ""
