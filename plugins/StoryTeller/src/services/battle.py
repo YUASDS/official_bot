@@ -673,6 +673,12 @@ class BattleService:
             ],
         )
 
+        # 反击按"格斗"技能结算成长鉴定（战报仍显示"反击"）
+        if player_action == "反击":
+            self.succeded_skill.discard("反击")
+            if confrontation.level2 > SuccessLevel.FAILURE:
+                self.succeded_skill.add("格斗")
+
         critical_text = ""
         if confrontation.level2 == SuccessLevel.CRITICAL_FAILURE and weapon:
             critical_text = self._handle_player_critical_failure(weapon)
