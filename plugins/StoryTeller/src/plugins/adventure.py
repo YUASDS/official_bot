@@ -5,7 +5,7 @@ from nonebot.params import CommandArg
 from loguru import logger
 import random
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Optional
 
 from ..services.battle import BattleService
 from ..models.player import Investigator, investigator_repo
@@ -34,6 +34,9 @@ from ..services.dice_roller import (
     roll_dice,
 )
 from database.db import add_gold
+
+# 奇遇随机出现概率
+_EVENT_CHANCE = 0.4
 
 # State for active random events (user_id -> event context)
 _event_states: dict[str, dict] = {}
@@ -591,19 +594,27 @@ async def handle_adventure(event: Event, bot: Bot):
 
         header = f"\n{env_desc}\n{day_event}" if env_desc else f"\n{day_event}"
 
-        # --- Random event (40% chance)：奇遇在理智检定之前展示 ---
-        if random.random() < 0.4 and data_loader.event_data:
-            event_key = random.choice(list(data_loader.event_data.keys()))
-            event_data = data_loader.event_data[event_key]
-
+        # --- 奇遇：固定日期事件当天必触发；否则 40% 随机（按条件过滤）---
+        event_data = _pick_random_event(inv)
+        if event_data:
             battle_manager.add_battle(user_id, service)
             _event_states[user_id] = {
                 "event": event_data,
             }
 
-            # 事件选项按钮
+            from database.db import get_info
+
+            gold = get_info(user_id).gold
+            labels = [_event_option_label(opt, gold) for opt in event_data["选项"]]
+
+            # 事件选项按钮（商品选项显示价格 / 乌帕不足）
             event_kb = build_keyboard(
-                [[(opt["输入"], f"event:{opt['输入']}") for opt in event_data["选项"]]]
+                [
+                    [
+                        (labels[i], f"event:{opt['输入']}")
+                        for i, opt in enumerate(event_data["选项"])
+                    ]
+                ]
             )
 
             # 奇遇 CG 卡片（全平台）+ 选项按钮；图片失败回退文本
@@ -611,8 +622,8 @@ async def handle_adventure(event: Event, bot: Bot):
             img = await _render_pic(card_html)
             if img is not None and await _send_pic(bot, img, adventure_cmd.send):
                 options = "\n".join(
-                    f" {data_loader.get_text('adventure.event_choice', input=opt['输入'])}"
-                    for opt in event_data["选项"]
+                    f" {data_loader.get_text('adventure.event_choice', input=label)}"
+                    for label in labels
                 )
                 event_msg = md_message(
                     f"\n**{data_loader.get_text('adventure.event_title')}**\n\n"
@@ -625,8 +636,8 @@ async def handle_adventure(event: Event, bot: Bot):
                     f"\n\n{data_loader.get_text('adventure.event_title')}\n"
                     f"{report_quote([event_data['描述']])}\n"
                 )
-                for opt in event_data["选项"]:
-                    event_text += f" {data_loader.get_text('adventure.event_choice', input=opt['输入'])}\n"
+                for label in labels:
+                    event_text += f" {data_loader.get_text('adventure.event_choice', input=label)}\n"
                 event_msg = md_message(f"{header}{event_text}", bot, mention=user_id)
             if event_kb is not None and not isinstance(event_msg, str):
                 event_msg.append(event_kb)
@@ -802,31 +813,46 @@ def _run_sanity_and_madness(
     return san_desc, madness_desc, is_mad, madness_duration, False, san_loss
 
 
+def _delta_value(v: Any) -> int:
+    """数值或骰子表达式 → 实际值。"""
+    if isinstance(v, str):
+        return roll_dice(v)[1]
+    return v
+
+
 def _apply_event_effects(inv: Investigator, user_id: str, effects: dict) -> str:
     """应用奇遇事件效果并返回变更摘要（如「🧠 SAN +10 ｜ 💪 意志 +5」）。
 
-    SAN 仅封底于 0（可超过意志上限）；HP 不超过最大生命值；摘要显示实际变化量。
+    SAN 仅封底于 0（可超过意志上限）；HP 不超过最大生命值；乌帕不少于 0；
+    数值效果支持骰子表达式（如 "2d6+4"）；摘要显示实际变化量。
     """
+    from database.db import get_info
+
     from ..models.item import Equipment as _Equipment
 
     changes: list[str] = []
     if "san" in effects:
+        delta = _delta_value(effects["san"])
         cur = inv.get_skill("san", 0)
-        new_san = max(0, cur + effects["san"])
-        actual = new_san - cur
-        inv.set_skill("san", new_san)
+        actual = max(0, cur + delta) - cur
+        inv.set_skill("san", cur + actual)
         if actual:
             changes.append(f"🧠 SAN {actual:+d}")
     if "hp" in effects:
+        delta = _delta_value(effects["hp"])
         max_hp = inv.get_max_hp()
-        new_hp = min(max_hp, max(1, inv.hp + effects["hp"]))
+        new_hp = min(max_hp, max(1, inv.hp + delta))
         actual = new_hp - inv.hp
         inv.hp = new_hp
         if actual:
             changes.append(f"❤️ HP {actual:+d}")
     if "金币" in effects:
-        add_gold(user_id, effects["金币"])
-        changes.append(f"🪙 金币 {effects['金币']:+d}")
+        delta = _delta_value(effects["金币"])
+        cur = get_info(user_id).gold
+        actual = max(0, cur + delta) - cur
+        add_gold(user_id, actual)
+        if actual:
+            changes.append(f"🪙 金币 {actual:+d}")
     if "物品" in effects:
         item = _Equipment(effects["物品"])
         inv.add_item_to_inventory(effects["物品"], 1)
@@ -838,6 +864,102 @@ def _apply_event_effects(inv: Investigator, user_id: str, effects: dict) -> str:
             changes.append(f"💪 {sk_name} {sk_delta:+d}")
     inv.save()
     return " ｜ ".join(changes)
+
+
+def _event_buy_check(user_id: str, effects: dict) -> str:
+    """商品选项（乌帕换物品）余额校验：不足返回提示文本，否则返回空串。"""
+    price = -int(effects["金币"]) if effects.get("金币", 0) < 0 else 0
+    if price > 0 and effects.get("物品"):
+        from database.db import get_info
+
+        if get_info(user_id).gold < price:
+            return data_loader.get_text("adventure.event_no_gold")
+    return ""
+
+
+def _resolve_check_option(
+    inv: Investigator, option: dict
+) -> tuple[dict, str, bool | None]:
+    """检定式选项：掷 1d100 vs 指定技能。
+
+    返回 (生效效果, 回复文本, 是否通过)；无检定时通过为 None。
+    """
+    check = option.get("检定")
+    if not check:
+        return option.get("效果", {}), option.get("回复", ""), None
+    skill = check.get("技能", "意志")
+    skill_val = inv.get_skill(skill, 0)
+    _expr, roll = roll_dice("1d100")
+    passed = roll <= skill_val
+    effects = check.get("奖励", {}) if passed else check.get("失败", {})
+    reply = option.get("成功回复") if passed else option.get("失败回复")
+    if reply is None:
+        reply = option.get("回复", "")
+    t = data_loader.get_text
+    icon = get_success_icon(1) if passed else get_success_icon(0)
+    level = t("dice.success") if passed else t("dice.failure")
+    check_desc = t(
+        "adventure.check_desc",
+        icon=icon,
+        skill=skill,
+        dice=roll,
+        target=skill_val,
+        level=level,
+    )
+    return effects, f"{reply}\n\n> {check_desc}", passed
+
+
+def _apply_event_choice(
+    inv: Investigator, user_id: str, matched: dict
+) -> tuple[str, bool]:
+    """处理事件选项：乌帕校验 → 检定 → 效果 → 回复。返回 (消息, 是否跳过战斗)。"""
+    effects, reply, passed = _resolve_check_option(inv, matched)
+    no_gold = _event_buy_check(user_id, effects)
+    if no_gold:
+        return f"{reply}\n\n{no_gold}", False
+    summary = _apply_event_effects(inv, user_id, effects)
+    reply = _event_reply_with_effects(reply, summary)
+    skip = bool(matched.get("跳过战斗")) and (passed is None or passed)
+    return reply, skip
+
+
+def _event_condition_ok(event_data: dict, inv: Investigator) -> bool:
+    """事件条件过滤：san_low（仅低 SAN 时进入随机池）。"""
+    cond = event_data.get("条件") or {}
+    return not (
+        "san_low" in cond and inv.get_skill("san", 0) >= cond["san_low"]
+    )
+
+
+def _pick_random_event(inv: Investigator) -> Optional[dict]:
+    """选择今日事件：固定日期事件（触发.day）当天必触发；否则 40% 随机。
+
+    随机池排除固定日期事件与不满足条件的事件。
+    """
+    for ev in data_loader.event_data.values():
+        trigger = ev.get("触发") or {}
+        if trigger.get("day") == inv.day:
+            return ev
+    if random.random() >= _EVENT_CHANCE or not data_loader.event_data:
+        return None
+    pool = [
+        ev
+        for ev in data_loader.event_data.values()
+        if "触发" not in ev and _event_condition_ok(ev, inv)
+    ]
+    return random.choice(pool) if pool else None
+
+
+def _event_option_label(option: dict, gold: int) -> str:
+    """选项展示文本：商品选项显示价格，乌帕不足显示「乌帕不足」。"""
+    label = option["输入"]
+    effects = option.get("效果") or {}
+    price = -int(effects["金币"]) if effects.get("金币", 0) < 0 else 0
+    if price > 0 and effects.get("物品"):
+        if gold >= price:
+            return f"{label}（{price} 乌帕）"
+        return f"{label}（{data_loader.get_text('adventure.event_no_gold')}）"
+    return label
 
 
 def _event_reply_with_effects(event_reply: str, summary: str) -> str:
@@ -886,13 +1008,27 @@ async def handle_combat(event: Event, bot: Bot, msg: Message = CommandArg()):
             matched = None  # No choice typed
 
         if matched:
-            effects = matched.get("效果", {})
-            event_reply = matched["回复"]
-            inv = battle.investigator
-            summary = _apply_event_effects(inv, user_id, effects)
-            event_reply = _event_reply_with_effects(event_reply, summary)
+            event_reply, skip_battle = _apply_event_choice(
+                battle.investigator, user_id, matched
+            )
+            if skip_battle:
+                # 检定成功：跳过今日战斗
+                battle.investigator.is_adventure = False
+                battle.investigator.save()
+                battle_manager.remove_battle(user_id)
+                await combat_cmd.finish(
+                    md_message(
+                        f"{event_reply}\n\n"
+                        f"{data_loader.get_text('adventure.event_skip_battle')}",
+                        bot,
+                        mention=user_id,
+                    )
+                )
         else:
             event_reply = data_loader.get_text("adventure.event_default")
+            skip_battle = False
+        if skip_battle:
+            return
 
         # 奇遇完成后：怪物出场 → 理智检定（+智力检定/疯狂）→ 敏捷对比 → 战斗开始
         san_desc, madness_desc, is_mad, madness_duration, san_zero, san_loss = (
@@ -1048,14 +1184,32 @@ async def handle_event_choice(
     event_data = ev_state["event"]
     matched = next((o for o in event_data["选项"] if o["输入"] == choice), None)
 
+    async def _send(msg) -> None:
+        await _send_to_user(bot, user_id, msg, group_openid)
+
     if matched:
-        effects = matched.get("效果", {})
-        event_reply = matched["回复"]
-        inv = battle.investigator
-        summary = _apply_event_effects(inv, user_id, effects)
-        event_reply = _event_reply_with_effects(event_reply, summary)
+        event_reply, skip_battle = _apply_event_choice(
+            battle.investigator, user_id, matched
+        )
+        if skip_battle:
+            # 检定成功：跳过今日战斗
+            battle.investigator.is_adventure = False
+            battle.investigator.save()
+            battle_manager.remove_battle(user_id)
+            await _send(
+                md_message(
+                    f"{event_reply}\n\n"
+                    f"{data_loader.get_text('adventure.event_skip_battle')}",
+                    bot,
+                    mention=user_id,
+                )
+            )
+            return
     else:
         event_reply = data_loader.get_text("adventure.event_default")
+        skip_battle = False
+    if skip_battle:
+        return
 
     # 奇遇完成后：怪物出场 → 理智检定（+智力检定/疯狂）→ 敏捷对比 → 战斗开始
     san_desc, madness_desc, is_mad, madness_duration, san_zero, san_loss = (
@@ -1064,9 +1218,6 @@ async def handle_event_choice(
     if san_zero:
         battle.investigator.is_survive = False
         battle.investigator.save()
-
-        async def _send(msg) -> None:
-            await _send_to_user(bot, user_id, msg, group_openid)
 
         await _send_sanity_zero(
             battle,
@@ -1096,9 +1247,6 @@ async def handle_event_choice(
         f"{battle.get_dex_compare_section()}\n\n"
         f"{battle.start_turn()}"
     )
-
-    async def _send(msg: Any) -> None:
-        await _send_to_user(bot, user_id, msg, group_openid)
 
     img = await _render_pic(_battle_open_html(battle, reply))
     if img is not None and await _send_pic(bot, img, _send):
