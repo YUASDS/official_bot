@@ -116,6 +116,18 @@
         "env_effect_title": "环境·修正",
         "adventure_button": "⚔️ 今日冒险"
     },
+    "madness": {
+        "victim": "「{name}」的意志在恐惧中彻底碎裂",
+        "rambles": [
+            "我听见了门后的声音——那里根本没有门。",
+            "石像在对我的影子低语，它从未动过嘴唇。",
+            "雾里有人呼唤我的名字，但那不是我的名字。",
+            "时间在倒流，记忆正一片片褪色。",
+            "所有的影子都在看我——它们知道我看见了什么。",
+            "我已不再是我，只是它的一部分。",
+            "血肉之下，是另一个我在蠕动。"
+        ]
+    },
     "character": {
         "need_create": "请先使用 /创建调查员 生成角色。",
         "need_number": "请输入数字，例如：/选择调查员 2",
@@ -147,7 +159,9 @@
         "create_button": "🧭 创建调查员",
         "info_button": "📋 调查员信息",
         "resurrect_button": "🌟 使用复活道具",
-        "skill_title": "### 技能"
+        "skill_title": "### 技能",
+        "create_done_title": "调查员创建完成",
+        "create_done_hint": "冒险已准备就绪，点击下方按钮开启今日冒险！"
     },
     "shop": {
         "input_hint": "请输入物品ID和数量（可选）。",
@@ -178,6 +192,7 @@
         "item_line": "| {name} | x{quantity} | {brief} |",
         "attrs_title": "**【{name}的调查员候补】**",
         "attrs_single": "**【{name}的属性】**",
+        "candidate_panel": "[{index}] 候补",
         "candidate_header": "| # | 属性一览 |",
         "candidate_sep": "| :--- | :--- |",
         "candidate_row": "| [{index}] | {attrs} |",

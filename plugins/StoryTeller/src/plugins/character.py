@@ -20,14 +20,18 @@ from ..utils.md_format import (
     cmd_tag,
     is_md_enabled,
     md_message,
+    md_to_html,
     pic_enabled,
 )
+from .adventure import _render_pic, _send_pic
 from database.db import get_info
 
 # --- State storage ---
 _user_states: dict[str, Any] = {}
 
 _t = data_loader.get_text
+
+_CREATE_TEMPLATE = Path(__file__).parent.parent.parent / "data" / "create_card.html"
 
 # --- Commands ---
 create_cmd = on_command(
@@ -49,6 +53,86 @@ info_cmd = on_command(
 use_item_cmd = on_command(
     "使用物品", aliases={"equip_item", "装备"}, priority=10, block=True
 )
+
+
+# --- 创建流程图片卡片 ---
+def _create_card_html(
+    icon: str, title: str, panels: str, hint_md: str, meta: str = ""
+) -> str:
+    """创建流程通用卡片 HTML。"""
+    return (
+        _CREATE_TEMPLATE.read_text(encoding="utf-8")
+        .replace("__ICON__", icon)
+        .replace("__TITLE__", title)
+        .replace("__META__", meta)
+        .replace("__PANELS__", panels)
+        .replace("__HINT__", md_to_html(hint_md))
+    )
+
+
+def _attrs_panel_html(inv: dict, title: str) -> str:
+    """属性面板：9 项核心属性 + SAN/HP/DB。"""
+    labels = {"san": "SAN", "hp": "HP", "db": "DB"}
+    keys = [*InvestigatorFormatter.DISPLAY_ATTRS, "san", "hp", "db"]
+    items = "".join(
+        f'<span class="p-item"><i>{labels.get(k, k)}</i><b>{inv.get(k, 0)}</b></span>'
+        for k in keys
+    )
+    return (
+        f'<div class="panel"><div class="p-title">{title}</div>'
+        f'<div class="p-grid">{items}</div></div>'
+    )
+
+
+def _skills_panel_html(inv: dict) -> str:
+    """技能面板：成对布局 + 闪避单行。"""
+    items = "".join(
+        f'<span class="p-item"><i>{a}</i><b>{inv.get(a, 0)}</b></span>'
+        f'<span class="p-item"><i>{b}</i><b>{inv.get(b, 0)}</b></span>'
+        for a, b in (("手枪", "步枪"), ("格斗", "侦查"), ("急救", "医学"))
+    )
+    items += f'<span class="p-item"><i>闪避</i><b>{inv.get("闪避", 0)}</b></span>'
+    return (
+        f'<div class="panel"><div class="p-title">技能</div>'
+        f'<div class="p-grid">{items}</div></div>'
+    )
+
+
+def _candidate_card_html(investigators: list[dict]) -> str:
+    """候选列表卡片（3 名候补，属性面板 + 选择提示）。"""
+    panels = "".join(
+        _attrs_panel_html(inv, _t("player.candidate_panel", index=i))
+        for i, inv in enumerate(investigators, 1)
+    )
+    return _create_card_html(
+        "🌙", "欢迎来到克苏鲁的世界", panels, _t("character.choose_hint")
+    )
+
+
+def _choose_success_card_html(ci: CreateInvestigator, name: str) -> str:
+    """选择成功卡片：属性 + 技能 + /st 分配提示。"""
+    panels = _attrs_panel_html(ci.select, _t("character.info_attrs"))
+    panels += _skills_panel_html(ci.select)
+    return _create_card_html(
+        "✅",
+        "选择成功",
+        panels,
+        _t("character.skill_alloc_hint", points=ci.skill_point),
+        meta=_t("character.name_label", name=name),
+    )
+
+
+def _create_done_card_html(ci: CreateInvestigator, name: str) -> str:
+    """创建完成卡片：属性 + 技能 + 今日冒险提示。"""
+    panels = _attrs_panel_html(ci.select, _t("character.info_attrs"))
+    panels += _skills_panel_html(ci.select)
+    return _create_card_html(
+        "🎉",
+        _t("character.create_done_title"),
+        panels,
+        _t("character.create_done_hint"),
+        meta=_t("character.name_label", name=name),
+    )
 
 
 # --- /创建调查员 ---
@@ -130,9 +214,26 @@ async def handle_create(event: Event, bot: Bot, msg: Message = CommandArg()):
     name = msg.extract_plain_text().strip() or "调查员"
 
     reply = build_create_reply(user_id, name)
-    send_msg = md_message(reply, bot)
+    ci = _user_states[user_id]["creator"]
 
-    # 候选「选择」按钮（QQ 平台）
+    # 候选列表图片卡片（全平台）+ 选择按钮；图片失败回退 md
+    img = await _render_pic(_candidate_card_html(ci.investigators_data))
+    if img is not None and await _send_pic(bot, img, create_cmd.send):
+        kb = build_keyboard(
+            [
+                [
+                    (_t("character.choose_button", index=i), f"choose:{i}")
+                    for i in range(1, 4)
+                ]
+            ]
+        )
+        btn_msg = md_message(f"\n{_t('character.choose_hint')}", bot)
+        if kb is not None and not isinstance(btn_msg, str):
+            btn_msg.append(kb)
+        await create_cmd.send(btn_msg)
+        return
+
+    send_msg = md_message(reply, bot)
     kb = build_keyboard(
         [[(_t("character.choose_button", index=i), f"choose:{i}") for i in range(1, 4)]]
     )
@@ -160,6 +261,12 @@ async def handle_choose(event: Event, bot: Bot, msg: Message = CommandArg()):
     reply = choose_reply(user_id, idx)
     if reply is None:
         await choose_cmd.finish(md_message(f"\n{_t('character.choose_failed')}", bot))
+
+    # 选择成功图片卡片（含 /st 分配提示）；图片失败回退 md
+    state = _user_states[user_id]
+    img = await _render_pic(_choose_success_card_html(state["creator"], state["name"]))
+    if img is not None and await _send_pic(bot, img, choose_cmd.send):
+        return
     await choose_cmd.finish(md_message(reply, bot))
 
 
@@ -186,6 +293,17 @@ async def handle_skill(event: Event, bot: Bot, msg: Message = CommandArg()):
     inv = ci.create_investigator(user_id, name)
     attrs = InvestigatorFormatter.format_investigator_info(name, ci.select)
     del _user_states[user_id]
+
+    # 创建完成图片卡片 + 今日冒险按钮；图片失败回退 md
+    img = await _render_pic(_create_done_card_html(ci, name))
+    if img is not None and await _send_pic(bot, img, skill_cmd.send):
+        await skill_cmd.send(
+            md_message(
+                f"\n{cmd_tag('/今日冒险', show=_t('adventure.adventure_button'))}",
+                bot,
+            )
+        )
+        return
 
     await skill_cmd.finish(
         md_message(f"\n{_t('character.create_done', name=inv.name)}\n\n{attrs}", bot)
@@ -393,8 +511,22 @@ async def handle_choose_button(
     """候选「选择」按钮回调。"""
     reply = choose_reply(user_id, int(idx)) if idx.isdigit() else None
     if reply is None:
-        reply = f"\n{_t('character.need_create')}"
-    await _send_to_user(bot, user_id, md_message(reply, bot), group_openid)
+        await _send_to_user(
+            bot,
+            user_id,
+            md_message(f"\n{_t('character.need_create')}", bot),
+            group_openid,
+        )
+        return
+
+    async def _send(msg: Any) -> None:
+        await _send_to_user(bot, user_id, msg, group_openid)
+
+    state = _user_states[user_id]
+    img = await _render_pic(_choose_success_card_html(state["creator"], state["name"]))
+    if img is not None and await _send_pic(bot, img, _send):
+        return
+    await _send(md_message(reply, bot))
 
 
 async def handle_create_button(

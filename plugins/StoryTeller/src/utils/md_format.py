@@ -107,13 +107,15 @@ def _strip_inline(text: str) -> str:
 
 _INLINE_CODE_RE = re.compile(r"`([^`]+)`")
 _INLINE_BOLD_RE = re.compile(r"\*\*([^*]+)\*\*")
+_INLINE_ITALIC_RE = re.compile(r"\*([^*]+)\*")
 
 
 def _inline_html(text: str) -> str:
-    """行内 md 转 HTML：先转义实体，再处理加粗/行内代码/<br>。"""
+    """行内 md 转 HTML：先转义实体，再处理加粗/斜体/行内代码/<br>。"""
     text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
     text = _INLINE_CODE_RE.sub(r"<code>\1</code>", text)
     text = _INLINE_BOLD_RE.sub(r"<b>\1</b>", text)
+    text = _INLINE_ITALIC_RE.sub(r"<i>\1</i>", text)
     return text.replace("&lt;br&gt;", "<br>")
 
 

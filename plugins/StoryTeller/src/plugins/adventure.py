@@ -283,7 +283,7 @@ def _end_card_html(service: BattleService) -> str:
         desc = get_success_description(level)
         detail = (
             f'<div class="detail">'
-            f'<div class="rowline"><span class="k">🔍 侦查检定</span>'
+            f'<div class="rowline"><span class="k">🔍 侦查检定：<br></span>'
             f'<span class="v">{icon_s} {desc}（{search.get("dice", "?")}/{search.get("target", "?")}）</span></div>'
             f'<div class="rowline"><span class="k">🎁 战利品</span>'
             f'<span class="v">{ext.get("bonus", "")}</span></div>'
@@ -355,8 +355,12 @@ def _sanity_zero_card_html(inv: Investigator, san_loss: int = 0) -> str:
     san_label = f"0/{max_san}"
     if san_loss > 0:
         san_label += f"（-{san_loss}）"
+    rambles = data_loader.text_data.get("madness", {}).get("rambles") or []
+    ramble = random.choice(rambles) if rambles else ""
     return (
         _MAD_END_TEMPLATE.read_text(encoding="utf-8")
+        .replace("__VICTIM__", t("madness.victim", name=inv.name))
+        .replace("__RAMBLE__", ramble)
         .replace("__SAN__", san_label)
         .replace("__HP__", f"{inv.hp}/{inv.get_max_hp()}")
         .replace("__DAY__", str(inv.day))
@@ -395,9 +399,7 @@ async def _send_sanity_zero(
     anomaly = ""
     if not cg_shown and service.environment:
         anomaly = report_quote([service.environment.get("描述", "")])
-    encounter = (
-        f"{anomaly}\n\n" if anomaly else ""
-    ) + (
+    encounter = (f"{anomaly}\n\n" if anomaly else "") + (
         f"{report_section(t('battle.monster_intro_title'))}\n"
         f"{monster_intro}\n\n"
         f"{san_desc}"
@@ -423,9 +425,7 @@ async def _send_sanity_zero(
     )
 
 
-async def _send_end_buttons(
-    battle: BattleService, bot: Bot, send: Callable
-) -> None:
+async def _send_end_buttons(battle: BattleService, bot: Bot, send: Callable) -> None:
     """战斗结束引导按钮：阵亡→复活/创建；胜利→调查员信息。"""
     t = data_loader.get_text
     if battle.hp_record["inv"] <= 0:
