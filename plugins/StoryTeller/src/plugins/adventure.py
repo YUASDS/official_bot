@@ -34,9 +34,21 @@ from ..services.dice_roller import (
     roll_dice,
 )
 from database.db import add_gold
+from util.DaylyRecord import add_data, get_data, write_json
 
 # 奇遇随机出现概率
 _EVENT_CHANCE = 0.4
+
+
+def _adventure_done_today(user_id: str) -> bool:
+    """今日冒险是否已完成（按自然日记录，0 点自动重置）。"""
+    return bool(get_data(user_id, "adventure_done"))
+
+
+def _mark_adventure_done(user_id: str) -> None:
+    """记录今日冒险已完成。"""
+    add_data(user_id, "adventure_done", True)
+    write_json()
 
 # State for active random events (user_id -> event context)
 _event_states: dict[str, dict] = {}
@@ -559,6 +571,14 @@ async def handle_adventure(event: Event, bot: Bot):
                     mention=user_id,
                 )
             )
+        if _adventure_done_today(user_id):
+            await adventure_cmd.finish(
+                md_message(
+                    f"\n{data_loader.get_text('adventure.daily_done')}",
+                    bot,
+                    mention=user_id,
+                )
+            )
 
         inv.restore_hp()
         inv.save()
@@ -674,6 +694,7 @@ async def handle_adventure(event: Event, bot: Bot):
         if san_zero:
             inv.is_survive = False
             inv.save()
+            _mark_adventure_done(user_id)
             await _send_sanity_zero(
                 service, inv, san_desc, san_loss, bot, adventure_cmd.send
             )
@@ -1039,6 +1060,7 @@ async def handle_combat(event: Event, bot: Bot, msg: Message = CommandArg()):
                 battle.investigator.is_adventure = False
                 battle.investigator.save()
                 battle_manager.remove_battle(user_id)
+                _mark_adventure_done(user_id)
                 await combat_cmd.finish(
                     md_message(
                         f"{event_reply}\n\n"
@@ -1060,6 +1082,7 @@ async def handle_combat(event: Event, bot: Bot, msg: Message = CommandArg()):
         if san_zero:
             battle.investigator.is_survive = False
             battle.investigator.save()
+            _mark_adventure_done(user_id)
             await _send_sanity_zero(
                 battle,
                 battle.investigator,
@@ -1136,6 +1159,7 @@ async def handle_combat(event: Event, bot: Bot, msg: Message = CommandArg()):
         inv.is_adventure = False
         inv.save()
         battle_manager.remove_battle(user_id)
+        _mark_adventure_done(user_id)
 
 
 async def handle_combat_action(
@@ -1179,6 +1203,7 @@ async def handle_combat_action(
         inv.is_adventure = False
         inv.save()
         battle_manager.remove_battle(user_id)
+        _mark_adventure_done(user_id)
 
 
 async def handle_event_choice(
@@ -1219,6 +1244,7 @@ async def handle_event_choice(
             battle.investigator.is_adventure = False
             battle.investigator.save()
             battle_manager.remove_battle(user_id)
+            _mark_adventure_done(user_id)
             await _send(
                 md_message(
                     f"{event_reply}\n\n"
@@ -1241,6 +1267,7 @@ async def handle_event_choice(
     if san_zero:
         battle.investigator.is_survive = False
         battle.investigator.save()
+        _mark_adventure_done(user_id)
 
         await _send_sanity_zero(
             battle,
