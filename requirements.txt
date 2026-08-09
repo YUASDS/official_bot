@@ -1,5 +1,5 @@
-# 运行时直接依赖（传递依赖由 pip 自动解析）
-# 安装后需执行：playwright install chromium
+# Runtime direct dependencies (transitive deps resolved by pip)
+# After install, run: playwright install chromium
 nonebot2[fastapi,websockets]==2.5.0
 nonebot-adapter-qq==1.7.1
 nonebot-adapter-mirai==2.3.3
