@@ -285,7 +285,7 @@ def _end_card_html(service: BattleService) -> str:
             f'<div class="detail">'
             f'<div class="rowline"><span class="k">🔍 侦查检定：<br></span>'
             f'<span class="v">{icon_s} {desc}（{search.get("dice", "?")}/{search.get("target", "?")}）</span></div>'
-            f'<div class="rowline"><span class="k">🎁 战利品</span>'
+            f'<div class="rowline"><span class="k">🎁 战利品：<br></span>'
             f'<span class="v">{ext.get("bonus", "")}</span></div>'
         )
         growth = ext.get("growth", [])

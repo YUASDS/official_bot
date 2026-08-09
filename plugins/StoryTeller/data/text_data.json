@@ -218,8 +218,8 @@
         "unknown": "未知怪物",
         "default_intro": "一个看起来很恐怖的生物。",
         "default_action": "猛击",
-        "loot_item": "> 获得了 {item}（{brief}）和 {gold} 乌帕。",
-        "loot_gold": "> 获得了 {gold} 乌帕。",
+        "loot_item": "{item}（{brief}）<br>{gold} 乌帕。",
+        "loot_gold": "{gold} 乌帕。",
         "high_damage": "造成了重创！",
         "low_damage": "攻击几乎无效。",
         "normal_damage": "对其造成了伤害。"
