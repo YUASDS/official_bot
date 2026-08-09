@@ -510,9 +510,13 @@ async def handle_adventure(event: Event, bot: Bot):
     try:
         inv = Investigator.load(user_id)
         if not inv.is_survive:
+            t = data_loader.get_text
             await adventure_cmd.finish(
                 md_message(
-                    f"\n{data_loader.get_text('adventure.player_dead')}",
+                    f"\n{t('adventure.player_dead')}\n\n"
+                    f"{cmd_tag('/复活', show=t('character.resurrect_button'))}\n"
+                    f"{cmd_tag('/今日商店', show=t('shop.shop_button'))}\n"
+                    f"{cmd_tag('/创建调查员', show=t('character.create_button'))}",
                     bot,
                     mention=user_id,
                 )

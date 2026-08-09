@@ -174,7 +174,8 @@
         "item_sep": "| :--- | :--- | :--- |",
         "item_line": "| {id} | {name} | {price} 乌帕 |",
         "buy_hint": "输入 /购买 <物品ID> [数量] 进行购买",
-        "buy_button": "购买 {name}"
+        "buy_button": "购买 {name}",
+        "shop_button": "🛒 今日商店"
     },
     "player": {
         "unknown_item": "未知物品",
