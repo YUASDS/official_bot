@@ -15,7 +15,13 @@ from ..models.player import (
 from ..services.data_loader import data_loader
 from ..utils.active_battles import battle_manager
 from ..utils.buttons import _send_to_user, register_button_handler
-from ..utils.md_format import build_keyboard, cmd_tag, md_message, pic_enabled
+from ..utils.md_format import (
+    build_keyboard,
+    cmd_tag,
+    is_md_enabled,
+    md_message,
+    pic_enabled,
+)
 from database.db import get_info
 
 # --- State storage ---
@@ -252,7 +258,7 @@ async def _card_msg(user_id: str):
 
 
 def _info_kb_msg(user_id: str, bot: Bot):
-    """指令消息：简短提示 + 背包「使用」指令标签（点击后回车发送 /使用物品）。"""
+    """指令消息：背包「使用」标签 + 底部「今日冒险」按钮。"""
     inv = Investigator.load(user_id)
 
     equipments, res_name = inv.get_equipments()
@@ -264,11 +270,11 @@ def _info_kb_msg(user_id: str, bot: Bot):
         )
         for item_id in item_ids
     ]
-    if not tags:
-        return md_message(f"\n**{_t('player.use_hint')}**", bot)
-
-    body = f"\n**{_t('player.use_hint')}**\n\n" + "\n".join(tags)
-    return md_message(body, bot)
+    parts = [f"\n**{_t('player.use_hint')}**"]
+    if tags:
+        parts.append("\n".join(tags))
+    parts.append(cmd_tag("/今日冒险", show=_t("adventure.adventure_button")))
+    return md_message("\n\n".join(parts), bot)
 
 
 async def _send_info_flow(user_id: str, bot: Bot, send: Callable, finish: Callable) -> None:
@@ -305,6 +311,8 @@ async def build_info_message(user_id: str, bot: Bot):
         f"{_t('character.info_attrs')}\n{chr(10).join(attr_rows)}\n\n"
         f"{inv.str_equipments()}"
     )
+    if is_md_enabled():
+        res += f"\n\n{cmd_tag('/今日冒险', show=_t('adventure.adventure_button'))}"
     msg = md_message(res, bot)
 
     # 背包物品「使用」按钮（QQ 平台）

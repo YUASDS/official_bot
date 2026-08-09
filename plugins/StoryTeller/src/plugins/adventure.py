@@ -347,6 +347,28 @@ def _send_turn(battle: BattleService, bot: Bot, text: str) -> Message:
     return msg
 
 
+async def _send_end_buttons(
+    battle: BattleService, bot: Bot, send: Callable
+) -> None:
+    """战斗结束引导按钮：阵亡→复活/创建；胜利→调查员信息。"""
+    t = data_loader.get_text
+    if battle.hp_record["inv"] <= 0:
+        await send(
+            md_message(
+                f"\n**{t('character.resurrect_button')}**\n{cmd_tag('/复活')}\n\n"
+                f"**{t('character.create_button')}**\n{cmd_tag('/创建调查员')}",
+                bot,
+            )
+        )
+    elif battle.hp_record["mon"] <= 0:
+        await send(
+            md_message(
+                f"\n**{t('character.info_button')}**\n{cmd_tag('/调查员信息')}",
+                bot,
+            )
+        )
+
+
 async def _send_combat_result(
     battle: BattleService,
     bot: Bot,
@@ -362,45 +384,29 @@ async def _send_combat_result(
         # 1. 本回合战报卡片（不含结束文本；逃跑等单段结果无战报则跳过）
         if any(x for x in result[:-1]):
             img = await _render_pic(_battle_round_html(battle, result))
-            if img is not None:
-                if not await _send_pic(bot, img, send):
-                    combat_text = "\n" + "\n\n".join(str(x) for x in result[:-1] if x)
-                    await send(md_message(combat_text, bot))
+            if img is not None and not await _send_pic(bot, img, send):
+                combat_text = "\n" + "\n\n".join(str(x) for x in result[:-1] if x)
+                await send(md_message(combat_text, bot))
 
-        # 2. 结算卡片
+        # 2. 结算卡片 + 结束引导按钮
         img = await _render_pic(_end_card_html(battle))
         if img is not None and await _send_pic(bot, img, send):
-            if battle.hp_record["inv"] <= 0:
-                t = data_loader.get_text
-                await send(
-                    md_message(
-                        f"\n**{t('character.resurrect_button')}**\n{cmd_tag('/复活')}\n\n"
-                        f"**{t('character.create_button')}**\n{cmd_tag('/创建调查员')}",
-                        bot,
-                    )
-                )
+            await _send_end_buttons(battle, bot, send)
             return
 
         # 结算图片失败 → md 回退
         if result[-1]:
             await send(md_message(str(result[-1]), bot))
-        if battle.hp_record["inv"] <= 0:
-            t = data_loader.get_text
-            await send(
-                md_message(
-                    f"\n**{t('character.resurrect_button')}**\n{cmd_tag('/复活')}\n\n"
-                    f"**{t('character.create_button')}**\n{cmd_tag('/创建调查员')}",
-                    bot,
-                )
-            )
+        await _send_end_buttons(battle, bot, send)
         return
 
-    # 普通回合：战报卡片 + 行动按钮消息
+    # 普通回合：战报卡片 + 行动按钮消息（仅行动抉择）
     img = await _render_pic(_battle_round_html(battle, result))
     if img is not None and await _send_pic(bot, img, send):
-        await send(_send_turn(battle, bot, str(result[-1])))
+        await send(_send_turn(battle, bot, battle.get_action_section()))
         return
-    await send(_send_turn(battle, bot, "\n" + "\n\n".join([str(x) for x in result if x])))
+    response = "\n" + "\n\n".join(str(x) for x in result if x)
+    await send(_send_turn(battle, bot, response))
 
 
 adventure_cmd = on_command(
@@ -579,9 +585,7 @@ async def handle_adventure(event: Event, bot: Bot):
         )
         img = await _render_pic(_battle_open_html(service, battle_reply))
         if img is not None and await _send_pic(bot, img, adventure_cmd.send):
-            await adventure_cmd.send(
-                _send_turn(service, bot, service._get_next_turn_prompt())
-            )
+            await adventure_cmd.send(_send_turn(service, bot, service.get_action_section()))
             return
 
         # 图片失败回退 md（含完整开场内容）
@@ -793,9 +797,7 @@ async def handle_combat(event: Event, bot: Bot, msg: Message = CommandArg()):
         )
         img = await _render_pic(_battle_open_html(battle, reply))
         if img is not None and await _send_pic(bot, img, combat_cmd.send):
-            await combat_cmd.send(
-                _send_turn(battle, bot, battle._get_next_turn_prompt())
-            )
+            await combat_cmd.send(_send_turn(battle, bot, battle.get_action_section()))
             return
         await combat_cmd.send(_send_turn(battle, bot, reply))
         return
@@ -948,7 +950,7 @@ async def handle_event_choice(
 
     img = await _render_pic(_battle_open_html(battle, reply))
     if img is not None and await _send_pic(bot, img, _send):
-        await _send(_send_turn(battle, bot, battle._get_next_turn_prompt()))
+        await _send(_send_turn(battle, bot, battle.get_action_section()))
         return
     await _send(_send_turn(battle, bot, reply))
 

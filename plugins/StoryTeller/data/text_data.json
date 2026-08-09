@@ -111,7 +111,8 @@
         "resurrect_none": "背包中没有复活道具。",
         "resurrect_ok": "🌟 复活成功！生命与理智已恢复，使用 \\/今日冒险\\ 继续冒险。",
         "event_effect_title": "奇遇·效果",
-        "env_effect_title": "环境·修正"
+        "env_effect_title": "环境·修正",
+        "adventure_button": "⚔️ 今日冒险"
     },
     "character": {
         "need_create": "请先使用 /创建调查员 生成角色。",
