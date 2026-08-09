@@ -23,6 +23,9 @@ if TYPE_CHECKING:
     from ..models.monster import Monster
     from ..models.player import Investigator
 
+# 失控自动结算的迭代上限（保险丝，正常每回合 2 步内必推进）
+_MAX_MADNESS_STEPS = 100
+
 
 class BattleService:
     def __init__(self, investigator: Investigator, monster: Monster) -> None:
@@ -357,6 +360,8 @@ class BattleService:
 
     def execute_action(self, action: str) -> tuple:
         self.current_action = action
+        if self.is_madness and self.madness_duration > 0:
+            return self._resolve_madness()
         handler = {
             "inv": self._execute_player_action,
             "mon": self._execute_monster_action,
@@ -366,18 +371,6 @@ class BattleService:
         return (self._t("battle.error_state"),)
 
     def _execute_player_action(self, action: str) -> tuple:
-        if self.is_madness and self.madness_duration > 0:
-            self.madness_duration -= 1
-            available = self.investigator.get_available_actions().get("inv", [])
-            random_action = random.choice(available) if available else "格斗"
-            madness_end_msg = ""
-            if self.madness_duration == 0:
-                self.is_madness = False
-                madness_end_msg = self._t("battle.madness_end")
-            msg = self._t("battle.madness_action", action=random_action) + madness_end_msg
-            res = self._execute_player_action(random_action)
-            return (msg, *res)
-
         action_handlers = {
             "格斗": self._melee_attack,
             "射击": lambda: self._ranged_attack(1),
@@ -390,6 +383,40 @@ class BattleService:
         if handler:
             return handler()
         return (self._t("battle.unknown_player_action", action=action),)
+
+    def _resolve_madness(self) -> tuple:
+        """疯狂失控：按战斗轮顺序自动结算，怪物行动一次+玩家随机行动一次为一回合，直至疯狂结束。"""
+        parts: list[str] = []
+        guard = 0
+        while (
+            self.is_madness
+            and self.madness_duration > 0
+            and not self.fight_is_over()
+        ):
+            guard += 1
+            if guard > _MAX_MADNESS_STEPS:
+                self.is_madness = False
+                break
+            if self.current_turn == "inv":
+                self.madness_duration -= 1
+                available = self.investigator.get_available_actions().get("inv", [])
+                random_action = random.choice(available) if available else "格斗"
+                msg = self._t("battle.madness_action", action=random_action)
+                if self.madness_duration == 0:
+                    self.is_madness = False
+                    msg += self._t("battle.madness_end")
+                parts.append(msg)
+                parts.extend(self._execute_player_action(random_action))
+                if self.current_turn == "inv" and not self.fight_is_over():
+                    parts.append(self._end_turn())
+            else:
+                defensive = "闪避"
+                if self.investigator.get_equipped_id("格斗"):
+                    defensive = random.choice(["反击", "闪避"])
+                parts.extend(self._execute_monster_action(defensive))
+                if self.current_turn == "mon" and not self.fight_is_over():
+                    parts.append(self._end_turn())
+        return tuple(parts)
 
     def _execute_monster_action(self, action: str) -> tuple:
         if action in ("反击", "闪避"):
