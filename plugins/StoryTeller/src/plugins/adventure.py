@@ -572,13 +572,23 @@ async def handle_adventure(event: Event, bot: Bot):
                 )
             )
         if _adventure_done_today(user_id):
-            await adventure_cmd.finish(
-                md_message(
-                    f"\n{data_loader.get_text('adventure.daily_done')}",
-                    bot,
-                    mention=user_id,
+            # 冒险卷（401）：背包持有则自动使用，获得额外冒险次数
+            if investigator_repo.remove_item_from_inventory(user_id, "401", 1):
+                await adventure_cmd.send(
+                    md_message(
+                        f"\n{data_loader.get_text('adventure.scroll_used')}",
+                        bot,
+                        mention=user_id,
+                    )
                 )
-            )
+            else:
+                await adventure_cmd.finish(
+                    md_message(
+                        f"\n{data_loader.get_text('adventure.daily_done')}",
+                        bot,
+                        mention=user_id,
+                    )
+                )
 
         inv.restore_hp()
         inv.save()

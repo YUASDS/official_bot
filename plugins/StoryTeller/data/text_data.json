@@ -94,6 +94,7 @@
         "player_dead": "当前调查员已死亡。请使用复活道具。",
         "in_battle": "你正在战斗中！请继续战斗。",
         "daily_done": "今日冒险已完成，请明天再来。",
+        "scroll_used": "📜 你展开一张冒险卷，获得了额外的一次冒险机会！",
         "no_monster_config": "找不到今天的怪物配置。",
         "start_error": "冒险启动时发生错误。",
         "battle_state_error": "战斗状态异常。",
