@@ -803,17 +803,27 @@ def _run_sanity_and_madness(
 
 
 def _apply_event_effects(inv: Investigator, user_id: str, effects: dict) -> str:
-    """应用奇遇事件效果并返回变更摘要（如「🧠 SAN -10 ｜ 💪 意志 +5」）。"""
+    """应用奇遇事件效果并返回变更摘要（如「🧠 SAN +10 ｜ 💪 意志 +5」）。
+
+    SAN 仅封底于 0（可超过意志上限）；HP 不超过最大生命值；摘要显示实际变化量。
+    """
     from ..models.item import Equipment as _Equipment
 
     changes: list[str] = []
     if "san" in effects:
-        san = inv.get_skill("san") + effects["san"]
-        inv.set_skill("san", max(0, san))
-        changes.append(f"🧠 SAN {effects['san']:+d}")
+        cur = inv.get_skill("san", 0)
+        new_san = max(0, cur + effects["san"])
+        actual = new_san - cur
+        inv.set_skill("san", new_san)
+        if actual:
+            changes.append(f"🧠 SAN {actual:+d}")
     if "hp" in effects:
-        inv.hp = max(1, inv.hp + effects["hp"])
-        changes.append(f"❤️ HP {effects['hp']:+d}")
+        max_hp = inv.get_max_hp()
+        new_hp = min(max_hp, max(1, inv.hp + effects["hp"]))
+        actual = new_hp - inv.hp
+        inv.hp = new_hp
+        if actual:
+            changes.append(f"❤️ HP {actual:+d}")
     if "金币" in effects:
         add_gold(user_id, effects["金币"])
         changes.append(f"🪙 金币 {effects['金币']:+d}")
