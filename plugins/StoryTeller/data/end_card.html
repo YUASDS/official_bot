@@ -28,6 +28,12 @@
   }
   .stat .k { color:#a88f6a; } .stat .v { color:#f3e3c0; font-weight:900; font-size:16px; }
   .hint { color:#a88f6a; font-size:13px; margin-top:10px; }
+  .detail { text-align:left; margin-top:12px; }
+  .rowline {
+    background:rgba(201,168,106,.06); border:1px solid rgba(201,168,106,.18);
+    border-radius:6px; padding:6px 10px; font-size:14px; margin-top:6px;
+  }
+  .rowline .k { color:#c9a86a; } .rowline .v { color:#f3e3c0; font-weight:600; }
 </style>
 </head>
 <body>
@@ -40,6 +46,7 @@
     <div class="stat"><div class="k">🧠 SAN</div><div class="v">__SAN__</div></div>
     <div class="stat"><div class="k">📅 存活</div><div class="v">第 __DAY__ 天</div></div>
   </div>
+  __DETAIL__
   <div class="hint">__HINT__</div>
 </div>
 </body>

@@ -47,6 +47,7 @@ class BattleService:
         self.fled = False
         self._turn_counter = 0
         self.end_parts: tuple[str, str] = ("", "")
+        self.end_card_ext: dict = {}
 
     def get_turn_token(self) -> int:
         """当前回合令牌（用于按钮防重复点击）。"""
@@ -118,20 +119,16 @@ class BattleService:
         self._weapon_reply_shown = True
         return weapon.reply
 
-    def roll_initiative(self) -> ConfrontationRoll:
-        """投掷先攻并确定当前回合，返回判定结果供状态表使用。"""
+    def roll_initiative(self) -> None:
+        """按敏捷值直接决定先手（不掷骰）：敏捷高者先行动，平局玩家先手。"""
         self._advance_turn()
         player_dex = self._get_player_modified_skill("敏捷")
         monster_dex = self._get_monster_modified("dex", 50)
-        confrontation = ConfrontationRoll(player_dex, monster_dex)
-        self.initiative = confrontation
-        self.current_turn = "inv" if confrontation.get_result("先攻") else "mon"
-        return confrontation
+        self.current_turn = "inv" if player_dex >= monster_dex else "mon"
 
     def get_status_table(self) -> str:
-        """当前回合行 + 双方状态表格（含先攻结果）。需先 roll_initiative()。"""
+        """当前回合行 + 双方状态表格（SAN / HP）。"""
         t = self._t
-        c = self.initiative
         owner = (
             t("battle.your_turn")
             if self.current_turn == "inv"
@@ -139,43 +136,46 @@ class BattleService:
         )
         inv = self.investigator
         max_san = inv.get_skill("意志") or inv.get_skill("san", 0)
-        r1 = t(
-            "report.init_result",
-            icon=get_success_icon(c.level1),
-            level=get_success_description(c.level1),
-            dice=c.dice1,
-            target=c.skill1,
-        )
-        r2 = t(
-            "report.init_result",
-            icon=get_success_icon(c.level2),
-            level=get_success_description(c.level2),
-            dice=c.dice2,
-            target=c.skill2,
-        )
         rows = [
             t(
-                "report.status_inv",
+                "report.status_inv_mini",
                 icon=t("report.icon_inv"),
                 name=self.player_name,
                 san=inv.get_skill("san", 0),
                 max_san=max_san,
                 hp=self.hp_record["inv"],
                 max_hp=inv.get_max_hp(),
-                result=r1,
             ),
             t(
-                "report.status_mon",
+                "report.status_mon_mini",
                 icon=t("report.icon_mon"),
                 name=self.monster.名字,
                 hp=self.hp_record["mon"],
                 max_hp=self.monster.max_hp,
-                result=r2,
             ),
         ]
         return (
             f"{t('battle.turn_line', owner=owner)}\n\n"
-            + "\n".join([t("report.status_header"), t("report.status_sep"), *rows])
+            + "\n".join([t("report.status_mini_header"), t("report.status_mini_sep"), *rows])
+        )
+
+    def get_dex_compare_section(self) -> str:
+        """【敏捷·对比】小节：双方敏捷值与先手判定（不掷骰）。"""
+        t = self._t
+        player_dex = self._get_player_modified_skill("敏捷")
+        monster_dex = self._get_monster_modified("dex", 50)
+        winner = (
+            self.player_name
+            if self.current_turn == "inv"
+            else self.monster.名字
+        )
+        line = (
+            f"🧑‍🎤 {self.player_name} 敏捷 {player_dex}"
+            f" ｜ 👾 {self.monster.名字} 敏捷 {monster_dex}"
+        )
+        return (
+            f"{report_section(t('battle.dex_compare_title'))}\n"
+            f"{report_quote([line, f'→ {winner} 先手'])}"
         )
 
     def get_danger_section(self) -> str:
@@ -221,6 +221,9 @@ class BattleService:
     def _check_row(self, name: str, skill: str, dice: int, target: int, level: int) -> str:
         """构造检定表格行。"""
         t = self._t
+        # 记录调查员成功使用的技能（供胜利后的成长鉴定）
+        if level > SuccessLevel.FAILURE and skill and name == self.player_name:
+            self.succeded_skill.add(skill)
         icon = get_success_icon(level)
         result = t(
             "report.check_result",
@@ -615,6 +618,10 @@ class BattleService:
             self.investigator.hp = self.hp_record["inv"]
             self.investigator.is_adventure = False
             self.investigator.save()
+            self.end_parts = (
+                f"{flee_check}\n\n{self._t('battle.flee_success')}",
+                "",
+            )
             return (
                 f"{flee_check}\n\n"
                 f"{self._t('battle.flee_success')}",
@@ -795,6 +802,18 @@ class BattleService:
 
         self.investigator.save()
 
+        # 缓存结构化结算数据（供图片卡片渲染）
+        self.end_card_ext = {
+            "search": {
+                "dice": search_roll.dice,
+                "target": search_roll.skill,
+                "level": search_roll.level,
+                "passed": search_roll.level > SuccessLevel.FAILURE,
+            },
+            "bonus": bonus_text,
+            "growth": growth_lines,
+        }
+
         ending = getattr(self.monster, "结局", self._t("battle.monster_dead"))
         header = f"{self._t('battle.victory_title')}\n\n{ending}"
         detail_parts = [f"{search_desc}\n{bonus_text}"]
@@ -815,6 +834,7 @@ class BattleService:
         inv = self.investigator
         max_san = inv.get_skill("意志") or inv.get_skill("san", 0)
         return {
+            "fled": self.fled,
             "victory": self.hp_record["mon"] <= 0,
             "ending": getattr(self.monster, "结局", self._t("battle.monster_dead")),
             "hp": self.hp_record["inv"],

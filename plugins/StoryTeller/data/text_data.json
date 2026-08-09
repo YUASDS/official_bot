@@ -2,10 +2,6 @@
     "report": {
         "section": "**【{title}】**",
         "rule": "---",
-        "status_header": "| 角色 | 🧠 SAN | ❤️ HP | 🎲 先攻结果 |",
-        "status_sep": "| :--- | :--- | :--- | :--- |",
-        "status_inv": "| {icon} 调查员 {name} | `{san}/{max_san}` | `{hp}/{max_hp}` | {result} |",
-        "status_mon": "| {icon} {name} | `—` | `{hp}/{max_hp}` | {result} |",
         "status_mini_header": "| 角色 | 🧠 SAN | ❤️ HP |",
         "status_mini_sep": "| :--- | :--- | :--- |",
         "status_inv_mini": "| {icon} 调查员 {name} | `{san}/{max_san}` | `{hp}/{max_hp}` |",
@@ -15,7 +11,6 @@
         "check_row": "| {icon} {name} {skill} | `{dice} / {target}` | {result} |",
         "check_row_penalty": "| {icon} {name} {skill} | `{dice} / {target}`（惩罚骰 `{rolls}`） | {result} |",
         "check_result": "{icon} **{level}**",
-        "init_result": "{icon} {level}（`{dice}/{target}`）",
         "san_row": "| {icon} 理智检定 | `{dice} / {target}` | {result} |",
         "san_result": "{icon} **{level}**（理智损失 `{expr}={value}`，当前 SAN `{cur}/{max}`）",
         "action_title": "行动·抉择",
@@ -82,12 +77,16 @@
             "换弹"
         ],
         "victory_growth": "### 📈 成长鉴定",
-        "growth_line": "- **{skill}**：`{dice}/{target}` **{result}**",
+        "growth_line": "\n {skill}：`{dice}/{target}` {result}",
         "growth_inc": "  → 技能成长：1d10={value}",
         "monster_dead": "怪物倒下了。",
         "no_damage": "攻击无效。",
         "multi_shot_damage": "{expr}（{value}点）",
-        "total_damage": "**总伤害：{total}**"
+        "total_damage": "**总伤害：{total}**",
+        "fled_title": "逃出生天",
+        "fled_ending": "你从怪物的利爪下挣脱，庄园的迷雾仍在身后低语。",
+        "fled_hint": "明日可继续冒险",
+        "dex_compare_title": "敏捷·对比"
     },
     "adventure": {
         "player_dead": "当前调查员已死亡。请使用复活道具。",
@@ -109,7 +108,9 @@
         "use_item": "使用 ",
         "resurrect_alive": "你还活着，不需要复活道具。",
         "resurrect_none": "背包中没有复活道具。",
-        "resurrect_ok": "🌟 复活成功！生命与理智已恢复，使用 \\/今日冒险\\ 继续冒险。"
+        "resurrect_ok": "🌟 复活成功！生命与理智已恢复，使用 \\/今日冒险\\ 继续冒险。",
+        "event_effect_title": "奇遇·效果",
+        "env_effect_title": "环境·修正"
     },
     "character": {
         "need_create": "请先使用 /创建调查员 生成角色。",

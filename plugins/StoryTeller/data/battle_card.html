@@ -6,56 +6,39 @@
   * { margin:0; padding:0; box-sizing:border-box; }
   body { width:440px; background:#0e0c08; padding:14px; }
   .card {
-    background: linear-gradient(160deg,#1c1610 0%,#241a12 55%,#181008 100%);
-    border:1px solid #6b4a2a; border-radius:14px; padding:18px 16px;
+    background: linear-gradient(165deg,#1c1610 0%,#241a12 45%,#150d06 100%);
+    border:1px solid #6b4a2a; border-radius:14px; padding:26px 20px;
     color:#e8d9b8; font-family:'Noto Serif SC','Microsoft YaHei',serif;
     box-shadow:0 0 24px rgba(107,74,42,.25) inset;
+    text-align:center;
   }
-  .seal { font-size:23px; color:#c9a86a; text-align:center; letter-spacing:5px; font-weight:900; }
-  .meta { text-align:center; color:#a88f6a; font-size:15px; margin-top:6px; }
-  .turn { text-align:center; color:#f3e3c0; font-size:17px; font-weight:900; margin:4px 0 10px; }
-  .bar { height:1px; background:linear-gradient(90deg,transparent,#c9a86a,transparent); margin:10px 0; }
-  .grid { display:grid; grid-template-columns:1fr 1fr; gap:8px 12px; }
-  .side {
+  .seal { font-size:34px; color:#c9a86a; letter-spacing:8px; font-weight:900; text-shadow:0 0 18px rgba(201,168,106,.35); }
+  .meta { color:#a88f6a; font-size:15px; margin-top:8px; letter-spacing:3px; }
+  .bar { height:1px; background:linear-gradient(90deg,transparent,#c9a86a,transparent); margin:16px 0; }
+  .quote { text-align:left; }
+  .quote p {
+    font-size:15px; line-height:1.9; color:#d8c8a8; margin:10px 0;
+    text-indent:2em; border-left:3px solid rgba(201,168,106,.35);
+    padding-left:12px;
+  }
+  .effects { text-align:left; margin-top:14px; }
+  .e-title { color:#d9b87c; font-size:14px; font-weight:900; letter-spacing:3px; margin-bottom:6px; }
+  .e-row {
     background:rgba(201,168,106,.06); border:1px solid rgba(201,168,106,.18);
-    border-radius:8px; padding:8px 10px;
+    border-radius:6px; padding:5px 10px; font-size:14px; margin-top:5px;
+    color:#f3e3c0;
   }
-  .side .who { color:#c9a86a; font-size:14px; font-weight:900; margin-bottom:4px; }
-  .side .row { display:flex; justify-content:space-between; font-size:14px; margin-top:3px; }
-  .side .row .k { color:#a88f6a; } .side .row .v { color:#f3e3c0; font-weight:600; }
-  .quote {
-    background:rgba(201,168,106,.04); border-left:3px solid #6b4a2a;
-    padding:8px 10px; font-size:14px; line-height:1.7; color:#d8c8a8;
-  }
-  .quote p { margin:2px 0; }
-  .danger { color:#d98c6a; font-size:14px; font-style:italic; line-height:1.6; }
-  .danger b { color:#e8b08a; }
 </style>
 </head>
 <body>
 <div class="card">
   <div class="seal">🕯️ __TITLE__</div>
   <div class="meta">📅 第 __DAY__ 日</div>
-  <div class="turn">__TURN__</div>
-  <div class="grid">
-    <div class="side">
-      <div class="who">🧑‍🎤 调查员 · __INV_NAME__</div>
-      <div class="row"><span class="k">SAN</span><span class="v">__INV_SAN__</span></div>
-      <div class="row"><span class="k">HP</span><span class="v">__INV_HP__</span></div>
-      <div class="row"><span class="k">先攻</span><span class="v">__INV_INIT__</span></div>
-    </div>
-    <div class="side">
-      <div class="who">👾 __MON_NAME__</div>
-      <div class="row"><span class="k">SAN</span><span class="v">—</span></div>
-      <div class="row"><span class="k">HP</span><span class="v">__MON_HP__</span></div>
-      <div class="row"><span class="k">先攻</span><span class="v">__MON_INIT__</span></div>
-    </div>
-  </div>
   <div class="bar"></div>
   <div class="quote">
     __ANOMALY__
   </div>
-  __DANGER__
+  __EFFECTS__
 </div>
 </body>
 </html>

@@ -89,12 +89,40 @@ def _pic_msg(img) -> Optional[Message]:
         return None
 
 
+def _fmt_bonus(v) -> str:
+    """数值显示带符号（如 -20 / +10），骰子表达式原样（如 +1d4）。"""
+    if isinstance(v, int):
+        return f"{v:+d}"
+    return str(v)
+
+
+def _env_effects_lines(env: dict) -> list[str]:
+    """环境效果摘要行（如「🧑‍🎤 射击 -20」「👾 敏捷 -10」）。"""
+    if not env:
+        return []
+    lines = []
+    player = env.get("玩家", {})
+    monster = env.get("怪物", {})
+    if player:
+        lines.append(
+            "🧑‍🎤 " + " ｜ ".join(f"{k} {_fmt_bonus(v)}" for k, v in player.items())
+        )
+    if monster:
+        lines.append(
+            "👾 " + " ｜ ".join(f"{k} {_fmt_bonus(v)}" for k, v in monster.items())
+        )
+    return lines
+
+
 def _battle_card_html(
     service: BattleService,
-    day_event: str,
-    monster_intro: str,
+    day_event: str = "",
+    event_desc: str = "",
 ) -> str:
-    """开场战报卡片 HTML。"""
+    """入场 CG 卡片 HTML（环境氛围图，怪物出场在 md 中展示）。
+
+    event_desc 非空时（奇遇场景）：异象区 = 环境描述 + 奇遇描述。
+    """
     t = data_loader.get_text
     env_name = service.environment.get("name", "")
     title = (
@@ -103,61 +131,34 @@ def _battle_card_html(
         else t("battle.report_title_default")
     )
     title = title.replace("# 🕯️ ", "").replace(" · 实时战报", "")
-    owner = (
-        t("battle.your_turn")
-        if service.current_turn == "inv"
-        else t("battle.monster_turn")
-    )
     inv = service.investigator
-    c = service.initiative
-    max_san = inv.get_skill("意志") or inv.get_skill("san", 0)
-    inv_init = t(
-        "report.init_result",
-        icon=get_success_icon(c.level1),
-        level=get_success_description(c.level1),
-        dice=c.dice1,
-        target=c.skill1,
-    )
-    mon_init = t(
-        "report.init_result",
-        icon=get_success_icon(c.level2),
-        level=get_success_description(c.level2),
-        dice=c.dice2,
-        target=c.skill2,
-    )
 
     anomaly_lines = []
     env_desc = service.environment.get("描述", "") if service.environment else ""
     if env_desc:
         anomaly_lines.append(f"<p>{env_desc}</p>")
-    if day_event:
+    if event_desc:
+        anomaly_lines.append(f"<p>{event_desc}</p>")
+    elif day_event:
         anomaly_lines.append(f"<p>{day_event}</p>")
-    if monster_intro:
-        anomaly_lines.append(f"<p>{monster_intro}</p>")
 
-    danger = ""
-    if service.current_turn == "mon":
-        action = service.monster.get_action("mon")
-        attack_text = action.get("attack", action.get("desc", ""))
-        danger = (
-            f'<div class="bar"></div>'
-            f'<div class="danger">⏳ 怪物回合已至：<b>{attack_text}——</b></div>'
+    # 环境修正区块
+    effects = ""
+    env_lines = _env_effects_lines(service.environment)
+    if env_lines:
+        t2 = data_loader.get_text
+        rows = "".join(f'<div class="e-row">{l}</div>' for l in env_lines)
+        effects = (
+            f'<div class="effects"><div class="e-title">⚙️ {t2("adventure.env_effect_title")}</div>'
+            f"{rows}</div>"
         )
 
     html = _CARD_TEMPLATE.read_text(encoding="utf-8")
     return (
         html.replace("__TITLE__", title)
         .replace("__DAY__", str(inv.day))
-        .replace("__TURN__", f"⏳ 当前回合：{owner}")
-        .replace("__INV_NAME__", service.player_name)
-        .replace("__INV_SAN__", f"{inv.get_skill('san', 0)}/{max_san}")
-        .replace("__INV_HP__", f"{service.hp_record['inv']}/{inv.get_max_hp()}")
-        .replace("__INV_INIT__", inv_init)
-        .replace("__MON_NAME__", service.monster.名字)
-        .replace("__MON_HP__", f"{service.hp_record['mon']}/{service.monster.max_hp}")
-        .replace("__MON_INIT__", mon_init)
         .replace("__ANOMALY__", "\n".join(anomaly_lines))
-        .replace("__DANGER__", danger)
+        .replace("__EFFECTS__", effects)
     )
 
 
@@ -165,20 +166,65 @@ def _end_card_html(service: BattleService) -> str:
     """结算卡片 HTML。"""
     t = data_loader.get_text
     d = service.get_end_card_data()
-    if d["victory"]:
-        icon, cls, title, hint = "🏆", "win", t("battle.victory_title").replace("## ", ""), "明日可继续冒险"
+    if d["fled"]:
+        icon, cls, title, hint = (
+            "🏃",
+            "win",
+            t("battle.fled_title"),
+            t("battle.fled_hint"),
+        )
+        ending = t("battle.fled_ending")
+    elif d["victory"]:
+        icon, cls, title, hint = (
+            "🏆",
+            "win",
+            t("battle.victory_title").replace("## ", ""),
+            "明日可继续冒险",
+        )
+        ending = d["ending"]
     else:
-        icon, cls, title, hint = "💀", "dead", t("battle.death_text", name=service.player_name).replace("## ", ""), "重新创建调查员继续冒险"
+        icon, cls, title, hint = (
+            "💀",
+            "dead",
+            t("battle.death_text", name=service.player_name).replace("## ", ""),
+            "重新创建调查员继续冒险",
+        )
+        ending = d["ending"]
+
+    # 胜利明细（侦查检定/战利品/成长）渲染进卡片
+    detail = ""
+    ext = service.end_card_ext
+    if d["victory"] and ext:
+        search = ext.get("search", {})
+        level = search.get("level", 0)
+        icon_s = get_success_icon(level)
+        desc = get_success_description(level)
+        detail = (
+            f'<div class="detail">'
+            f'<div class="rowline"><span class="k">🔍 侦查检定</span>'
+            f'<span class="v">{icon_s} {desc}（{search.get("dice", "?")}/{search.get("target", "?")}）</span></div>'
+            f'<div class="rowline"><span class="k">🎁 战利品</span>'
+            f'<span class="v">{ext.get("bonus", "")}</span></div>'
+        )
+        growth = ext.get("growth", [])
+        if growth:
+            g = " ".join(x.strip() for x in growth)
+            detail += (
+                f'<div class="rowline"><span class="k">📈 :</span>'
+                f'<span class="v">{g}</span></div>'
+            )
+        detail += "</div>"
 
     html = _END_CARD_TEMPLATE.read_text(encoding="utf-8")
     return (
         html.replace("__ICON__", icon)
         .replace("__CLS__", cls)
         .replace("__TITLE__", title)
-        .replace("__ENDING__", d["ending"])
+        .replace("__ENDING__", ending)
         .replace("__HP__", f"{d['hp']}/{d['max_hp']}")
         .replace("__SAN__", f"{d['san']}/{d['max_san']}")
         .replace("__DAY__", str(d["day"]))
+        .replace("__DETAIL__", detail)
         .replace("__HINT__", hint)
     )
 
@@ -197,7 +243,10 @@ def _send_turn(battle: BattleService, bot: Bot, text: str) -> Message:
             kb = build_keyboard(
                 [
                     [
-                        (data_loader.get_text("character.resurrect_button"), "resurrect"),
+                        (
+                            data_loader.get_text("character.resurrect_button"),
+                            "resurrect",
+                        ),
                         (data_loader.get_text("character.create_button"), "create"),
                     ]
                 ]
@@ -225,21 +274,20 @@ async def _send_combat_result(
 ) -> None:
     """发送战斗回合结果。
 
-    图片模式战斗结束时：结算卡片图片 + md 明细尾部；
+    图片模式战斗结束时：本回合战况 md → 结算卡片（含侦查/战利品/成长）；
     其余情况：原样 md 文本（含行动按钮）。
     """
     response = "\n" + "\n\n".join([str(x) for x in result if x])
-    if (
-        battle.fight_is_over()
-        and pic_enabled()
-        and getattr(bot, "type", "") == "QQ"
-    ):
+    if battle.fight_is_over() and pic_enabled() and getattr(bot, "type", "") == "QQ":
+        # 1. 本回合战况（检定/交锋），最后一个元素是结束文本，不包含
+        combat_text = "\n" + "\n\n".join([str(x) for x in result[:-1] if x])
+        if combat_text.strip():
+            await send(md_message(combat_text, bot))
+
+        # 2. 结算卡片（含侦查检定/战利品/成长，图片模式不再发 md 明细）
         img = await _render_pic(_end_card_html(battle))
         if img is not None and (pic_msg := _pic_msg(img)) is not None:
             await send(pic_msg)
-            header, detail = battle.end_parts
-            if detail:
-                await send(md_message(f"\n{detail}", bot))
             if battle.hp_record["inv"] <= 0:
                 t = data_loader.get_text
                 await send(
@@ -252,7 +300,11 @@ async def _send_combat_result(
             return
     await send(_send_turn(battle, bot, response))
 
-adventure_cmd = on_command("今日冒险", aliases={"daily_adventure", "开始冒险"}, priority=10, block=True)
+
+adventure_cmd = on_command(
+    "今日冒险", aliases={"daily_adventure", "开始冒险"}, priority=10, block=True
+)
+
 
 @adventure_cmd.handle()
 async def handle_adventure(event: Event, bot: Bot):
@@ -260,18 +312,30 @@ async def handle_adventure(event: Event, bot: Bot):
     try:
         inv = Investigator.load(user_id)
         if not inv.is_survive:
-            await adventure_cmd.finish(md_message(f"\n{data_loader.get_text('adventure.player_dead')}", bot))
+            await adventure_cmd.finish(
+                md_message(f"\n{data_loader.get_text('adventure.player_dead')}", bot)
+            )
         if battle_manager.get_battle(user_id):
-            await adventure_cmd.finish(md_message(f"\n{data_loader.get_text('adventure.in_battle')}", bot))
+            await adventure_cmd.finish(
+                md_message(f"\n{data_loader.get_text('adventure.in_battle')}", bot)
+            )
 
         inv.restore_hp()
         inv.save()
 
         monster_id = monster_repo.find_random_id_for_day(inv.day)
         if not monster_id:
-            await adventure_cmd.finish(md_message(f"\n{data_loader.get_text('adventure.no_monster_config')}", bot))
+            await adventure_cmd.finish(
+                md_message(
+                    f"\n{data_loader.get_text('adventure.no_monster_config')}", bot
+                )
+            )
         monster = Monster(monster_id)
-        monster_intro = getattr(monster, "出场", data_loader.get_text("adventure.monster_intro_default", name=monster.name))
+        monster_intro = getattr(
+            monster,
+            "出场",
+            data_loader.get_text("adventure.monster_intro_default", name=monster.name),
+        )
         day_event = data_loader.get_event(inv.day)
 
         # --- Environment ---
@@ -283,25 +347,200 @@ async def handle_adventure(event: Event, bot: Bot):
             env["name"] = env_key
             env_desc = f"【{env_key}】{env.get('描述', '')}"
 
-        # --- Sanity check ---
-        san_passed, san_desc, _ = perform_sanity_check(inv, monster)
+        # --- Battle service ---
+        service = BattleService(inv, monster)
+        if env:
+            service.set_environment(env)
 
-        madness_desc = ""
-        is_mad = False
-        madness_duration = 5
-        if not san_passed:
-            current_san = inv.get_skill("san")
-            if current_san <= 0:
-                inv.is_survive = False
-                inv.save()
-                await adventure_cmd.finish(
-                    md_message(
-                        f"{san_desc}\n\n"
-                        f"{data_loader.get_text('adventure.sanity_zero')}",
+        inv.is_adventure = True
+        inv.save()
+
+        env_name = env.get("name", "") if env else ""
+        title = (
+            data_loader.get_text("battle.report_title", env=env_name)
+            if env_name
+            else data_loader.get_text("battle.report_title_default")
+        )
+        anomaly_title = (
+            data_loader.get_text("battle.anomaly_title", env=env_name)
+            if env_name
+            else data_loader.get_text("battle.anomaly_title_default")
+        )
+        anomaly_lines = [
+            env.get("描述", "") if env else "",
+            day_event,
+            monster_intro,
+        ]
+        anomaly = f"{report_section(anomaly_title)}\n" f"{report_quote(anomaly_lines)}"
+
+        header = f"\n{env_desc}\n{day_event}" if env_desc else f"\n{day_event}"
+
+        # --- Random event (40% chance)：奇遇在理智检定之前展示 ---
+        if random.random() < 0.4 and data_loader.event_data:
+            event_key = random.choice(list(data_loader.event_data.keys()))
+            event_data = data_loader.event_data[event_key]
+
+            battle_manager.add_battle(user_id, service)
+            _event_states[user_id] = {
+                "event": event_data,
+            }
+
+            # 事件选项按钮
+            event_kb = build_keyboard(
+                [[(opt["输入"], f"event:{opt['输入']}") for opt in event_data["选项"]]]
+            )
+
+            # 图片模式：① 奇遇 CG 图片（环境+奇遇） → ② 按钮消息（事件+选项，怪物出场在奇遇结束后）
+            if pic_enabled() and getattr(bot, "type", "") == "QQ":
+                card_html = _battle_card_html(service, event_desc=event_data["描述"])
+                img = await _render_pic(card_html)
+                if img is not None and (pic_msg := _pic_msg(img)) is not None:
+                    await adventure_cmd.send(pic_msg)
+                    options = "\n".join(
+                        f" {data_loader.get_text('adventure.event_choice', input=opt['输入'])}"
+                        for opt in event_data["选项"]
+                    )
+                    event_msg = md_message(
+                        f"\n**{data_loader.get_text('adventure.event_title')}**\n\n"
+                        f"{options}",
                         bot,
                     )
-                )
+                    if event_kb is not None and not isinstance(event_msg, str):
+                        event_msg.append(event_kb)
+                    await adventure_cmd.send(event_msg)
+                    return
 
+            # 非图片模式：环境+事件+选项（怪物出场在奇遇结束后展示）
+            event_text = (
+                f"\n\n{data_loader.get_text('adventure.event_title')}\n"
+                f"{report_quote([event_data['描述']])}\n"
+            )
+            for opt in event_data["选项"]:
+                event_text += f" {data_loader.get_text('adventure.event_choice', input=opt['输入'])}\n"
+            event_msg = md_message(
+                f"{header}{event_text}",
+                bot,
+            )
+            if event_kb is not None and not isinstance(event_msg, str):
+                event_msg.append(event_kb)
+            await adventure_cmd.send(event_msg)
+            return
+
+        # --- 无奇遇：理智检定 → 战斗开始 ---
+        san_desc, madness_desc, is_mad, madness_duration, san_zero = (
+            _run_sanity_and_madness(inv, monster)
+        )
+        if san_zero:
+            inv.is_survive = False
+            inv.save()
+            await adventure_cmd.finish(
+                md_message(
+                    f"{san_desc}\n\n"
+                    f"{data_loader.get_text('adventure.sanity_zero')}",
+                    bot,
+                )
+            )
+        if is_mad:
+            service.set_madness(True, madness_duration)
+
+        battle_manager.add_battle(user_id, service)
+        service.roll_initiative()
+
+        # 图片模式：① 环境/入场 CG 图片 → ② md（怪物出场→理智→敏捷对比→回合→行动）
+        if pic_enabled() and getattr(bot, "type", "") == "QQ":
+            card_html = _battle_card_html(service, day_event)
+            img = await _render_pic(card_html)
+            if img is not None and (pic_msg := _pic_msg(img)) is not None:
+                await adventure_cmd.send(pic_msg)
+                tail = (
+                    f"{monster_intro}\n\n"
+                    f"{san_desc}{madness_desc}\n\n"
+                    f"{service.get_dex_compare_section()}\n\n"
+                    f"{service.get_status_table()}\n\n"
+                    f"{service.get_danger_section()}\n\n"
+                    f"{service.get_action_section()}"
+                )
+                await adventure_cmd.send(_send_turn(service, bot, tail))
+                return
+
+        # 环境修正小节（非图片模式显示在开场）
+        env_effects = ""
+        env_lines = _env_effects_lines(env)
+        if env_lines:
+            env_effects = (
+                f"{report_section(data_loader.get_text('adventure.env_effect_title'))}\n"
+                f"{report_quote(env_lines)}"
+            )
+
+        reply = (
+            f"{title}\n\n"
+            f"{data_loader.get_text('battle.day_line', day=inv.day)}\n\n"
+            f"{anomaly}\n\n"
+            f"{env_effects}\n\n"
+            f"{monster_intro}\n\n"
+            f"{san_desc}{madness_desc}\n\n"
+            f"{service.get_dex_compare_section()}\n\n"
+            f"{service.get_status_table()}\n\n"
+            f"{service.get_danger_section()}\n\n"
+            f"{service.get_action_section()}"
+        )
+        await adventure_cmd.send(_send_turn(service, bot, reply))
+
+    except FinishedException:
+        raise
+    except Exception as e:
+        logger.exception(f"Error starting adventure for {user_id}: {e}")
+        await adventure_cmd.finish(
+            md_message(f"\n{data_loader.get_text('adventure.start_error')}", bot)
+        )
+
+
+resurrect_cmd = on_command(
+    "复活", aliases={"use_resurrect", "复活道具"}, priority=10, block=True
+)
+
+
+@resurrect_cmd.handle()
+async def handle_resurrect(event: Event, bot: Bot) -> None:
+    """使用复活道具（死亡后）。"""
+    user_id = event.get_user_id()
+    await resurrect_cmd.finish(md_message(f"\n{_do_resurrect(user_id)}", bot))
+
+
+async def handle_resurrect_button(
+    user_id: str,
+    payload: str,
+    bot: Bot,
+    group_openid: str = "",
+    token: int | None = None,
+) -> None:
+    """死亡消息「使用复活道具」按钮回调。"""
+    await _send_to_user(
+        bot, user_id, md_message(f"\n{_do_resurrect(user_id)}", bot), group_openid
+    )
+
+
+def _run_sanity_and_madness(
+    inv: Investigator, monster: Monster
+) -> tuple[str, str, bool, int, bool]:
+    """理智检定 + （理智损失≥5 时）智力检定。
+
+    返回 (san_desc, madness_desc, is_mad, madness_duration, san_zero)。
+    san_zero 为 True 表示 SAN 归零（永久疯狂），由调用方结束游戏。
+    """
+    san_passed, san_desc, san_loss = perform_sanity_check(inv, monster)
+
+    madness_desc = ""
+    is_mad = False
+    madness_duration = 5
+    if not san_passed:
+        current_san = inv.get_skill("san")
+        if current_san <= 0:
+            inv.save()
+            return san_desc, madness_desc, is_mad, madness_duration, True
+
+        # 理智损失 ≥5 才进行智力检定：成功则陷入临时疯狂
+        if san_loss >= 5:
             int_val = inv.get_skill("智力")
             _, int_check_res = roll_dice("1d100")
             if int_check_res <= int_val:
@@ -334,130 +573,50 @@ async def handle_adventure(event: Event, bot: Bot):
                 f"{report_check_table([row])}\n"
                 f"{quote}"
             )
-
-        # --- Battle service ---
-        service = BattleService(inv, monster)
-        if env:
-            service.set_environment(env)
-        if is_mad:
-            service.set_madness(True, madness_duration)
-
-        inv.is_adventure = True
-        inv.save()
-
-        env_name = env.get("name", "") if env else ""
-        title = (
-            data_loader.get_text("battle.report_title", env=env_name)
-            if env_name
-            else data_loader.get_text("battle.report_title_default")
-        )
-        anomaly_title = (
-            data_loader.get_text("battle.anomaly_title", env=env_name)
-            if env_name
-            else data_loader.get_text("battle.anomaly_title_default")
-        )
-        anomaly_lines = [
-            env.get("描述", "") if env else "",
-            day_event,
-            monster_intro,
-        ]
-        anomaly = (
-            f"{report_section(anomaly_title)}\n"
-            f"{report_quote(anomaly_lines)}"
-        )
-
-        header = f"\n{env_desc}\n{day_event}" if env_desc else f"\n{day_event}"
-
-        # --- Random event (40% chance) ---
-        if random.random() < 0.4 and data_loader.event_data:
-            event_key = random.choice(list(data_loader.event_data.keys()))
-            event_data = data_loader.event_data[event_key]
-            event_text = (
-                f"\n\n{data_loader.get_text('adventure.event_title')}\n"
-                f"{report_quote([event_data['描述']])}\n"
-            )
-            for opt in event_data["选项"]:
-                event_text += f" {data_loader.get_text('adventure.event_choice', input=opt['输入'])}\n"
-
-            battle_manager.add_battle(user_id, service)
-            _event_states[user_id] = {
-                "event": event_data,
-            }
-
-            # 事件选项按钮
-            event_kb = build_keyboard(
-                [[(opt["输入"], f"event:{opt['输入']}") for opt in event_data["选项"]]]
-            )
-            event_msg = md_message(
-                f"{header}{event_text}\n"
-                f"{monster_intro}\n"
-                f"{san_desc}{madness_desc}",
-                bot,
-            )
-            if event_kb is not None and not isinstance(event_msg, str):
-                event_msg.append(event_kb)
-            await adventure_cmd.send(event_msg)
-            return
-        battle_manager.add_battle(user_id, service)
-        service.roll_initiative()
-
-        # 图片模式：开场战报卡片 + md 尾部（理智检定 + 行动抉择）
-        if pic_enabled() and getattr(bot, "type", "") == "QQ":
-            card_html = _battle_card_html(service, day_event, monster_intro)
-            img = await _render_pic(card_html)
-            if img is not None and (pic_msg := _pic_msg(img)) is not None:
-                await adventure_cmd.send(pic_msg)
-                tail = (
-                    f"{san_desc}{madness_desc}\n\n"
-                    f"{service.get_action_section()}"
-                )
-                await adventure_cmd.send(_send_turn(service, bot, tail))
-                return
-
-        reply = (
-            f"{title}\n\n"
-            f"{data_loader.get_text('battle.day_line', day=inv.day)}\n\n"
-            f"{service.get_status_table()}\n\n"
-            f"{data_loader.get_text('report.rule')}\n\n"
-            f"{anomaly}\n\n"
-            f"{san_desc}{madness_desc}\n\n"
-            f"{service.get_danger_section()}\n\n"
-            f"{service.get_action_section()}"
-        )
-        await adventure_cmd.send(_send_turn(service, bot, reply))
-
-    except FinishedException:
-        raise
-    except Exception as e:
-        logger.exception(f"Error starting adventure for {user_id}: {e}")
-        await adventure_cmd.finish(md_message(f"\n{data_loader.get_text('adventure.start_error')}", bot))
-
-resurrect_cmd = on_command(
-    "复活", aliases={"use_resurrect", "复活道具"}, priority=10, block=True
-)
+    inv.save()  # 持久化 SAN 扣减
+    return san_desc, madness_desc, is_mad, madness_duration, False
 
 
-@resurrect_cmd.handle()
-async def handle_resurrect(event: Event, bot: Bot) -> None:
-    """使用复活道具（死亡后）。"""
-    user_id = event.get_user_id()
-    await resurrect_cmd.finish(md_message(f"\n{_do_resurrect(user_id)}", bot))
+def _apply_event_effects(inv: Investigator, user_id: str, effects: dict) -> str:
+    """应用奇遇事件效果并返回变更摘要（如「🧠 SAN -10 ｜ 💪 意志 +5」）。"""
+    from ..models.item import Equipment as _Equipment
+
+    changes: list[str] = []
+    if "san" in effects:
+        san = inv.get_skill("san") + effects["san"]
+        inv.set_skill("san", max(0, san))
+        changes.append(f"🧠 SAN {effects['san']:+d}")
+    if "hp" in effects:
+        inv.hp = max(1, inv.hp + effects["hp"])
+        changes.append(f"❤️ HP {effects['hp']:+d}")
+    if "金币" in effects:
+        add_gold(user_id, effects["金币"])
+        changes.append(f"🪙 金币 {effects['金币']:+d}")
+    if "物品" in effects:
+        item = _Equipment(effects["物品"])
+        inv.add_item_to_inventory(effects["物品"], 1)
+        changes.append(f"🎒 获得 {item.name}")
+    if "技能" in effects:
+        for sk_name, sk_delta in effects["技能"].items():
+            sk_val = inv.get_skill(sk_name, 0) + sk_delta
+            inv.set_skill(sk_name, max(0, sk_val))
+            changes.append(f"💪 {sk_name} {sk_delta:+d}")
+    inv.save()
+    return " ｜ ".join(changes)
 
 
-async def handle_resurrect_button(
-    user_id: str,
-    payload: str,
-    bot: Bot,
-    group_openid: str = "",
-    token: int | None = None,
-) -> None:
-    """死亡消息「使用复活道具」按钮回调。"""
-    await _send_to_user(
-        bot, user_id, md_message(f"\n{_do_resurrect(user_id)}", bot), group_openid
+def _event_reply_with_effects(event_reply: str, summary: str) -> str:
+    """事件回复 + 效果摘要小节。"""
+    t = data_loader.get_text
+    if not summary:
+        return event_reply
+    return (
+        f"{event_reply}\n\n" f"**{t('adventure.event_effect_title')}**\n" f"> {summary}"
     )
 
 
 combat_cmd = on_command("行动", aliases={"combat_action"}, priority=5, block=True)
+
 
 @combat_cmd.handle()
 async def handle_combat(event: Event, bot: Bot, msg: Message = CommandArg()):
@@ -470,13 +629,19 @@ async def handle_combat(event: Event, bot: Bot, msg: Message = CommandArg()):
         event_data = ev_state["event"]
         battle = battle_manager.get_battle(user_id)
         if not battle:
-            await combat_cmd.finish(md_message(f"\n{data_loader.get_text('adventure.battle_state_error')}", bot))
+            await combat_cmd.finish(
+                md_message(
+                    f"\n{data_loader.get_text('adventure.battle_state_error')}", bot
+                )
+            )
 
         # Strip /行动 prefix
         choice = action.removeprefix("/行动 ").removeprefix("/行动").strip()
-        matched = next(
-            (o for o in event_data["选项"] if o["输入"] == choice), None
-        ) if choice else None
+        matched = (
+            next((o for o in event_data["选项"] if o["输入"] == choice), None)
+            if choice
+            else None
+        )
 
         if not action:
             matched = None  # No choice typed
@@ -485,34 +650,56 @@ async def handle_combat(event: Event, bot: Bot, msg: Message = CommandArg()):
             effects = matched.get("效果", {})
             event_reply = matched["回复"]
             inv = battle.investigator
-            if "san" in effects:
-                san = inv.get_skill("san") + effects["san"]
-                inv.set_skill("san", max(0, san))
-            if "hp" in effects:
-                inv.hp = max(1, inv.hp + effects["hp"])
-            if "金币" in effects:
-                add_gold(user_id, effects["金币"])
-            if "物品" in effects:
-                inv.add_item_to_inventory(effects["物品"], 1)
-            if "技能" in effects:
-                for sk_name, sk_delta in effects["技能"].items():
-                    sk_val = inv.get_skill(sk_name, 0) + sk_delta
-                    inv.set_skill(sk_name, max(0, sk_val))
-            inv.save()
+            summary = _apply_event_effects(inv, user_id, effects)
+            event_reply = _event_reply_with_effects(event_reply, summary)
         else:
             event_reply = data_loader.get_text("adventure.event_default")
 
-        reply = f"{event_reply}\n\n{battle.start_turn()}"
+        # 奇遇完成后：怪物出场 → 理智检定（+智力检定/疯狂）→ 敏捷对比 → 战斗开始
+        san_desc, madness_desc, is_mad, madness_duration, san_zero = (
+            _run_sanity_and_madness(battle.investigator, battle.monster)
+        )
+        if san_zero:
+            battle.investigator.is_survive = False
+            battle.investigator.save()
+            await combat_cmd.finish(
+                md_message(
+                    f"{san_desc}\n\n"
+                    f"{data_loader.get_text('adventure.sanity_zero')}",
+                    bot,
+                )
+            )
+        if is_mad:
+            battle.set_madness(True, madness_duration)
+
+        monster_intro = getattr(
+            battle.monster,
+            "出场",
+            data_loader.get_text(
+                "adventure.monster_intro_default", name=battle.monster.name
+            ),
+        )
+        reply = (
+            f"{event_reply}\n\n"
+            f"{monster_intro}\n\n"
+            f"{san_desc}{madness_desc}\n\n"
+            f"{battle.get_dex_compare_section()}\n\n"
+            f"{battle.start_turn()}"
+        )
         await combat_cmd.send(_send_turn(battle, bot, reply))
         return
 
     # Normal combat flow
     battle = battle_manager.get_battle(user_id)
     if not battle:
-        await combat_cmd.finish(md_message(f"\n{data_loader.get_text('adventure.no_active_battle')}", bot))
+        await combat_cmd.finish(
+            md_message(f"\n{data_loader.get_text('adventure.no_active_battle')}", bot)
+        )
 
     if not action:
-        await combat_cmd.finish(md_message(f"\n{data_loader.get_text('adventure.need_action')}", bot))
+        await combat_cmd.finish(
+            md_message(f"\n{data_loader.get_text('adventure.need_action')}", bot)
+        )
 
     if action.startswith(data_loader.get_text("adventure.use_item")):
         item_id = action.split()[1]
@@ -547,12 +734,19 @@ async def handle_combat_action(
     """按钮触发战斗行动。token 用于防重复点击（旧按钮失效）。"""
     battle = battle_manager.get_battle(user_id)
     if not battle:
-        await _send_to_user(bot, user_id, md_message(f"\n{data_loader.get_text('adventure.no_active_battle')}", bot), group_openid)
+        await _send_to_user(
+            bot,
+            user_id,
+            md_message(f"\n{data_loader.get_text('adventure.no_active_battle')}", bot),
+            group_openid,
+        )
         return
 
     # 旧按钮点击（令牌不匹配）直接忽略
     if token is not None and token != battle.get_turn_token():
-        logger.debug(f"Stale button click ignored: token={token}, current={battle.get_turn_token()}")
+        logger.debug(
+            f"Stale button click ignored: token={token}, current={battle.get_turn_token()}"
+        )
         return
 
     result = battle.execute_action(action)
@@ -580,36 +774,62 @@ async def handle_event_choice(
     ev_state = _event_states.pop(user_id, None)
     battle = battle_manager.get_battle(user_id)
     if not ev_state or not battle:
-        await _send_to_user(bot, user_id, md_message(f"\n{data_loader.get_text('adventure.battle_state_error')}", bot), group_openid)
+        await _send_to_user(
+            bot,
+            user_id,
+            md_message(
+                f"\n{data_loader.get_text('adventure.battle_state_error')}", bot
+            ),
+            group_openid,
+        )
         return
 
     event_data = ev_state["event"]
-    matched = next(
-        (o for o in event_data["选项"] if o["输入"] == choice), None
-    )
+    matched = next((o for o in event_data["选项"] if o["输入"] == choice), None)
 
     if matched:
         effects = matched.get("效果", {})
         event_reply = matched["回复"]
         inv = battle.investigator
-        if "san" in effects:
-            san = inv.get_skill("san") + effects["san"]
-            inv.set_skill("san", max(0, san))
-        if "hp" in effects:
-            inv.hp = max(1, inv.hp + effects["hp"])
-        if "金币" in effects:
-            add_gold(user_id, effects["金币"])
-        if "物品" in effects:
-            inv.add_item_to_inventory(effects["物品"], 1)
-        if "技能" in effects:
-            for sk_name, sk_delta in effects["技能"].items():
-                sk_val = inv.get_skill(sk_name, 0) + sk_delta
-                inv.set_skill(sk_name, max(0, sk_val))
-        inv.save()
+        summary = _apply_event_effects(inv, user_id, effects)
+        event_reply = _event_reply_with_effects(event_reply, summary)
     else:
         event_reply = data_loader.get_text("adventure.event_default")
 
-    reply = f"{event_reply}\n\n{battle.start_turn()}"
+    # 奇遇完成后：怪物出场 → 理智检定（+智力检定/疯狂）→ 敏捷对比 → 战斗开始
+    san_desc, madness_desc, is_mad, madness_duration, san_zero = (
+        _run_sanity_and_madness(battle.investigator, battle.monster)
+    )
+    if san_zero:
+        battle.investigator.is_survive = False
+        battle.investigator.save()
+        await _send_to_user(
+            bot,
+            user_id,
+            md_message(
+                f"{san_desc}\n\n" f"{data_loader.get_text('adventure.sanity_zero')}",
+                bot,
+            ),
+            group_openid,
+        )
+        return
+    if is_mad:
+        battle.set_madness(True, madness_duration)
+
+    monster_intro = getattr(
+        battle.monster,
+        "出场",
+        data_loader.get_text(
+            "adventure.monster_intro_default", name=battle.monster.name
+        ),
+    )
+    reply = (
+        f"{event_reply}\n\n"
+        f"{monster_intro}\n\n"
+        f"{san_desc}{madness_desc}\n\n"
+        f"{battle.get_dex_compare_section()}\n\n"
+        f"{battle.start_turn()}"
+    )
     await _send_to_user(bot, user_id, _send_turn(battle, bot, reply), group_openid)
 
 
