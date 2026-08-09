@@ -44,6 +44,7 @@ _CARD_TEMPLATE = Path(__file__).parent.parent.parent / "data" / "battle_card.htm
 _END_CARD_TEMPLATE = Path(__file__).parent.parent.parent / "data" / "end_card.html"
 _OPEN_TEMPLATE = Path(__file__).parent.parent.parent / "data" / "battle_open.html"
 _ROUND_TEMPLATE = Path(__file__).parent.parent.parent / "data" / "battle_round.html"
+_MAD_END_TEMPLATE = Path(__file__).parent.parent.parent / "data" / "mad_end.html"
 
 
 def _do_resurrect(user_id: str) -> str:
@@ -347,43 +348,77 @@ def _send_turn(battle: BattleService, bot: Bot, text: str) -> Message:
     return msg
 
 
-def _sanity_zero_card_html(inv: Investigator, san_desc: str) -> str:
-    """SAN 归零（永久疯狂）结算卡片 HTML。"""
+def _sanity_zero_card_html(inv: Investigator, san_loss: int = 0) -> str:
+    """心智·崩塌结算卡片 HTML（SAN 归零）。"""
     t = data_loader.get_text
     max_san = inv.get_skill("意志") or inv.get_skill("san", 0)
-    detail = f'<div class="detail">{md_to_html(san_desc)}</div>' if san_desc else ""
+    san_label = f"0/{max_san}"
+    if san_loss > 0:
+        san_label += f"（-{san_loss}）"
     return (
-        _END_CARD_TEMPLATE.read_text(encoding="utf-8")
-        .replace("__ICON__", "🌀")
-        .replace("__CLS__", "dead")
-        .replace("__TITLE__", t("adventure.sanity_zero_title"))
-        .replace("__ENDING__", t("adventure.sanity_zero_ending"))
+        _MAD_END_TEMPLATE.read_text(encoding="utf-8")
+        .replace("__SAN__", san_label)
         .replace("__HP__", f"{inv.hp}/{inv.get_max_hp()}")
-        .replace("__SAN__", f"0/{max_san}")
         .replace("__DAY__", str(inv.day))
-        .replace("__DETAIL__", detail)
+        .replace("__ENDING__", t("adventure.sanity_zero_ending"))
         .replace("__HINT__", t("adventure.sanity_zero_hint"))
     )
 
 
 async def _send_sanity_zero(
-    inv: Investigator, san_desc: str, bot: Bot, send: Callable
+    service: BattleService,
+    inv: Investigator,
+    san_desc: str,
+    san_loss: int,
+    bot: Bot,
+    send: Callable,
+    show_cg: bool = True,
 ) -> None:
-    """SAN 归零（永久疯狂）：结算卡片 + 复活/创建引导；图片失败回退 md。"""
-    img = await _render_pic(_sanity_zero_card_html(inv, san_desc))
-    if img is not None and await _send_pic(bot, img, send):
-        t = data_loader.get_text
+    """SAN 归零（永久疯狂）流程：入场CG → 遭遇登场+鉴定 → 心智崩塌结算 → 复活/创建引导。
+
+    每张图片渲染失败独立回退 md；奇遇路径（show_cg=False）跳过入场CG（事件CG已展示）。
+    """
+    t = data_loader.get_text
+    cg_shown = False
+    if show_cg:
+        img = await _render_pic(
+            _battle_card_html(service, data_loader.get_event(inv.day))
+        )
+        if img is not None:
+            cg_shown = await _send_pic(bot, img, send)
+
+    monster_intro = getattr(
+        service.monster,
+        "出场",
+        t("adventure.monster_intro_default", name=service.monster.name),
+    )
+    anomaly = ""
+    if not cg_shown and service.environment:
+        anomaly = report_quote([service.environment.get("描述", "")])
+    encounter = (
+        f"{anomaly}\n\n" if anomaly else ""
+    ) + (
+        f"{report_section(t('battle.monster_intro_title'))}\n"
+        f"{monster_intro}\n\n"
+        f"{san_desc}"
+    )
+    img = await _render_pic(_battle_open_html(service, encounter))
+    if img is None or not await _send_pic(bot, img, send):
+        await send(md_message(encounter, bot))
+
+    img = await _render_pic(_sanity_zero_card_html(inv, san_loss))
+    if img is None or not await _send_pic(bot, img, send):
         await send(
             md_message(
-                f"\n**{t('character.resurrect_button')}**\n{cmd_tag('/复活')}\n\n"
-                f"**{t('character.create_button')}**\n{cmd_tag('/创建调查员')}",
-                bot,
+                f"{san_desc}\n\n{data_loader.get_text('adventure.sanity_zero')}", bot
             )
         )
-        return
+
     await send(
         md_message(
-            f"{san_desc}\n\n{data_loader.get_text('adventure.sanity_zero')}", bot
+            f"\n**{t('character.resurrect_button')}**\n{cmd_tag('/复活')}\n\n"
+            f"**{t('character.create_button')}**\n{cmd_tag('/创建调查员')}",
+            bot,
         )
     )
 
@@ -566,13 +601,15 @@ async def handle_adventure(event: Event, bot: Bot):
             return
 
         # --- 无奇遇：理智检定 → 战斗开始 ---
-        san_desc, madness_desc, is_mad, madness_duration, san_zero = (
+        san_desc, madness_desc, is_mad, madness_duration, san_zero, san_loss = (
             _run_sanity_and_madness(inv, monster)
         )
         if san_zero:
             inv.is_survive = False
             inv.save()
-            await _send_sanity_zero(inv, san_desc, bot, adventure_cmd.send)
+            await _send_sanity_zero(
+                service, inv, san_desc, san_loss, bot, adventure_cmd.send
+            )
             return
         if is_mad:
             service.set_madness(True, madness_duration)
@@ -621,7 +658,9 @@ async def handle_adventure(event: Event, bot: Bot):
         )
         img = await _render_pic(_battle_open_html(service, battle_reply))
         if img is not None and await _send_pic(bot, img, adventure_cmd.send):
-            await adventure_cmd.send(_send_turn(service, bot, service.get_action_section()))
+            await adventure_cmd.send(
+                _send_turn(service, bot, service.get_action_section())
+            )
             return
 
         # 图片失败回退 md（含完整开场内容）
@@ -666,10 +705,10 @@ async def handle_resurrect_button(
 
 def _run_sanity_and_madness(
     inv: Investigator, monster: Monster
-) -> tuple[str, str, bool, int, bool]:
+) -> tuple[str, str, bool, int, bool, int]:
     """理智检定 + （理智损失≥5 时）智力检定。
 
-    返回 (san_desc, madness_desc, is_mad, madness_duration, san_zero)。
+    返回 (san_desc, madness_desc, is_mad, madness_duration, san_zero, san_loss)。
     san_zero 为 True 表示 SAN 归零（永久疯狂），由调用方结束游戏。
     """
     san_passed, san_desc, san_loss = perform_sanity_check(inv, monster)
@@ -681,7 +720,7 @@ def _run_sanity_and_madness(
         current_san = inv.get_skill("san")
         if current_san <= 0:
             inv.save()
-            return san_desc, madness_desc, is_mad, madness_duration, True
+            return san_desc, madness_desc, is_mad, madness_duration, True, san_loss
 
         # 理智损失 ≥5 才进行智力检定：成功则陷入临时疯狂
         if san_loss >= 5:
@@ -718,7 +757,7 @@ def _run_sanity_and_madness(
                 f"{quote}"
             )
     inv.save()  # 持久化 SAN 扣减
-    return san_desc, madness_desc, is_mad, madness_duration, False
+    return san_desc, madness_desc, is_mad, madness_duration, False, san_loss
 
 
 def _apply_event_effects(inv: Investigator, user_id: str, effects: dict) -> str:
@@ -800,14 +839,20 @@ async def handle_combat(event: Event, bot: Bot, msg: Message = CommandArg()):
             event_reply = data_loader.get_text("adventure.event_default")
 
         # 奇遇完成后：怪物出场 → 理智检定（+智力检定/疯狂）→ 敏捷对比 → 战斗开始
-        san_desc, madness_desc, is_mad, madness_duration, san_zero = (
+        san_desc, madness_desc, is_mad, madness_duration, san_zero, san_loss = (
             _run_sanity_and_madness(battle.investigator, battle.monster)
         )
         if san_zero:
             battle.investigator.is_survive = False
             battle.investigator.save()
             await _send_sanity_zero(
-                battle.investigator, san_desc, bot, combat_cmd.send
+                battle,
+                battle.investigator,
+                san_desc,
+                san_loss,
+                bot,
+                combat_cmd.send,
+                show_cg=False,
             )
             return
         if is_mad:
@@ -943,7 +988,7 @@ async def handle_event_choice(
         event_reply = data_loader.get_text("adventure.event_default")
 
     # 奇遇完成后：怪物出场 → 理智检定（+智力检定/疯狂）→ 敏捷对比 → 战斗开始
-    san_desc, madness_desc, is_mad, madness_duration, san_zero = (
+    san_desc, madness_desc, is_mad, madness_duration, san_zero, san_loss = (
         _run_sanity_and_madness(battle.investigator, battle.monster)
     )
     if san_zero:
@@ -953,7 +998,15 @@ async def handle_event_choice(
         async def _send(msg) -> None:
             await _send_to_user(bot, user_id, msg, group_openid)
 
-        await _send_sanity_zero(battle.investigator, san_desc, bot, _send)
+        await _send_sanity_zero(
+            battle,
+            battle.investigator,
+            san_desc,
+            san_loss,
+            bot,
+            _send,
+            show_cg=False,
+        )
         return
     if is_mad:
         battle.set_madness(True, madness_duration)
