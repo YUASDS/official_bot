@@ -347,6 +347,47 @@ def _send_turn(battle: BattleService, bot: Bot, text: str) -> Message:
     return msg
 
 
+def _sanity_zero_card_html(inv: Investigator, san_desc: str) -> str:
+    """SAN 归零（永久疯狂）结算卡片 HTML。"""
+    t = data_loader.get_text
+    max_san = inv.get_skill("意志") or inv.get_skill("san", 0)
+    detail = f'<div class="detail">{md_to_html(san_desc)}</div>' if san_desc else ""
+    return (
+        _END_CARD_TEMPLATE.read_text(encoding="utf-8")
+        .replace("__ICON__", "🌀")
+        .replace("__CLS__", "dead")
+        .replace("__TITLE__", t("adventure.sanity_zero_title"))
+        .replace("__ENDING__", t("adventure.sanity_zero_ending"))
+        .replace("__HP__", f"{inv.hp}/{inv.get_max_hp()}")
+        .replace("__SAN__", f"0/{max_san}")
+        .replace("__DAY__", str(inv.day))
+        .replace("__DETAIL__", detail)
+        .replace("__HINT__", t("adventure.sanity_zero_hint"))
+    )
+
+
+async def _send_sanity_zero(
+    inv: Investigator, san_desc: str, bot: Bot, send: Callable
+) -> None:
+    """SAN 归零（永久疯狂）：结算卡片 + 复活/创建引导；图片失败回退 md。"""
+    img = await _render_pic(_sanity_zero_card_html(inv, san_desc))
+    if img is not None and await _send_pic(bot, img, send):
+        t = data_loader.get_text
+        await send(
+            md_message(
+                f"\n**{t('character.resurrect_button')}**\n{cmd_tag('/复活')}\n\n"
+                f"**{t('character.create_button')}**\n{cmd_tag('/创建调查员')}",
+                bot,
+            )
+        )
+        return
+    await send(
+        md_message(
+            f"{san_desc}\n\n{data_loader.get_text('adventure.sanity_zero')}", bot
+        )
+    )
+
+
 async def _send_end_buttons(
     battle: BattleService, bot: Bot, send: Callable
 ) -> None:
@@ -531,13 +572,8 @@ async def handle_adventure(event: Event, bot: Bot):
         if san_zero:
             inv.is_survive = False
             inv.save()
-            await adventure_cmd.finish(
-                md_message(
-                    f"{san_desc}\n\n"
-                    f"{data_loader.get_text('adventure.sanity_zero')}",
-                    bot,
-                )
-            )
+            await _send_sanity_zero(inv, san_desc, bot, adventure_cmd.send)
+            return
         if is_mad:
             service.set_madness(True, madness_duration)
 
@@ -770,13 +806,10 @@ async def handle_combat(event: Event, bot: Bot, msg: Message = CommandArg()):
         if san_zero:
             battle.investigator.is_survive = False
             battle.investigator.save()
-            await combat_cmd.finish(
-                md_message(
-                    f"{san_desc}\n\n"
-                    f"{data_loader.get_text('adventure.sanity_zero')}",
-                    bot,
-                )
+            await _send_sanity_zero(
+                battle.investigator, san_desc, bot, combat_cmd.send
             )
+            return
         if is_mad:
             battle.set_madness(True, madness_duration)
 
@@ -916,15 +949,11 @@ async def handle_event_choice(
     if san_zero:
         battle.investigator.is_survive = False
         battle.investigator.save()
-        await _send_to_user(
-            bot,
-            user_id,
-            md_message(
-                f"{san_desc}\n\n" f"{data_loader.get_text('adventure.sanity_zero')}",
-                bot,
-            ),
-            group_openid,
-        )
+
+        async def _send(msg) -> None:
+            await _send_to_user(bot, user_id, msg, group_openid)
+
+        await _send_sanity_zero(battle.investigator, san_desc, bot, _send)
         return
     if is_mad:
         battle.set_madness(True, madness_duration)
