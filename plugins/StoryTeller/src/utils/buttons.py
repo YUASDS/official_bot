@@ -6,11 +6,10 @@
   回调统一签名：handler(user_id, payload, bot, group_openid, token)
 """
 
-from __future__ import annotations
-
 from typing import Any, Callable
 
 from loguru import logger
+from nonebot.adapters import Bot
 
 BUTTON_HANDLERS: dict[str, Callable] = {}
 
@@ -81,7 +80,7 @@ def setup_button_callback() -> bool:
     button_callback = on_type(InteractionCreateEvent, priority=1, block=False)
 
     @button_callback.handle()
-    async def handle_button_callback(event: InteractionCreateEvent, bot: Any) -> None:
+    async def handle_button_callback(event: InteractionCreateEvent, bot: Bot) -> None:
         # 事件本身继承 ButtonInteraction，先响应交互，避免 QQ 平台 3 秒超时
         try:
             await bot.put_interaction(interaction_id=event.id, code=0)
