@@ -307,6 +307,9 @@ class Investigator:
         self.update_data = {}
 
     def get_skill(self, skill: str, default: int = 0) -> int:
+        # set_skill 尚未 save() 时优先读取缓存值，保证读写一致
+        if hasattr(self, "update_data") and skill in self.update_data:
+            return self.update_data[skill]
         return getattr(self._model, skill, default)
 
     def set_skill(self, skill_name: str, skill: int = 0) -> None:
