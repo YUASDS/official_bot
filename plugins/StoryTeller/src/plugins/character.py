@@ -21,6 +21,7 @@ from ..utils.md_format import (
     is_md_enabled,
     md_message,
     md_to_html,
+    need_create_message,
     pic_enabled,
 )
 from .adventure import _render_pic, _send_pic
@@ -211,7 +212,28 @@ def choose_reply(user_id: str, idx: int) -> str | None:
 @create_cmd.handle()
 async def handle_create(event: Event, bot: Bot, msg: Message = CommandArg()):
     user_id = event.get_user_id()
-    name = msg.extract_plain_text().strip() or "调查员"
+    name = msg.extract_plain_text().strip()
+    if not name:
+        await create_cmd.finish(
+            md_message(
+                f"\n{_t('character.need_name')}\n\n"
+                f"{cmd_tag('/创建调查员', show=_t('character.create_button'))}",
+                bot,
+                mention=user_id,
+            )
+        )
+
+    existing = investigator_repo.find_by_qq(user_id)
+    if existing is not None and existing.issurvive:
+        await create_cmd.finish(
+            md_message(
+                f"\n{_t('character.has_alive')}\n\n"
+                f"{cmd_tag('/调查员信息', show=_t('character.info_button'))}\n"
+                f"{cmd_tag('/今日冒险', show=_t('adventure.adventure_button'))}",
+                bot,
+                mention=user_id,
+            )
+        )
 
     reply = build_create_reply(user_id, name)
     ci = _user_states[user_id]["creator"]
@@ -473,6 +495,8 @@ async def build_info_message(user_id: str, bot: Bot):
 @info_cmd.handle()
 async def handle_info(event: Event, bot: Bot):
     user_id = event.get_user_id()
+    if investigator_repo.find_by_qq(user_id) is None:
+        await info_cmd.finish(need_create_message(bot, mention=user_id))
     await _send_info_flow(
         user_id,
         bot,
@@ -485,6 +509,8 @@ async def handle_info(event: Event, bot: Bot):
 @use_item_cmd.handle()
 async def handle_use_item(event: Event, bot: Bot, msg: Message = CommandArg()):
     user_id = event.get_user_id()
+    if investigator_repo.find_by_qq(user_id) is None:
+        await use_item_cmd.finish(need_create_message(bot, mention=user_id))
     item_id = msg.extract_plain_text().strip()
     if not item_id:
         await use_item_cmd.finish(
@@ -510,6 +536,14 @@ async def handle_equip_button(
     token: int | None = None,
 ) -> None:
     """背包「使用」按钮回调：直接装备物品。"""
+    if investigator_repo.find_by_qq(user_id) is None:
+        await _send_to_user(
+            bot,
+            user_id,
+            need_create_message(bot, mention=user_id),
+            group_openid,
+        )
+        return
     ok, res = investigator_repo.equip_item(user_id, item_id)
     if ok:
         battle = battle_manager.get_battle(user_id)
@@ -560,20 +594,18 @@ async def handle_create_button(
     group_openid: str = "",
     token: int | None = None,
 ) -> None:
-    """死亡后「创建调查员」按钮回调。"""
-    reply = build_create_reply(user_id, "调查员")
-    msg = md_message(reply, bot, mention=user_id)
-    kb = build_keyboard(
-        [
-            [
-                (_t("character.choose_button", index=i), f"choose:{i}")
-                for i in range(1, 4)
-            ]
-        ]
+    """死亡后「创建调查员」按钮回调：名字必填，引导输入 /创建调查员 <名字>。"""
+    await _send_to_user(
+        bot,
+        user_id,
+        md_message(
+            f"\n{_t('character.need_name')}\n\n"
+            f"{cmd_tag('/创建调查员', show=_t('character.create_button'))}",
+            bot,
+            mention=user_id,
+        ),
+        group_openid,
     )
-    if kb is not None and not isinstance(msg, str):
-        msg.append(kb)
-    await _send_to_user(bot, user_id, msg, group_openid)
 
 
 async def handle_info_button(
@@ -584,6 +616,14 @@ async def handle_info_button(
     token: int | None = None,
 ) -> None:
     """「调查员信息」按钮回调。"""
+    if investigator_repo.find_by_qq(user_id) is None:
+        await _send_to_user(
+            bot,
+            user_id,
+            need_create_message(bot, mention=user_id),
+            group_openid,
+        )
+        return
 
     async def _send(msg):
         await _send_to_user(bot, user_id, msg, group_openid)

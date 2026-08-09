@@ -23,6 +23,7 @@ from ..utils.md_format import (
     cmd_tag,
     md_message,
     md_to_html,
+    need_create_message,
     report_check_table,
     report_quote,
     report_section,
@@ -508,7 +509,10 @@ adventure_cmd = on_command(
 async def handle_adventure(event: Event, bot: Bot):
     user_id = event.get_user_id()
     try:
-        inv = Investigator.load(user_id)
+        inv_model = investigator_repo.find_by_qq(user_id)
+        if inv_model is None:
+            await adventure_cmd.finish(need_create_message(bot, mention=user_id))
+        inv = Investigator(inv_model)
         if not inv.is_survive:
             t = data_loader.get_text
             await adventure_cmd.finish(
@@ -842,6 +846,8 @@ combat_cmd = on_command("行动", aliases={"combat_action"}, priority=5, block=T
 @combat_cmd.handle()
 async def handle_combat(event: Event, bot: Bot, msg: Message = CommandArg()):
     user_id = event.get_user_id()
+    if investigator_repo.find_by_qq(user_id) is None:
+        await combat_cmd.finish(need_create_message(bot, mention=user_id))
     action = msg.extract_plain_text().strip()
 
     # Check for pending event choice first

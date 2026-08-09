@@ -130,6 +130,8 @@
     },
     "character": {
         "need_create": "请先使用 /创建调查员 生成角色。",
+        "need_name": "请输入调查员名字，例如：/创建调查员 张三",
+        "has_alive": "你已拥有存活的调查员，无法重复创建。",
         "need_number": "请输入数字，例如：/选择调查员 2",
         "out_of_range": "超过了可以选择的范围哦~",
         "choose_failed": "选择失败。",

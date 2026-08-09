@@ -281,3 +281,14 @@ def md_message(text: str, bot: Any = None, mention: str = "") -> Union[str, Any]
     except Exception as e:
         logger.exception(f"Failed to build markdown message: {e}")
         return text
+
+
+def need_create_message(bot: Any = None, mention: str = "") -> Union[str, Any]:
+    """无调查员时的创建引导消息（含 /创建调查员 回车按钮）。"""
+    t = data_loader.get_text
+    return md_message(
+        f"\n{t('character.need_create')}\n\n"
+        f"{cmd_tag('/创建调查员', show=t('character.create_button'))}",
+        bot,
+        mention=mention,
+    )

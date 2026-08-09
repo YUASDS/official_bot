@@ -3,10 +3,11 @@ from nonebot.adapters import Bot, Event, Message
 from nonebot.params import CommandArg
 
 from ..models.item import Equipment
+from ..models.player import investigator_repo
 from ..services.shop_service import shop_service
 from ..services.data_loader import data_loader
 from ..utils.buttons import _send_to_user, register_button_handler
-from ..utils.md_format import build_keyboard, md_message
+from ..utils.md_format import build_keyboard, md_message, need_create_message
 
 _t = data_loader.get_text
 
@@ -42,6 +43,8 @@ buy_cmd = on_command("购买", aliases={"buy_item"}, priority=10, block=True)
 @buy_cmd.handle()
 async def handle_buy(event: Event, bot: Bot, msg: Message = CommandArg()) -> None:
     user_id = event.get_user_id()
+    if investigator_repo.find_by_qq(user_id) is None:
+        await buy_cmd.finish(need_create_message(bot, mention=user_id))
     args = msg.extract_plain_text().strip().split()
     if not args:
         await buy_cmd.finish(
@@ -72,6 +75,14 @@ async def handle_buy_button(
     token: int | None = None,
 ) -> None:
     """商店「购买」按钮回调（默认数量 1）。"""
+    if investigator_repo.find_by_qq(user_id) is None:
+        await _send_to_user(
+            bot,
+            user_id,
+            need_create_message(bot, mention=user_id),
+            group_openid,
+        )
+        return
     items = shop_service.get_todays_shop("seed")
     ok, res = shop_service.buy_item(user_id, item_id, 1, items)
     msg = md_message(f"\n{res}", bot, mention=user_id)
