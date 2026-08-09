@@ -9,6 +9,7 @@ def action2part(action: str) -> str:
         "射击": "远程",
         "三连射": "远程",
         "换弹": "远程",
+        "远程": "远程",
         "防具": "防具",
     }
     return action_map.get(action, "")
