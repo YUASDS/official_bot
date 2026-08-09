@@ -5,7 +5,7 @@ from nonebot.params import CommandArg
 from loguru import logger
 import random
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Any, Callable
 
 from ..services.battle import BattleService
 from ..models.player import Investigator, investigator_repo
@@ -22,7 +22,7 @@ from ..utils.md_format import (
     build_keyboard,
     cmd_tag,
     md_message,
-    pic_enabled,
+    md_to_html,
     report_check_table,
     report_quote,
     report_section,
@@ -42,6 +42,8 @@ RESURRECT_ITEM_ID = "501"
 
 _CARD_TEMPLATE = Path(__file__).parent.parent.parent / "data" / "battle_card.html"
 _END_CARD_TEMPLATE = Path(__file__).parent.parent.parent / "data" / "end_card.html"
+_OPEN_TEMPLATE = Path(__file__).parent.parent.parent / "data" / "battle_open.html"
+_ROUND_TEMPLATE = Path(__file__).parent.parent.parent / "data" / "battle_round.html"
 
 
 def _do_resurrect(user_id: str) -> str:
@@ -78,15 +80,94 @@ async def _render_pic(html: str):
         return None
 
 
-def _pic_msg(img) -> Optional[Message]:
-    """构造 QQ 图片消息段；失败返回 None。"""
+async def _send_pic(bot: Bot, img: Any, send: Callable) -> bool:
+    """按适配器发送图片消息；成功返回 True，失败返回 False（调用方回退 md）。"""
+    bt = getattr(bot, "type", "")
     try:
-        from nonebot.adapters.qq.message import Message as QQMessage
-        from nonebot.adapters.qq.message import MessageSegment
+        if bt == "QQ":
+            from nonebot.adapters.qq.message import Message as QQMessage
+            from nonebot.adapters.qq.message import MessageSegment
 
-        return QQMessage(MessageSegment.file_image(img))
-    except Exception:
-        return None
+            await send(QQMessage(MessageSegment.file_image(img)))
+            return True
+        if bt == "Console":
+            from nonebot.adapters.console.message import ConsoleMessage, Image
+
+            await send(ConsoleMessage(Image(img)))
+            return True
+        if bt == "Mirai":
+            from nonebot.adapters.mirai.message import Image, MessageChain
+
+            await send(MessageChain(Image(img)))
+            return True
+    except Exception as e:  # noqa: BLE001 - 图片发送失败应回退 md
+        logger.debug(f"send image failed on {bt}: {e}")
+    return False
+
+
+def _battle_title(service: BattleService) -> str:
+    """战报卡片标题（环境名，无环境用默认）。"""
+    t = data_loader.get_text
+    env_name = service.environment.get("name", "") if service.environment else ""
+    title = (
+        t("battle.report_title", env=env_name)
+        if env_name
+        else t("battle.report_title_default")
+    )
+    return title.replace("# 🕯️ ", "").replace(" · 实时战报", "")
+
+
+def _round_status_html(service: BattleService) -> str:
+    """回合卡片状态条（HP/SAN/弹药 chips）。"""
+    inv = service.investigator
+    max_san = inv.get_skill("意志") or inv.get_skill("san", 0)
+    chips = [
+        f'<div class="chip"><span class="k">🧑‍🎤 {inv.name}</span> '
+        f'<span class="v">HP {service.hp_record["inv"]}/{inv.get_max_hp()}</span>'
+        f"</div>",
+        f'<div class="chip"><span class="k">🧠 SAN</span> '
+        f'<span class="v">{inv.get_skill("san", 0)}/{max_san}</span></div>',
+        f'<div class="chip"><span class="k">👾 {service.monster.名字}</span> '
+        f'<span class="v">HP {service.hp_record["mon"]}/{service.monster.max_hp}</span>'
+        f"</div>",
+    ]
+    if service.gun:
+        chips.append(
+            f'<div class="chip"><span class="k">🔫 弹药</span> '
+            f'<span class="v">{service.bullet}/{service.max_bullet}</span></div>'
+        )
+    return "".join(chips)
+
+
+def _battle_round_html(service: BattleService, result: tuple) -> str:
+    """回合战报卡片 HTML（检定/交锋/疯狂等 md 渲染进卡片，末段回合提示作脚注）。"""
+    t = data_loader.get_text
+    body = md_to_html("\n\n".join(str(x) for x in result[:-1] if x))
+    owner_key = (
+        "battle.your_turn" if service.current_turn == "inv" else "battle.monster_turn"
+    )
+    hint = t("battle.turn_line", owner=t(owner_key)).replace("**", "")
+    return (
+        _ROUND_TEMPLATE.read_text(encoding="utf-8")
+        .replace("__ROUND__", str(service.get_turn_token()))
+        .replace("__TITLE__", t(owner_key))
+        .replace("__BODY__", body)
+        .replace("__STATUS__", _round_status_html(service))
+        .replace("__HINT__", hint)
+    )
+
+
+def _battle_open_html(service: BattleService, body_md: str) -> str:
+    """开场战报卡片 HTML（md 渲染进卡片，首个 # 标题行由印章区承担）。"""
+    parts = body_md.split("\n\n", 1)
+    if parts[0].strip().startswith("# "):
+        body_md = parts[1] if len(parts) > 1 else ""
+    return (
+        _OPEN_TEMPLATE.read_text(encoding="utf-8")
+        .replace("__TITLE__", _battle_title(service))
+        .replace("__DAY__", str(service.investigator.day))
+        .replace("__BODY__", md_to_html(body_md))
+    )
 
 
 def _fmt_bonus(v) -> str:
@@ -274,20 +355,21 @@ async def _send_combat_result(
 ) -> None:
     """发送战斗回合结果。
 
-    图片模式战斗结束时：本回合战况 md → 结算卡片（含侦查/战利品/成长）；
-    其余情况：原样 md 文本（含行动按钮）。
+    全平台优先渲染 HTML 图片卡片（回合战报 + 结算卡片），失败回退 md 文本；
+    卡片后附行动按钮消息（QQ 键盘 / 纯文本指令）。
     """
-    response = "\n" + "\n\n".join([str(x) for x in result if x])
-    if battle.fight_is_over() and pic_enabled() and getattr(bot, "type", "") == "QQ":
-        # 1. 本回合战况（检定/交锋），最后一个元素是结束文本，不包含
-        combat_text = "\n" + "\n\n".join([str(x) for x in result[:-1] if x])
-        if combat_text.strip():
-            await send(md_message(combat_text, bot))
+    if battle.fight_is_over():
+        # 1. 本回合战报卡片（不含结束文本；逃跑等单段结果无战报则跳过）
+        if any(x for x in result[:-1]):
+            img = await _render_pic(_battle_round_html(battle, result))
+            if img is not None:
+                if not await _send_pic(bot, img, send):
+                    combat_text = "\n" + "\n\n".join(str(x) for x in result[:-1] if x)
+                    await send(md_message(combat_text, bot))
 
-        # 2. 结算卡片（含侦查检定/战利品/成长，图片模式不再发 md 明细）
+        # 2. 结算卡片
         img = await _render_pic(_end_card_html(battle))
-        if img is not None and (pic_msg := _pic_msg(img)) is not None:
-            await send(pic_msg)
+        if img is not None and await _send_pic(bot, img, send):
             if battle.hp_record["inv"] <= 0:
                 t = data_loader.get_text
                 await send(
@@ -298,7 +380,27 @@ async def _send_combat_result(
                     )
                 )
             return
-    await send(_send_turn(battle, bot, response))
+
+        # 结算图片失败 → md 回退
+        if result[-1]:
+            await send(md_message(str(result[-1]), bot))
+        if battle.hp_record["inv"] <= 0:
+            t = data_loader.get_text
+            await send(
+                md_message(
+                    f"\n**{t('character.resurrect_button')}**\n{cmd_tag('/复活')}\n\n"
+                    f"**{t('character.create_button')}**\n{cmd_tag('/创建调查员')}",
+                    bot,
+                )
+            )
+        return
+
+    # 普通回合：战报卡片 + 行动按钮消息
+    img = await _render_pic(_battle_round_html(battle, result))
+    if img is not None and await _send_pic(bot, img, send):
+        await send(_send_turn(battle, bot, str(result[-1])))
+        return
+    await send(_send_turn(battle, bot, "\n" + "\n\n".join([str(x) for x in result if x])))
 
 
 adventure_cmd = on_command(
@@ -390,37 +492,27 @@ async def handle_adventure(event: Event, bot: Bot):
                 [[(opt["输入"], f"event:{opt['输入']}") for opt in event_data["选项"]]]
             )
 
-            # 图片模式：① 奇遇 CG 图片（环境+奇遇） → ② 按钮消息（事件+选项，怪物出场在奇遇结束后）
-            if pic_enabled() and getattr(bot, "type", "") == "QQ":
-                card_html = _battle_card_html(service, event_desc=event_data["描述"])
-                img = await _render_pic(card_html)
-                if img is not None and (pic_msg := _pic_msg(img)) is not None:
-                    await adventure_cmd.send(pic_msg)
-                    options = "\n".join(
-                        f" {data_loader.get_text('adventure.event_choice', input=opt['输入'])}"
-                        for opt in event_data["选项"]
-                    )
-                    event_msg = md_message(
-                        f"\n**{data_loader.get_text('adventure.event_title')}**\n\n"
-                        f"{options}",
-                        bot,
-                    )
-                    if event_kb is not None and not isinstance(event_msg, str):
-                        event_msg.append(event_kb)
-                    await adventure_cmd.send(event_msg)
-                    return
-
-            # 非图片模式：环境+事件+选项（怪物出场在奇遇结束后展示）
-            event_text = (
-                f"\n\n{data_loader.get_text('adventure.event_title')}\n"
-                f"{report_quote([event_data['描述']])}\n"
-            )
-            for opt in event_data["选项"]:
-                event_text += f" {data_loader.get_text('adventure.event_choice', input=opt['输入'])}\n"
-            event_msg = md_message(
-                f"{header}{event_text}",
-                bot,
-            )
+            # 奇遇 CG 卡片（全平台）+ 选项按钮；图片失败回退文本
+            card_html = _battle_card_html(service, event_desc=event_data["描述"])
+            img = await _render_pic(card_html)
+            if img is not None and await _send_pic(bot, img, adventure_cmd.send):
+                options = "\n".join(
+                    f" {data_loader.get_text('adventure.event_choice', input=opt['输入'])}"
+                    for opt in event_data["选项"]
+                )
+                event_msg = md_message(
+                    f"\n**{data_loader.get_text('adventure.event_title')}**\n\n"
+                    f"{options}",
+                    bot,
+                )
+            else:
+                event_text = (
+                    f"\n\n{data_loader.get_text('adventure.event_title')}\n"
+                    f"{report_quote([event_data['描述']])}\n"
+                )
+                for opt in event_data["选项"]:
+                    event_text += f" {data_loader.get_text('adventure.event_choice', input=opt['输入'])}\n"
+                event_msg = md_message(f"{header}{event_text}", bot)
             if event_kb is not None and not isinstance(event_msg, str):
                 event_msg.append(event_kb)
             await adventure_cmd.send(event_msg)
@@ -446,25 +538,7 @@ async def handle_adventure(event: Event, bot: Bot):
         battle_manager.add_battle(user_id, service)
         service.roll_initiative()
 
-        # 图片模式：① 环境/入场 CG 图片 → ② md（怪物出场→理智→敏捷对比→回合→行动）
-        if pic_enabled() and getattr(bot, "type", "") == "QQ":
-            card_html = _battle_card_html(service, day_event)
-            img = await _render_pic(card_html)
-            if img is not None and (pic_msg := _pic_msg(img)) is not None:
-                await adventure_cmd.send(pic_msg)
-                tail = (
-                    f"{report_section(data_loader.get_text('battle.monster_intro_title'))}\n"
-                    f"{monster_intro}\n\n"
-                    f"{san_desc}{madness_desc}\n\n"
-                    f"{service.get_dex_compare_section()}\n\n"
-                    f"{service.get_status_table()}\n\n"
-                    f"{service.get_danger_section()}\n\n"
-                    f"{service.get_action_section()}"
-                )
-                await adventure_cmd.send(_send_turn(service, bot, tail))
-                return
-
-        # 环境修正小节（非图片模式显示在开场）
+        # 环境修正小节
         env_effects = ""
         env_lines = _env_effects_lines(env)
         if env_lines:
@@ -486,7 +560,35 @@ async def handle_adventure(event: Event, bot: Bot):
             f"{service.get_danger_section()}\n\n"
             f"{service.get_action_section()}"
         )
-        await adventure_cmd.send(_send_turn(service, bot, reply))
+
+        # 入场 CG 卡片（环境氛围，独立一张图；渲染失败则异象/环境修正保留在战斗卡片）
+        cg_shown = False
+        img = await _render_pic(_battle_card_html(service, day_event))
+        if img is not None:
+            cg_shown = await _send_pic(bot, img, adventure_cmd.send)
+
+        # 开场战报卡片：CG 已展示异象/环境修正，战斗卡片不再重复
+        battle_reply = (
+            f"{report_section(data_loader.get_text('battle.monster_intro_title'))}\n"
+            f"{monster_intro}\n\n"
+            f"{san_desc}{madness_desc}\n\n"
+            f"{service.get_dex_compare_section()}\n\n"
+            f"{service.get_status_table()}\n\n"
+            f"{service.get_danger_section()}\n\n"
+            f"{service.get_action_section()}"
+        )
+        img = await _render_pic(_battle_open_html(service, battle_reply))
+        if img is not None and await _send_pic(bot, img, adventure_cmd.send):
+            await adventure_cmd.send(
+                _send_turn(service, bot, service._get_next_turn_prompt())
+            )
+            return
+
+        # 图片失败回退 md（含完整开场内容）
+        if not cg_shown:
+            await adventure_cmd.send(_send_turn(service, bot, reply))
+            return
+        await adventure_cmd.send(_send_turn(service, bot, battle_reply))
 
     except FinishedException:
         raise
@@ -689,6 +791,12 @@ async def handle_combat(event: Event, bot: Bot, msg: Message = CommandArg()):
             f"{battle.get_dex_compare_section()}\n\n"
             f"{battle.start_turn()}"
         )
+        img = await _render_pic(_battle_open_html(battle, reply))
+        if img is not None and await _send_pic(bot, img, combat_cmd.send):
+            await combat_cmd.send(
+                _send_turn(battle, bot, battle._get_next_turn_prompt())
+            )
+            return
         await combat_cmd.send(_send_turn(battle, bot, reply))
         return
 
@@ -834,7 +942,15 @@ async def handle_event_choice(
         f"{battle.get_dex_compare_section()}\n\n"
         f"{battle.start_turn()}"
     )
-    await _send_to_user(bot, user_id, _send_turn(battle, bot, reply), group_openid)
+
+    async def _send(msg: Any) -> None:
+        await _send_to_user(bot, user_id, msg, group_openid)
+
+    img = await _render_pic(_battle_open_html(battle, reply))
+    if img is not None and await _send_pic(bot, img, _send):
+        await _send(_send_turn(battle, bot, battle._get_next_turn_prompt()))
+        return
+    await _send(_send_turn(battle, bot, reply))
 
 
 # --- 按钮回调注册 ---

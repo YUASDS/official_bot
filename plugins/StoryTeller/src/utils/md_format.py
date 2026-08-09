@@ -105,6 +105,74 @@ def _strip_inline(text: str) -> str:
     return text
 
 
+_INLINE_CODE_RE = re.compile(r"`([^`]+)`")
+_INLINE_BOLD_RE = re.compile(r"\*\*([^*]+)\*\*")
+
+
+def _inline_html(text: str) -> str:
+    """行内 md 转 HTML：先转义实体，再处理加粗/行内代码/<br>。"""
+    text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    text = _INLINE_CODE_RE.sub(r"<code>\1</code>", text)
+    text = _INLINE_BOLD_RE.sub(r"<b>\1</b>", text)
+    return text.replace("&lt;br&gt;", "<br>")
+
+
+def _table_html(rows: list[list[str]]) -> str:
+    """表格行组渲染为 HTML 表格（首行作表头）。"""
+    parts = ['<table class="tbl">']
+    for idx, cells in enumerate(rows):
+        tag = "th" if idx == 0 else "td"
+        tds = "".join(f"<{tag}>{_inline_html(c)}</{tag}>" for c in cells)
+        parts.append(f"<tr>{tds}</tr>")
+    parts.append("</table>")
+    return "\n".join(parts)
+
+
+def _line_html(line: str) -> str:
+    """非表格行 md 转 HTML 块。"""
+    if line.startswith("**【") and line.endswith("】**"):
+        return f'<div class="sec">{_inline_html(line[3:-3])}</div>'
+    if re.fullmatch(r"#{1,3}\s+.+", line):
+        level = len(line) - len(line.lstrip("#"))
+        return f"<h{level}>{_inline_html(line.lstrip('#').strip())}</h{level}>"
+    if re.fullmatch(r"[-*_]{3,}", line):
+        return '<div class="rule"></div>'
+    if line.startswith(">"):
+        return f'<div class="quote">{_inline_html(line.lstrip(">").strip())}</div>'
+    return f"<p>{_inline_html(line)}</p>"
+
+
+def md_to_html(text: str) -> str:
+    """将 StoryTeller 的 md 战报转换为卡片 HTML 片段（图片卡片渲染用）。
+
+    支持：**【标题】** 小节、#/##/### 标题、| 表格 |、> 引用、--- 分隔线、
+    **加粗**、`行内代码`、<br>。
+    """
+    if not text:
+        return ""
+
+    blocks: list[str] = []
+    table_rows: list[list[str]] = []
+    for raw in text.split("\n"):
+        line = raw.strip()
+        if not line:
+            continue
+        if line.startswith("|") and line.endswith("|"):
+            cells = [c.strip() for c in line.strip("|").split("|")]
+            if all(re.fullmatch(r":?-{2,}:?", c) for c in cells):
+                continue  # 表头分隔行
+            table_rows.append(cells)
+            continue
+        if table_rows:
+            blocks.append(_table_html(table_rows))
+            table_rows = []
+        blocks.append(_line_html(line))
+
+    if table_rows:
+        blocks.append(_table_html(table_rows))
+    return "\n".join(blocks)
+
+
 def report_section(title: str) -> str:
     """构造分节头：**【{title}】**。"""
     return data_loader.get_text("report.section", title=title)
