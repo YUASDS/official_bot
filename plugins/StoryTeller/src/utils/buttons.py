@@ -39,9 +39,14 @@ async def _send_to_user(
                 msg_segments = message
             else:
                 msg_segments = QQMessage(message)
-            # 群聊：post_group_messages
+            # 群聊：post_group_messages（媒体消息如图片走适配器 send_to_group 自动上传）
             if group_openid:
                 try:
+                    if msg_segments.get("file_image"):
+                        await bot.send_to_group(
+                            group_openid=group_openid, message=msg_segments
+                        )
+                        return
                     await bot.post_group_messages(
                         group_openid=group_openid,
                         msg_type=2,
