@@ -106,7 +106,10 @@
         "event_choice": "🔹 `【/行动 {input}】`",
         "event_default": "你犹豫不决，选择了最安全的方式——继续前进。",
         "monster_intro_default": "一只{name}出现了！",
-        "use_item": "使用 "
+        "use_item": "使用 ",
+        "resurrect_alive": "你还活着，不需要复活道具。",
+        "resurrect_none": "背包中没有复活道具。",
+        "resurrect_ok": "🌟 复活成功！生命与理智已恢复，使用 \\/今日冒险\\ 继续冒险。"
     },
     "character": {
         "need_create": "请先使用 /创建调查员 生成角色。",
@@ -137,7 +140,8 @@
         "skill_table_header": "| 技能 | 数值 |",
         "choose_button": "选择 {index}",
         "create_button": "🧭 创建调查员",
-        "info_button": "📋 调查员信息"
+        "info_button": "📋 调查员信息",
+        "resurrect_button": "🌟 使用复活道具"
     },
     "shop": {
         "input_hint": "请输入物品ID和数量（可选）。",
