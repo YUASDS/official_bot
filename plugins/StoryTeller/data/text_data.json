@@ -87,7 +87,8 @@
         "fled_ending": "你从怪物的利爪下挣脱，庄园的迷雾仍在身后低语。",
         "fled_hint": "明日可继续冒险",
         "dex_compare_title": "敏捷·对比",
-        "monster_intro_title": "遭遇·登场"
+        "monster_intro_title": "遭遇·登场",
+        "victory_luck": "🕯️ 莫名的平静拂过心头，你回复了 {value} 点理智。"
     },
     "adventure": {
         "player_dead": "当前调查员已死亡。请使用复活道具。",

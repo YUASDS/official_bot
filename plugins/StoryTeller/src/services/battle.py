@@ -932,6 +932,16 @@ class BattleService:
         else:
             bonus_text = self._quote(self._get_reply("侦查失败"))
 
+        # 隐藏幸运检定：成功回复 1d3 SAN（检定过程不展示，失败无任何提示）
+        luck_line = ""
+        luck_roll = DiceRoll(max(1, self.investigator.get_skill("幸运", 0)))
+        if luck_roll.level > SuccessLevel.FAILURE:
+            _expr, gain = roll_dice("1d3")
+            self.investigator.set_skill(
+                "san", max(0, self.investigator.get_skill("san", 0) + gain)
+            )
+            luck_line = self._t("battle.victory_luck", value=gain)
+
         self.investigator.hp = self.hp_record["inv"]
         self.investigator.day += 1
 
@@ -967,11 +977,14 @@ class BattleService:
             "bonus": bonus_text,
             "growth": growth_lines,
             "learn": learn_lines,
+            "luck": luck_line,
         }
 
         ending = getattr(self.monster, "结局", self._t("battle.monster_dead"))
         header = f"{self._t('battle.victory_title')}\n\n{ending}"
         detail_parts = [f"{search_desc}\n{bonus_text}"]
+        if luck_line:
+            detail_parts.append(luck_line)
         if learn_lines:
             detail_parts.append(
                 f"{report_section(self._t('spell.learn_title'))}\n"

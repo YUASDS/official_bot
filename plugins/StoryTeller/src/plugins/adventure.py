@@ -316,6 +316,12 @@ def _end_card_html(service: BattleService) -> str:
                 f'<div class="rowline"><span class="k">📜 研读·法术：</span>'
                 f'<span class="v">{g2}</span></div>'
             )
+        luck = ext.get("luck", "")
+        if luck:
+            detail += (
+                f'<div class="rowline"><span class="k">🕯️ 幸运眷顾：</span>'
+                f'<span class="v">{luck}</span></div>'
+            )
         detail += "</div>"
 
     html = _END_CARD_TEMPLATE.read_text(encoding="utf-8")
