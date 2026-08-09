@@ -453,6 +453,7 @@ async def handle_adventure(event: Event, bot: Bot):
             if img is not None and (pic_msg := _pic_msg(img)) is not None:
                 await adventure_cmd.send(pic_msg)
                 tail = (
+                    f"{report_section(data_loader.get_text('battle.monster_intro_title'))}\n"
                     f"{monster_intro}\n\n"
                     f"{san_desc}{madness_desc}\n\n"
                     f"{service.get_dex_compare_section()}\n\n"
@@ -477,6 +478,7 @@ async def handle_adventure(event: Event, bot: Bot):
             f"{data_loader.get_text('battle.day_line', day=inv.day)}\n\n"
             f"{anomaly}\n\n"
             f"{env_effects}\n\n"
+            f"{report_section(data_loader.get_text('battle.monster_intro_title'))}\n"
             f"{monster_intro}\n\n"
             f"{san_desc}{madness_desc}\n\n"
             f"{service.get_dex_compare_section()}\n\n"
@@ -681,6 +683,7 @@ async def handle_combat(event: Event, bot: Bot, msg: Message = CommandArg()):
         )
         reply = (
             f"{event_reply}\n\n"
+            f"{report_section(data_loader.get_text('battle.monster_intro_title'))}\n"
             f"{monster_intro}\n\n"
             f"{san_desc}{madness_desc}\n\n"
             f"{battle.get_dex_compare_section()}\n\n"
@@ -825,6 +828,7 @@ async def handle_event_choice(
     )
     reply = (
         f"{event_reply}\n\n"
+        f"{report_section(data_loader.get_text('battle.monster_intro_title'))}\n"
         f"{monster_intro}\n\n"
         f"{san_desc}{madness_desc}\n\n"
         f"{battle.get_dex_compare_section()}\n\n"

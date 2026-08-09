@@ -70,7 +70,7 @@ def _choose_success_text(ci: CreateInvestigator, name: str) -> str:
     for k, label in (("san", "SAN"), ("hp", "HP"), ("db", "DB")):
         attr_rows.append(_t("character.attr_table_row", name=label, value=ci.select.get(k, 0)))
 
-    skill_keys = ["手枪", "步枪", "格斗", "侦查", "急救", "医学"]
+    skill_keys = ["手枪", "步枪", "格斗", "侦查", "急救", "医学", "闪避"]
     skill_rows = [_t("character.skill_table_header"), _t("character.attr_table_sep")]
     for k in skill_keys:
         skill_rows.append(_t("character.attr_table_row", name=k, value=ci.select.get(k, 0)))
