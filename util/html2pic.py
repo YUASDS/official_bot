@@ -21,14 +21,13 @@ async def html_to_pic(
         await page.add_style_tag(path=css_path)
     if viewport:
         await page.set_viewport_size(viewport)
-    if selector:
-        element = await page.query_selector(selector)
-        await page.wait_for_selector(selector)
-        assert element is not None
-        height = await element.evaluate("el => el.offsetHeight")
-        width = await element.evaluate("el => el.offsetWidth")
-        await page.set_viewport_size({"width": width, "height": height})
     await asyncio.sleep(wait)
-    img = await page.screenshot()
+    if selector:
+        # 元素级截图：按元素真实边界裁剪，避免 body padding/边框超出视口被截断
+        element = await page.wait_for_selector(selector)
+        assert element is not None
+        img = await element.screenshot()
+    else:
+        img = await page.screenshot()
     await page.close()
     return BytesIO(img)

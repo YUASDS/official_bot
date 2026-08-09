@@ -182,6 +182,7 @@ def _pic_enabled() -> bool:
 def _info_card_html(inv: Investigator, gold: int) -> str:
     """构建调查员信息 HTML 卡片。"""
     attrs = inv.get_full_attributes_dict()
+    attrs["HP"] = inv.get_max_hp()
     attr_items = "".join(
         f'<div class="attr"><span class="k">{k}</span><span class="v">{v}</span></div>'
         for k, v in attrs.items()
@@ -276,6 +277,7 @@ async def build_info_message(user_id: str, bot: Bot):
             return card
 
     attrs = inv.get_full_attributes_dict()
+    attrs["HP"] = inv.get_max_hp()
     survival = _t("character.dead") if not inv.is_survive else _t("character.survive")
 
     attr_rows = [_t("character.attr_table_header"), _t("character.attr_table_sep")]
