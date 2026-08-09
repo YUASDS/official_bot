@@ -4,6 +4,8 @@ from nonebot.exception import FinishedException
 from nonebot.params import CommandArg
 from loguru import logger
 import random
+from pathlib import Path
+from typing import Callable, Optional
 
 from ..services.battle import BattleService
 from ..models.player import Investigator, investigator_repo
@@ -18,16 +20,167 @@ from ..utils.buttons import (
 )
 from ..utils.md_format import (
     build_keyboard,
+    cmd_tag,
     md_message,
+    pic_enabled,
     report_check_table,
     report_quote,
     report_section,
 )
-from ..services.dice_roller import get_success_icon, roll_dice
+from ..services.dice_roller import (
+    get_success_description,
+    get_success_icon,
+    roll_dice,
+)
 from database.db import add_gold
 
 # State for active random events (user_id -> event context)
 _event_states: dict[str, dict] = {}
+
+# 复活道具 ID（预留接口：在 goods_data.json 中加入该 ID 商品后自动生效）
+RESURRECT_ITEM_ID = "501"
+
+_CARD_TEMPLATE = Path(__file__).parent.parent.parent / "data" / "battle_card.html"
+_END_CARD_TEMPLATE = Path(__file__).parent.parent.parent / "data" / "end_card.html"
+
+
+def _do_resurrect(user_id: str) -> str:
+    """使用复活道具（命令/按钮共用）。
+
+    预留接口：背包中拥有 RESURRECT_ITEM_ID 时消耗 1 个并复活；
+    无道具或未死亡时返回对应提示。
+    """
+    t = data_loader.get_text
+    inv = Investigator.load(user_id)
+    if inv.is_survive:
+        return t("adventure.resurrect_alive")
+
+    equipments, _ = inv.get_equipments()
+    if RESURRECT_ITEM_ID not in equipments:
+        return t("adventure.resurrect_none")
+
+    investigator_repo.remove_item_from_inventory(user_id, RESURRECT_ITEM_ID, 1)
+    inv.is_survive = True
+    inv.restore_hp()
+    max_san = inv.get_skill("意志") or 0
+    inv.set_skill("san", max(0, max_san))
+    inv.save()
+    return t("adventure.resurrect_ok")
+
+
+async def _render_pic(html: str):
+    """渲染 HTML 卡片为图片 BytesIO；失败返回 None。"""
+    try:
+        from util.html2pic import html_to_pic
+
+        return await html_to_pic(html, selector=".card", wait=0.8)
+    except Exception:
+        return None
+
+
+def _pic_msg(img) -> Optional[Message]:
+    """构造 QQ 图片消息段；失败返回 None。"""
+    try:
+        from nonebot.adapters.qq.message import Message as QQMessage
+        from nonebot.adapters.qq.message import MessageSegment
+
+        return QQMessage(MessageSegment.file_image(img))
+    except Exception:
+        return None
+
+
+def _battle_card_html(
+    service: BattleService,
+    day_event: str,
+    monster_intro: str,
+) -> str:
+    """开场战报卡片 HTML。"""
+    t = data_loader.get_text
+    env_name = service.environment.get("name", "")
+    title = (
+        t("battle.report_title", env=env_name)
+        if env_name
+        else t("battle.report_title_default")
+    )
+    title = title.replace("# 🕯️ ", "").replace(" · 实时战报", "")
+    owner = (
+        t("battle.your_turn")
+        if service.current_turn == "inv"
+        else t("battle.monster_turn")
+    )
+    inv = service.investigator
+    c = service.initiative
+    max_san = inv.get_skill("意志") or inv.get_skill("san", 0)
+    inv_init = t(
+        "report.init_result",
+        icon=get_success_icon(c.level1),
+        level=get_success_description(c.level1),
+        dice=c.dice1,
+        target=c.skill1,
+    )
+    mon_init = t(
+        "report.init_result",
+        icon=get_success_icon(c.level2),
+        level=get_success_description(c.level2),
+        dice=c.dice2,
+        target=c.skill2,
+    )
+
+    anomaly_lines = []
+    env_desc = service.environment.get("描述", "") if service.environment else ""
+    if env_desc:
+        anomaly_lines.append(f"<p>{env_desc}</p>")
+    if day_event:
+        anomaly_lines.append(f"<p>{day_event}</p>")
+    if monster_intro:
+        anomaly_lines.append(f"<p>{monster_intro}</p>")
+
+    danger = ""
+    if service.current_turn == "mon":
+        action = service.monster.get_action("mon")
+        attack_text = action.get("attack", action.get("desc", ""))
+        danger = (
+            f'<div class="bar"></div>'
+            f'<div class="danger">⏳ 怪物回合已至：<b>{attack_text}——</b></div>'
+        )
+
+    html = _CARD_TEMPLATE.read_text(encoding="utf-8")
+    return (
+        html.replace("__TITLE__", title)
+        .replace("__DAY__", str(inv.day))
+        .replace("__TURN__", f"⏳ 当前回合：{owner}")
+        .replace("__INV_NAME__", service.player_name)
+        .replace("__INV_SAN__", f"{inv.get_skill('san', 0)}/{max_san}")
+        .replace("__INV_HP__", f"{service.hp_record['inv']}/{inv.get_max_hp()}")
+        .replace("__INV_INIT__", inv_init)
+        .replace("__MON_NAME__", service.monster.名字)
+        .replace("__MON_HP__", f"{service.hp_record['mon']}/{service.monster.max_hp}")
+        .replace("__MON_INIT__", mon_init)
+        .replace("__ANOMALY__", "\n".join(anomaly_lines))
+        .replace("__DANGER__", danger)
+    )
+
+
+def _end_card_html(service: BattleService) -> str:
+    """结算卡片 HTML。"""
+    t = data_loader.get_text
+    d = service.get_end_card_data()
+    if d["victory"]:
+        icon, cls, title, hint = "🏆", "win", t("battle.victory_title").replace("## ", ""), "明日可继续冒险"
+    else:
+        icon, cls, title, hint = "💀", "dead", t("battle.death_text", name=service.player_name).replace("## ", ""), "重新创建调查员继续冒险"
+
+    html = _END_CARD_TEMPLATE.read_text(encoding="utf-8")
+    return (
+        html.replace("__ICON__", icon)
+        .replace("__CLS__", cls)
+        .replace("__TITLE__", title)
+        .replace("__ENDING__", d["ending"])
+        .replace("__HP__", f"{d['hp']}/{d['max_hp']}")
+        .replace("__SAN__", f"{d['san']}/{d['max_san']}")
+        .replace("__DAY__", str(d["day"]))
+        .replace("__HINT__", hint)
+    )
 
 
 def _send_turn(battle: BattleService, bot: Bot, text: str) -> Message:
@@ -42,7 +195,12 @@ def _send_turn(battle: BattleService, bot: Bot, text: str) -> Message:
     if battle.fight_is_over():
         if battle.hp_record["inv"] <= 0:
             kb = build_keyboard(
-                [[(data_loader.get_text("character.create_button"), "create")]]
+                [
+                    [
+                        (data_loader.get_text("character.resurrect_button"), "resurrect"),
+                        (data_loader.get_text("character.create_button"), "create"),
+                    ]
+                ]
             )
             if kb is not None:
                 msg.append(kb)
@@ -57,6 +215,42 @@ def _send_turn(battle: BattleService, bot: Bot, text: str) -> Message:
         if kb is not None:
             msg.append(kb)
     return msg
+
+
+async def _send_combat_result(
+    battle: BattleService,
+    bot: Bot,
+    result: tuple,
+    send: Callable,
+) -> None:
+    """发送战斗回合结果。
+
+    图片模式战斗结束时：结算卡片图片 + md 明细尾部；
+    其余情况：原样 md 文本（含行动按钮）。
+    """
+    response = "\n" + "\n\n".join([str(x) for x in result if x])
+    if (
+        battle.fight_is_over()
+        and pic_enabled()
+        and getattr(bot, "type", "") == "QQ"
+    ):
+        img = await _render_pic(_end_card_html(battle))
+        if img is not None and (pic_msg := _pic_msg(img)) is not None:
+            await send(pic_msg)
+            header, detail = battle.end_parts
+            if detail:
+                await send(md_message(f"\n{detail}", bot))
+            if battle.hp_record["inv"] <= 0:
+                t = data_loader.get_text
+                await send(
+                    md_message(
+                        f"\n**{t('character.resurrect_button')}**\n{cmd_tag('/复活')}\n\n"
+                        f"**{t('character.create_button')}**\n{cmd_tag('/创建调查员')}",
+                        bot,
+                    )
+                )
+            return
+    await send(_send_turn(battle, bot, response))
 
 adventure_cmd = on_command("今日冒险", aliases={"daily_adventure", "开始冒险"}, priority=10, block=True)
 
@@ -206,6 +400,20 @@ async def handle_adventure(event: Event, bot: Bot):
             return
         battle_manager.add_battle(user_id, service)
         service.roll_initiative()
+
+        # 图片模式：开场战报卡片 + md 尾部（理智检定 + 行动抉择）
+        if pic_enabled() and getattr(bot, "type", "") == "QQ":
+            card_html = _battle_card_html(service, day_event, monster_intro)
+            img = await _render_pic(card_html)
+            if img is not None and (pic_msg := _pic_msg(img)) is not None:
+                await adventure_cmd.send(pic_msg)
+                tail = (
+                    f"{san_desc}{madness_desc}\n\n"
+                    f"{service.get_action_section()}"
+                )
+                await adventure_cmd.send(_send_turn(service, bot, tail))
+                return
+
         reply = (
             f"{title}\n\n"
             f"{data_loader.get_text('battle.day_line', day=inv.day)}\n\n"
@@ -223,6 +431,31 @@ async def handle_adventure(event: Event, bot: Bot):
     except Exception as e:
         logger.exception(f"Error starting adventure for {user_id}: {e}")
         await adventure_cmd.finish(md_message(f"\n{data_loader.get_text('adventure.start_error')}", bot))
+
+resurrect_cmd = on_command(
+    "复活", aliases={"use_resurrect", "复活道具"}, priority=10, block=True
+)
+
+
+@resurrect_cmd.handle()
+async def handle_resurrect(event: Event, bot: Bot) -> None:
+    """使用复活道具（死亡后）。"""
+    user_id = event.get_user_id()
+    await resurrect_cmd.finish(md_message(f"\n{_do_resurrect(user_id)}", bot))
+
+
+async def handle_resurrect_button(
+    user_id: str,
+    payload: str,
+    bot: Bot,
+    group_openid: str = "",
+    token: int | None = None,
+) -> None:
+    """死亡消息「使用复活道具」按钮回调。"""
+    await _send_to_user(
+        bot, user_id, md_message(f"\n{_do_resurrect(user_id)}", bot), group_openid
+    )
+
 
 combat_cmd = on_command("行动", aliases={"combat_action"}, priority=5, block=True)
 
@@ -295,8 +528,7 @@ async def handle_combat(event: Event, bot: Bot, msg: Message = CommandArg()):
         return
 
     result = battle.execute_action(action)
-    response = "\n" + "\n\n".join([str(x) for x in result if x])
-    await combat_cmd.send(_send_turn(battle, bot, response))
+    await _send_combat_result(battle, bot, result, send=combat_cmd.send)
 
     if battle.fight_is_over():
         inv = battle.investigator
@@ -324,8 +556,11 @@ async def handle_combat_action(
         return
 
     result = battle.execute_action(action)
-    response = "\n" + "\n\n".join([str(x) for x in result if x])
-    await _send_to_user(bot, user_id, _send_turn(battle, bot, response), group_openid)
+
+    async def _send(msg):
+        await _send_to_user(bot, user_id, msg, group_openid)
+
+    await _send_combat_result(battle, bot, result, send=_send)
 
     if battle.fight_is_over():
         inv = battle.investigator
@@ -381,4 +616,5 @@ async def handle_event_choice(
 # --- 按钮回调注册 ---
 register_button_handler("action", handle_combat_action)
 register_button_handler("event", handle_event_choice)
+register_button_handler("resurrect", handle_resurrect_button)
 setup_button_callback()

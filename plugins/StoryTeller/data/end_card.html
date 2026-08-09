@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { width:440px; background:#0e0c08; padding:14px; }
+  .card {
+    background: linear-gradient(160deg,#1c1610 0%,#241a12 55%,#181008 100%);
+    border:1px solid #6b4a2a; border-radius:14px; padding:20px 18px;
+    color:#e8d9b8; font-family:'Noto Serif SC','Microsoft YaHei',serif;
+    box-shadow:0 0 24px rgba(107,74,42,.25) inset;
+    text-align:center;
+  }
+  .icon { font-size:44px; }
+  .title { font-size:28px; font-weight:900; letter-spacing:6px; margin:6px 0 12px; }
+  .title.win { color:#e8c97a; }
+  .title.dead { color:#c9a0a0; }
+  .ending {
+    font-size:15px; line-height:1.8; color:#d8c8a8; text-align:left;
+    background:rgba(201,168,106,.04); border-left:3px solid #6b4a2a;
+    padding:10px 12px; margin:10px 0;
+  }
+  .stats { display:flex; justify-content:center; gap:14px; margin:12px 0 4px; }
+  .stat {
+    background:rgba(201,168,106,.06); border:1px solid rgba(201,168,106,.18);
+    border-radius:8px; padding:6px 14px; font-size:14px;
+  }
+  .stat .k { color:#a88f6a; } .stat .v { color:#f3e3c0; font-weight:900; font-size:16px; }
+  .hint { color:#a88f6a; font-size:13px; margin-top:10px; }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="icon">__ICON__</div>
+  <div class="title __CLS__">__TITLE__</div>
+  <div class="ending">__ENDING__</div>
+  <div class="stats">
+    <div class="stat"><div class="k">❤️ HP</div><div class="v">__HP__</div></div>
+    <div class="stat"><div class="k">🧠 SAN</div><div class="v">__SAN__</div></div>
+    <div class="stat"><div class="k">📅 存活</div><div class="v">第 __DAY__ 天</div></div>
+  </div>
+  <div class="hint">__HINT__</div>
+</div>
+</body>
+</html>

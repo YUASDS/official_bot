@@ -15,7 +15,7 @@ from ..models.player import (
 from ..services.data_loader import data_loader
 from ..utils.active_battles import battle_manager
 from ..utils.buttons import _send_to_user, register_button_handler
-from ..utils.md_format import build_keyboard, cmd_tag, md_message
+from ..utils.md_format import build_keyboard, cmd_tag, md_message, pic_enabled
 from database.db import get_info
 
 # --- State storage ---
@@ -166,17 +166,9 @@ async def handle_skill(event: Event, bot: Bot, msg: Message = CommandArg()):
 # --- /调查员信息 ---
 _CARD_TEMPLATE = Path(__file__).parent.parent.parent / "data" / "info_card.html"
 
-_PIC_ENV_KEY = "STORYTELLER_PIC"
-
 
 def _pic_enabled() -> bool:
-    try:
-        from nonebot import get_driver
-
-        value = getattr(get_driver().config, _PIC_ENV_KEY.lower(), "")
-        return str(value).lower() in ("1", "true", "yes", "on")
-    except Exception:
-        return False
+    return pic_enabled()
 
 
 def _info_card_html(inv: Investigator, gold: int) -> str:
@@ -257,7 +249,7 @@ def _info_kb_msg(user_id: str, bot: Bot):
 
 
 async def _send_info_flow(user_id: str, bot: Bot, send: Callable, finish: Callable) -> None:
-    """调查员档案发送流程：图片模式双消息（卡片 + 按钮），否则单条文本。"""
+    """调查员档案发送流程：图片模式双消息（卡片 + 指令标签），否则单条文本。"""
     if _pic_enabled() and getattr(bot, "type", "") == "QQ":
         card = await _card_msg(user_id)
         if card is not None:

@@ -46,6 +46,7 @@ class BattleService:
         self._weapon_reply_shown = False
         self.fled = False
         self._turn_counter = 0
+        self.end_parts: tuple[str, str] = ("", "")
 
     def get_turn_token(self) -> int:
         """当前回合令牌（用于按钮防重复点击）。"""
@@ -748,16 +749,16 @@ class BattleService:
         if self.hp_record["inv"] <= 0:
             self.investigator.is_survive = False
             self.investigator.save()
-            return (
-                f"{self._t('battle.death_text', name=self.player_name)}\n\n"
-                f"{self._settlement()}\n\n"
-                f"{self._t('battle.death_hint')}"
-            )
+            header = self._t("battle.death_text", name=self.player_name)
+            detail = f"{self._settlement()}\n\n{self._t('battle.death_hint')}"
+            self.end_parts = (header, detail)
+            return f"{header}\n\n{detail}"
         if self.hp_record["mon"] <= 0:
             return self._handle_victory()
         return None
 
-    def _handle_victory(self) -> str:
+    def _victory_parts(self) -> tuple[str, str]:
+        """胜利消息拆分为（标题+结局, 侦查/战利品/成长/结算明细）。"""
         search_skill = self.investigator.get_skill("侦查", 25)
         search_roll = DiceRoll(search_skill)
         self.get_success_record_description(search_roll.level, "侦查")
@@ -795,14 +796,33 @@ class BattleService:
         self.investigator.save()
 
         ending = getattr(self.monster, "结局", self._t("battle.monster_dead"))
-        parts = [
-            f"{self._t('battle.victory_title')}\n\n{ending}",
-            f"{search_desc}\n{bonus_text}",
-        ]
+        header = f"{self._t('battle.victory_title')}\n\n{ending}"
+        detail_parts = [f"{search_desc}\n{bonus_text}"]
         if growth_lines:
-            parts.append(f"{self._t('battle.victory_growth')}\n" + "\n".join(growth_lines))
-        parts.append(self._settlement())
-        return "\n\n".join(parts)
+            detail_parts.append(
+                f"{self._t('battle.victory_growth')}\n" + "\n".join(growth_lines)
+            )
+        detail_parts.append(self._settlement())
+        return header, "\n\n".join(detail_parts)
+
+    def _handle_victory(self) -> str:
+        header, detail = self._victory_parts()
+        self.end_parts = (header, detail)
+        return f"{header}\n\n{detail}"
+
+    def get_end_card_data(self) -> dict:
+        """结算卡片数据（图片模式渲染用）。"""
+        inv = self.investigator
+        max_san = inv.get_skill("意志") or inv.get_skill("san", 0)
+        return {
+            "victory": self.hp_record["mon"] <= 0,
+            "ending": getattr(self.monster, "结局", self._t("battle.monster_dead")),
+            "hp": self.hp_record["inv"],
+            "max_hp": inv.get_max_hp(),
+            "san": inv.get_skill("san", 0),
+            "max_san": max_san,
+            "day": inv.day,
+        }
 
     def fight_is_over(self) -> bool:
         return (

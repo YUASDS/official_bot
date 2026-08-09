@@ -16,6 +16,7 @@ from urllib.parse import quote
 from ..services.data_loader import data_loader
 
 MD_ENV_KEY = "STORYTELLER_MD"
+PIC_ENV_KEY = "STORYTELLER_PIC"
 QQ_BOT_TYPE = "QQ"
 
 
@@ -28,6 +29,18 @@ def is_md_enabled() -> bool:
         return str(value).lower() in ("1", "true", "yes", "on")
     except Exception as e:
         logger.debug(f"Failed to read {MD_ENV_KEY} config: {e}")
+        return False
+
+
+def pic_enabled() -> bool:
+    """是否启用 HTML 图片卡片输出（由 NoneBot 配置 STORYTELLER_PIC 控制）。"""
+    from nonebot import get_driver
+
+    try:
+        value = getattr(get_driver().config, PIC_ENV_KEY.lower(), "")
+        return str(value).lower() in ("1", "true", "yes", "on")
+    except Exception as e:
+        logger.debug(f"Failed to read {PIC_ENV_KEY} config: {e}")
         return False
 
 
