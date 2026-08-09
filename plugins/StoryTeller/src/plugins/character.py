@@ -59,27 +59,50 @@ def build_create_reply(user_id: str, name: str) -> str:
 
 
 def _choose_success_text(ci: CreateInvestigator, name: str) -> str:
-    """选择成功面板：属性/技能表格。"""
-    core_attrs = [
-        "力量", "体质", "体型", "敏捷",
-        "外貌", "智力", "意志", "教育", "幸运",
-    ]
-    attr_rows = [_t("character.attr_table_header"), _t("character.attr_table_sep")]
-    for k in core_attrs:
-        attr_rows.append(_t("character.attr_table_row", name=k, value=ci.select.get(k, 0)))
-    for k, label in (("san", "SAN"), ("hp", "HP"), ("db", "DB")):
-        attr_rows.append(_t("character.attr_table_row", name=label, value=ci.select.get(k, 0)))
+    """选择成功面板：属性/技能每行两项布局。"""
+    labels = {"san": "SAN", "hp": "HP", "db": "DB"}
 
-    skill_keys = ["手枪", "步枪", "格斗", "侦查", "急救", "医学", "闪避"]
-    skill_rows = [_t("character.skill_table_header"), _t("character.attr_table_sep")]
-    for k in skill_keys:
-        skill_rows.append(_t("character.attr_table_row", name=k, value=ci.select.get(k, 0)))
+    # 属性配对（每行 ≤15 字符：幸运配 HP、SAN 配 DB）
+    attr_pairs = [
+        ("力量", "体质"),
+        ("体型", "敏捷"),
+        ("外貌", "智力"),
+        ("意志", "教育"),
+        ("幸运", "hp"),
+        ("san", "db"),
+    ]
+    attr_lines = [
+        _t(
+            "player.attr_pair",
+            a=labels.get(a, a),
+            av=ci.select.get(a, 0),
+            b=labels.get(b, b),
+            bv=ci.select.get(b, 0),
+        )
+        for a, b in attr_pairs
+    ]
+
+    # 技能配对 + 闪避单行
+    skill_pairs = [("手枪", "步枪"), ("格斗", "侦查"), ("急救", "医学")]
+    skill_lines = [
+        _t(
+            "player.attr_pair",
+            a=a,
+            av=ci.select.get(a, 0),
+            b=b,
+            bv=ci.select.get(b, 0),
+        )
+        for a, b in skill_pairs
+    ]
+    skill_lines.append(
+        _t("player.attr_single", a="闪避", av=ci.select.get("闪避", 0))
+    )
 
     return (
         f"\n{_t('character.choose_success')}\n\n"
         f"{_t('character.name_label', name=name)}\n\n"
-        f"{_t('character.info_attrs')}\n{chr(10).join(attr_rows)}\n\n"
-        f"{chr(10).join(skill_rows)}\n\n"
+        f"{_t('character.info_attrs')}\n{chr(10).join(attr_lines)}\n\n"
+        f"{_t('character.skill_title')}\n{chr(10).join(skill_lines)}\n\n"
         f"{_t('character.skill_alloc_hint', points=ci.skill_point)}"
     )
 

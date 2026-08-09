@@ -121,7 +121,7 @@
         "create_title": "## 🌙 欢迎来到克苏鲁的世界",
         "choose_hint": "请选择你想要创建的调查员属性：\n- /选择调查员 1\n- /选择调查员 2\n- /选择调查员 3",
         "choose_success": "## ✅ 选择成功",
-        "skill_alloc_hint": "接下来需要分配技能了哦~\n共有**【{points}】**点技能点可以分配\n请按格式输入（例如：/st 手枪30步枪20）\n技能上限 75",
+        "skill_alloc_hint": "接下来需要分配技能了哦~\n共有*【{points}】*点技能点可以分配\n请按格式输入（例如：/st 手枪30步枪20）\n技能上限 75",
         "need_skill_input": "请输入技能分配，例如：/st 手枪30步枪20",
         "skill_set_error": "技能设置错误了哦~",
         "skill_too_many": "当前总点数过多了哦~",
@@ -143,7 +143,8 @@
         "choose_button": "选择 {index}",
         "create_button": "🧭 创建调查员",
         "info_button": "📋 调查员信息",
-        "resurrect_button": "🌟 使用复活道具"
+        "resurrect_button": "🌟 使用复活道具",
+        "skill_title": "### 技能"
     },
     "shop": {
         "input_hint": "请输入物品ID和数量（可选）。",
@@ -182,7 +183,9 @@
         "equip_success": "装备物品成功，装备:{name}，部位:{part}",
         "use_need_id": "请输入物品ID，例如：/使用物品 101",
         "use_button": "使用 {name}",
-        "use_hint": "点击下方按钮装备背包物品"
+        "use_hint": "点击下方按钮装备背包物品",
+        "attr_pair": "{a}`{av}`｜{b}`{bv}`",
+        "attr_single": "{a}`{av}`"
     },
     "dice": {
         "critical_failure": "大失败",
