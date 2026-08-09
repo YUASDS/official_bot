@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { width:420px; background:#0e0c08; padding:14px; }
+  .card {
+    background: linear-gradient(160deg,#1c1610 0%,#241a12 55%,#181008 100%);
+    border:1px solid #6b4a2a; border-radius:14px; padding:18px 16px;
+    color:#e8d9b8; font-family:'Noto Serif SC','Microsoft YaHei',serif;
+    box-shadow:0 0 24px rgba(107,74,42,.25) inset;
+  }
+  .seal { font-size:24px; color:#c9a86a; text-align:center; letter-spacing:6px; font-weight:900; }
+  .name { text-align:center; font-size:30px; font-weight:900; color:#f3e3c0; margin:6px 0 2px; }
+  .meta { text-align:center; color:#a88f6a; font-size:15px; }
+  .bar { height:1px; background:linear-gradient(90deg,transparent,#c9a86a,transparent); margin:10px 0; }
+  .section { font-size:16px; color:#d9b87c; font-weight:900; letter-spacing:4px; margin:10px 0 8px; }
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:6px 12px; }
+  .attr {
+    background:rgba(201,168,106,.06); border:1px solid rgba(201,168,106,.18);
+    border-radius:6px; padding:4px 8px; display:flex; justify-content:space-between;
+    font-size:15px;
+  }
+  .attr .k { color:#c9a86a; } .attr .v { color:#f3e3c0; font-weight:600; }
+  .rows { display:flex; flex-direction:column; gap:6px; }
+  .row {
+    background:rgba(201,168,106,.06); border:1px solid rgba(201,168,106,.18);
+    border-radius:6px; padding:4px 8px; display:flex; justify-content:space-between;
+    font-size:15px;
+  }
+  .row .k { color:#e8d9b8; } .row .v { color:#c9a86a; }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="seal">🕯️ 调 查 员 档 案</div>
+  <div class="name">__NAME__</div>
+  <div class="meta">状态：__STATUS__ ｜ 第 __DAY__ 天 ｜ 🪙 乌帕：__GOLD__</div>
+  <div class="bar"></div>
+  <div class="section">⚔️ 属性</div>
+  <div class="grid">__ATTRS__</div>
+  <div class="bar"></div>
+  <div class="section">🎒 装备</div>
+  <div class="rows">__EQUIPS__</div>
+  <div class="bar"></div>
+  <div class="section">📦 背包</div>
+  <div class="rows">__BAG__</div>
+</div>
+</body>
+</html>

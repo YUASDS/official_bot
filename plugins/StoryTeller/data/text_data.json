@@ -126,7 +126,7 @@
         "skill_set_ok": "技能设置成功啦~",
         "create_done": "## 🎉 调查员 {name} 创建完成",
         "info_title": "## 📋 调查员档案",
-        "info_status": "状态：{status} ｜ 时间：第 {day} 天",
+        "info_status": "状态：{status} ｜ 第 {day} 天\n🪙 乌帕：{gold}",
         "info_attrs": "### 属性",
         "survive": "存活",
         "dead": "死亡",
@@ -175,7 +175,8 @@
         "item_not_found": "背包中未找到物品",
         "equip_success": "装备物品成功，装备:{name}，部位:{part}",
         "use_need_id": "请输入物品ID，例如：/使用物品 101",
-        "use_button": "使用 {name}"
+        "use_button": "使用 {name}",
+        "use_hint": "点击下方按钮装备背包物品"
     },
     "dice": {
         "critical_failure": "大失败",

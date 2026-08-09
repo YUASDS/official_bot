@@ -1,9 +1,11 @@
-from typing import Any
+from pathlib import Path
+from typing import Any, Callable
 
 from nonebot import on_command
 from nonebot.adapters import Bot, Event, Message
 from nonebot.params import CommandArg
 
+from ..models.item import Equipment
 from ..models.player import (
     CreateInvestigator,
     Investigator,
@@ -13,7 +15,8 @@ from ..models.player import (
 from ..services.data_loader import data_loader
 from ..utils.active_battles import battle_manager
 from ..utils.buttons import _send_to_user, register_button_handler
-from ..utils.md_format import build_keyboard, md_message
+from ..utils.md_format import build_keyboard, cmd_tag, md_message
+from database.db import get_info
 
 # --- State storage ---
 _user_states: dict[str, Any] = {}
@@ -161,9 +164,117 @@ async def handle_skill(event: Event, bot: Bot, msg: Message = CommandArg()):
 
 
 # --- /调查员信息 ---
-def build_info_message(user_id: str, bot: Bot):
-    """构建调查员档案消息（含背包「使用」按钮），命令与按钮共用。"""
+_CARD_TEMPLATE = Path(__file__).parent.parent.parent / "data" / "info_card.html"
+
+_PIC_ENV_KEY = "STORYTELLER_PIC"
+
+
+def _pic_enabled() -> bool:
+    try:
+        from nonebot import get_driver
+
+        value = getattr(get_driver().config, _PIC_ENV_KEY.lower(), "")
+        return str(value).lower() in ("1", "true", "yes", "on")
+    except Exception:
+        return False
+
+
+def _info_card_html(inv: Investigator, gold: int) -> str:
+    """构建调查员信息 HTML 卡片。"""
+    attrs = inv.get_full_attributes_dict()
+    attr_items = "".join(
+        f'<div class="attr"><span class="k">{k}</span><span class="v">{v}</span></div>'
+        for k, v in attrs.items()
+    )
+
+    equipments, res_name = inv.get_equipments()
+    equip_rows = ""
+    for part, item_id in inv._equipped.items():
+        if not part:
+            continue
+        equip_rows += (
+            f'<div class="row"><span class="k">{part}</span>'
+            f'<span class="v">→ {res_name.get(item_id, item_id)}</span></div>'
+        )
+    if "防具" not in inv._equipped:
+        equip_rows += '<div class="row"><span class="k">防具</span><span class="v">→ 无</span></div>'
+
+    bag_rows = "".join(
+        f'<div class="row"><span class="k">{item.name} x{qty}</span></div>'
+        for item_id, qty in list(equipments.items())[:6]
+        for item in [Equipment(item_id)]
+        if item.is_valid
+    ) or '<div class="row"><span class="k">（空）</span></div>'
+
+    survival = _t("character.dead") if not inv.is_survive else _t("character.survive")
+    html = _CARD_TEMPLATE.read_text(encoding="utf-8")
+    return (
+        html.replace("__NAME__", inv.name)
+        .replace("__STATUS__", survival)
+        .replace("__DAY__", str(inv.day))
+        .replace("__GOLD__", str(gold))
+        .replace("__ATTRS__", attr_items)
+        .replace("__EQUIPS__", equip_rows)
+        .replace("__BAG__", bag_rows)
+    )
+
+
+async def _card_msg(user_id: str):
+    """渲染调查员信息图片（QQ 平台）；失败返回 None。"""
+    try:
+        from nonebot.adapters.qq.message import Message as QQMessage
+        from nonebot.adapters.qq.message import MessageSegment
+
+        from util.html2pic import html_to_pic
+
+        inv = Investigator.load(user_id)
+        html = _info_card_html(inv, get_info(user_id).gold)
+        img = await html_to_pic(html, selector=".card", wait=0.8)
+        return QQMessage(MessageSegment.file_image(img))
+    except Exception:
+        return None
+
+
+def _info_kb_msg(user_id: str, bot: Bot):
+    """指令消息：简短提示 + 背包「使用」指令标签（点击后回车发送 /使用物品）。"""
     inv = Investigator.load(user_id)
+
+    equipments, res_name = inv.get_equipments()
+    item_ids = list(equipments.keys())[:6]
+    tags = [
+        cmd_tag(
+            f"/使用物品 {item_id}",
+            show=_t("player.use_button", name=res_name.get(item_id, item_id)),
+        )
+        for item_id in item_ids
+    ]
+    if not tags:
+        return md_message(f"\n**{_t('player.use_hint')}**", bot)
+
+    body = f"\n**{_t('player.use_hint')}**\n\n" + "\n".join(tags)
+    return md_message(body, bot)
+
+
+async def _send_info_flow(user_id: str, bot: Bot, send: Callable, finish: Callable) -> None:
+    """调查员档案发送流程：图片模式双消息（卡片 + 按钮），否则单条文本。"""
+    if _pic_enabled() and getattr(bot, "type", "") == "QQ":
+        card = await _card_msg(user_id)
+        if card is not None:
+            await send(card)
+            await finish(_info_kb_msg(user_id, bot))
+            return
+    await finish(await build_info_message(user_id, bot))
+
+
+async def build_info_message(user_id: str, bot: Bot):
+    """构建调查员档案消息：QQ 平台渲染图片卡片，其余走 MD 文本+按钮。"""
+    inv = Investigator.load(user_id)
+
+    if _pic_enabled() and getattr(bot, "type", "") == "QQ":
+        card = await _card_msg(user_id)
+        if card is not None:
+            return card
+
     attrs = inv.get_full_attributes_dict()
     survival = _t("character.dead") if not inv.is_survive else _t("character.survive")
 
@@ -173,7 +284,7 @@ def build_info_message(user_id: str, bot: Bot):
 
     res = (
         f"\n{_t('character.info_title')}\n\n"
-        f"{_t('character.info_status', status=survival, day=inv.day)}\n\n"
+        f"{_t('character.info_status', status=survival, day=inv.day, gold=get_info(user_id).gold)}\n\n"
         f"{_t('character.info_attrs')}\n{chr(10).join(attr_rows)}\n\n"
         f"{inv.str_equipments()}"
     )
@@ -201,7 +312,13 @@ def build_info_message(user_id: str, bot: Bot):
 
 @info_cmd.handle()
 async def handle_info(event: Event, bot: Bot):
-    await info_cmd.finish(build_info_message(event.get_user_id(), bot))
+    user_id = event.get_user_id()
+    await _send_info_flow(
+        user_id,
+        bot,
+        send=info_cmd.send,
+        finish=info_cmd.finish,
+    )
 
 
 # --- /使用物品 <ID> ---
@@ -286,7 +403,11 @@ async def handle_info_button(
     token: int | None = None,
 ) -> None:
     """「调查员信息」按钮回调。"""
-    await _send_to_user(bot, user_id, build_info_message(user_id, bot), group_openid)
+
+    async def _send(msg):
+        await _send_to_user(bot, user_id, msg, group_openid)
+
+    await _send_info_flow(user_id, bot, send=_send, finish=_send)
 
 
 # --- 按钮回调注册 ---

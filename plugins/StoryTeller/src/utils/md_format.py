@@ -11,6 +11,9 @@ import re
 from typing import Any, Union
 
 from loguru import logger
+from urllib.parse import quote
+
+from ..services.data_loader import data_loader
 
 MD_ENV_KEY = "STORYTELLER_MD"
 QQ_BOT_TYPE = "QQ"
@@ -91,8 +94,6 @@ def _strip_inline(text: str) -> str:
 
 def report_section(title: str) -> str:
     """构造分节头：**【{title}】**。"""
-    from ..services.data_loader import data_loader
-
     return data_loader.get_text("report.section", title=title)
 
 
@@ -103,10 +104,24 @@ def report_quote(lines: list[str]) -> str:
 
 def report_check_table(rows: list[str]) -> str:
     """构造检定表格：表头 + 分隔行 + 数据行。"""
-    from ..services.data_loader import data_loader
-
     t = data_loader.get_text
     return "\n".join([t("report.check_header"), t("report.check_sep"), *rows])
+
+
+def cmd_tag(text: str, show: str = "") -> str:
+    """构造 QQ 指令标签（回车指令格式），嵌入 markdown 使用。
+
+    - qqbot-cmd-input：点击后指令文本插入输入框，回车发送（群聊/单聊通用）
+    - （qqbot-cmd-enter 点击即发送，但官方限制仅单聊支持，故默认用 input）
+
+    Args:
+        text: 点击后插入输入框的指令文本（自动 urlencode，上限 100 字符）
+        show: 消息内展示的文本（可选，默认取 text）
+    """
+
+    encoded = quote(text, safe="")
+    show_attr = f' show="{quote(show, safe="")}"' if show else ""
+    return f'<qqbot-cmd-input text="{encoded}"{show_attr} />'
 
 
 def output(text: str, bot: Any = None) -> str:
@@ -176,9 +191,7 @@ def md_message(text: str, bot: Any = None) -> Union[str, Any]:
     try:
         from nonebot.adapters.qq.message import Markdown, Message, MessageMarkdown
 
-        segment = Markdown(
-            "markdown", data={"markdown": MessageMarkdown(content=text)}
-        )
+        segment = Markdown("markdown", data={"markdown": MessageMarkdown(content=text)})
         return Message(segment)
     except Exception as e:
         logger.exception(f"Failed to build markdown message: {e}")
