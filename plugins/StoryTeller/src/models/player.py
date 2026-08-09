@@ -561,9 +561,17 @@ class CreateInvestigator:
             match_dic[key] = int(match_dic[key])
         tol = sum(match_dic.values())
         if tol > self.skill_point:
-            return False, t("character.skill_too_many")
+            return False, t(
+                "character.skill_too_many",
+                total=self.skill_point,
+                allocated=tol,
+            )
         if tol < self.skill_point:
-            return False, t("character.skill_too_few")
+            return False, t(
+                "character.skill_too_few",
+                total=self.skill_point,
+                allocated=tol,
+            )
         user_select_tmp = self.select.copy()
         for key in match_dic:
             if key in user_select_tmp:
