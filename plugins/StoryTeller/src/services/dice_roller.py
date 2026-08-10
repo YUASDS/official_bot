@@ -53,6 +53,8 @@ class DiceRoll:
             return SuccessLevel.CRITICAL_FAILURE
         if roll < 6:
             return SuccessLevel.CRITICAL_SUCCESS
+        if skill <= 0:
+            return SuccessLevel.FAILURE
 
         success_ratio = roll / skill
         if success_ratio > 1:

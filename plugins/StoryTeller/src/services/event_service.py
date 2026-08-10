@@ -119,7 +119,7 @@ def apply_event_choice(
     effects, reply, passed = resolve_check_option(inv, matched)
     no_gold = event_buy_check(user_id, effects)
     if no_gold:
-        return f"{reply}\n\n{no_gold}", False
+        return no_gold, False
     summary = apply_event_effects(inv, user_id, effects)
     reply = event_reply_with_effects(reply, summary)
     skip = bool(matched.get("跳过战斗")) and (passed is None or passed)

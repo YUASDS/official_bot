@@ -33,6 +33,11 @@ class BattleEngineMixin:
         self.current_action = action
         if self.is_madness and self.madness_duration > 0:
             return self._resolve_madness()
+        # 行动合法性校验（玩家回合）：仅允许当前可用行动，防命令直输越权
+        if self.current_turn == "inv" and not action.startswith("施法"):
+            available = self.get_available_actions_for_turn()
+            if available and action not in available:
+                return (self._t("battle.unknown_player_action", action=action),)
         handler = {
             "inv": self._execute_player_action,
             "mon": self._execute_monster_action,

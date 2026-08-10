@@ -34,7 +34,7 @@ class BattleSettlementMixin:
             "max_hp": inv.get_max_hp(),
             "san": inv.get_skill("san", 0),
             "max_san": max_san,
-            "day": inv.day,
+            "day": self._battle_day,
         }
 
     def _victory_parts(self) -> tuple[str, str]:
@@ -49,7 +49,7 @@ class BattleSettlementMixin:
 
         bonus_text = ""
         if search_roll.level > SuccessLevel.FAILURE:
-            gold, dropped_item, bonus_text = self.monster.generate_loot()
+            gold, dropped_item, bonus_text = self.monster.generate_loot(self._battle_day)
             add_gold(self.investigator.qq, gold)
             if dropped_item:
                 self.investigator.add_item_to_inventory(dropped_item.id, 1)

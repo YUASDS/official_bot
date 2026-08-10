@@ -20,7 +20,7 @@ def perform_sanity_check(
         loss_fail_expr = san_loss_str
 
     current_san = investigator.get_skill("san")
-    max_san = investigator.get_skill("意志") or current_san
+
     _res, val = roll_dice("1d100")
 
     passed = val <= current_san
@@ -41,7 +41,6 @@ def perform_sanity_check(
         expr=loss_expr,
         value=loss_val,
         cur=investigator_san,
-        max=max_san,
     )
     row = t(
         "report.san_row",

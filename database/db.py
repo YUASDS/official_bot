@@ -7,7 +7,11 @@ from peewee import SqliteDatabase, Model, CharField, IntegerField, DoesNotExist
 
 COIN_NAME = "乌帕"
 
-db = SqliteDatabase("./database/userData.db")
+db = SqliteDatabase(
+    "./database/userData.db",
+    timeout=30,
+    pragmas={"journal_mode": "wal", "busy_timeout": 30000},
+)
 
 
 class BaseModel(Model):

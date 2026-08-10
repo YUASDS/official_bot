@@ -19,6 +19,8 @@ class BattleBaseMixin:
         self.hp_record = {"inv": investigator.hp, "mon": monster.hp}
         self.current_turn: Literal["inv", "mon"] = "inv"
         self.current_action = "格斗"
+        # 战斗发生时的天数（胜利结算 day+1 后仍显示本场战斗的天数）
+        self._battle_day = investigator.day
 
         self.gun: Optional[Equipment] = None
         self.bullet = 0

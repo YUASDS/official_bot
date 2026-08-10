@@ -31,13 +31,12 @@ def battle_title(service: BattleService) -> str:
 def round_status_html(service: BattleService) -> str:
     """回合卡片状态条（HP/SAN/弹药/MP/临时生命 chips）。"""
     inv = service.investigator
-    max_san = inv.get_skill("意志") or inv.get_skill("san", 0)
     chips = [
         f'<div class="chip"><span class="k">🧑‍🎤 {inv.name}</span> '
         f'<span class="v">HP {service.hp_record["inv"]}/{inv.get_max_hp()}</span>'
         f"</div>",
         f'<div class="chip"><span class="k">🧠 SAN</span> '
-        f'<span class="v">{inv.get_skill("san", 0)}/{max_san}</span></div>',
+        f'<span class="v">{inv.get_skill("san", 0)}</span></div>',
         f'<div class="chip"><span class="k">👾 {service.monster.名字}</span> '
         f'<span class="v">HP {service.hp_record["mon"]}/{service.monster.max_hp}</span>'
         f"</div>",
@@ -237,7 +236,7 @@ def end_card_html(service: BattleService) -> str:
         .replace("__TITLE__", title)
         .replace("__ENDING__", ending)
         .replace("__HP__", f"{d['hp']}/{d['max_hp']}")
-        .replace("__SAN__", f"{d['san']}/{d['max_san']}")
+        .replace("__SAN__", f"{d['san']}")
         .replace("__DAY__", str(d["day"]))
         .replace("__DETAIL__", detail)
         .replace("__HINT__", hint)
@@ -247,8 +246,7 @@ def end_card_html(service: BattleService) -> str:
 def sanity_zero_card_html(inv: Investigator, san_loss: int = 0) -> str:
     """心智·崩塌结算卡片 HTML（SAN 归零）。"""
     t = data_loader.get_text
-    max_san = inv.get_skill("意志") or inv.get_skill("san", 0)
-    san_label = f"0/{max_san}"
+    san_label = "0"
     if san_loss > 0:
         san_label += f"（-{san_loss}）"
     rambles = data_loader.text_data.get("madness", {}).get("rambles") or []

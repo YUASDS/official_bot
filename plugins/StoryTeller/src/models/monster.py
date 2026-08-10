@@ -61,7 +61,10 @@ class Monster:
         self.max_hp = self.hp
         self.san_loss = self._data.get("理智值丧失", "0/0")
         self.description = self._data.get("出场", data_loader.get_text("monster.default_intro"))
-        self.damage_dice = self._data.get("damage", "1d3")
+        # 伤害展示与战斗结算同源：优先攻击表聚合，其次顶层 damage，最后默认 1d3
+        self.damage_dice = self._data.get("damage") or " / ".join(
+            self._attack_damage_list()
+        ) or "1d3"
         self.dex = self._data.get("敏捷", 50)
         self.str = self._data.get("力量", 50)
         self.fight = self._data.get("fight", 50)
@@ -70,22 +73,47 @@ class Monster:
         self.敏捷 = self.dex
         self.名字 = self.name
 
+    def _attack_damage_list(self) -> list[str]:
+        """攻击表所有伤害骰（去重保序），与战斗结算使用同一字段。"""
+        damages: list[str] = []
+        for action in (self._data.get("攻击") or {}).values():
+            dmg = action.get("damage")
+            if dmg and str(dmg) not in damages:
+                damages.append(str(dmg))
+        return damages
+
+    def damage_preview(self) -> str:
+        """怪物基础伤害骰集合（如 `1d6 / 1d4+1`），可贯穿的攻击标注「可贯穿」。"""
+        seen: dict[str, bool] = {}
+        for action in (self._data.get("攻击") or {}).values():
+            dmg = action.get("damage")
+            if dmg:
+                seen[str(dmg)] = seen.get(str(dmg), False) or bool(action.get("ex"))
+        if not seen:
+            return self.damage_dice
+        return " / ".join(
+            f"{d}（可贯穿）" if ex else d for d, ex in seen.items()
+        )
+
     def __getattr__(self, name):
         if name.startswith("_") or name in self.__dict__:
             raise AttributeError(name)
         return self._data.get(name, "")
 
     def get_action(self, turn: str) -> dict[str, Any]:
-        """获取怪物在此回合的行动详情"""
+        """获取怪物在此回合的行动详情（整场战斗固定一次，保证技能/文本/伤害一致）。"""
         t = data_loader.get_text
+        if getattr(self, "_battle_action", None) is not None:
+            return self._battle_action
         attack_options = self._data.get("攻击", {})
         if not attack_options:
-            return {
+            self._battle_action = {
                 "skill": 50,
                 "damage": "1d3",
                 "desc": t("monster.default_action"),
                 "counterattack": t("monster.default_action"),
             }
+            return self._battle_action
 
         chosen_action_key = random.choice(list(attack_options.keys()))
         action = attack_options[chosen_action_key]
@@ -97,14 +125,19 @@ class Monster:
             action["attack_succ"] = action.get("desc", t("monster.default_action"))
         if "attack_false" not in action:
             action["attack_false"] = action.get("counterattack", t("monster.default_action"))
+        self._battle_action = action
         return action
 
-    def generate_loot(self):
-        """Generate loot for this monster. Returns (gold, dropped_item, message)."""
+    def generate_loot(self, day: int = 1):
+        """Generate loot for this monster. Returns (gold, dropped_item, message).
+
+        day 用于金币下限：随天数成长 max(5, day/2)~乌帕上限。
+        """
         t = data_loader.get_text
         reward_data = self._data.get("奖励", {})
         gold_max = reward_data.get("乌帕", 10)
-        gold = random.randint(1, gold_max)
+        low = max(5, day // 2)
+        gold = random.randint(min(low, gold_max), gold_max)
 
         items = reward_data.get("物品", [])
         dropped_item = None

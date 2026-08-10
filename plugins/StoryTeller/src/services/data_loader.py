@@ -32,6 +32,7 @@ class DataLoader:
             self.event_data = self._load_json(base_path / "event_data.json")
             self.spell_data = self._load_json(base_path / "spell_data.json")
             self.text_data = self._load_json(base_path / "text_data.json")
+            self._validate_monster_data()
             logger.info("Game data loaded successfully.")
         except Exception as e:
             logger.exception(f"Failed to load game data: {e}")
@@ -55,6 +56,16 @@ class DataLoader:
         except Exception as e:
             logger.error(f"Error reading {path}: {e}")
             return {}
+
+    def _validate_monster_data(self) -> None:
+        """校验怪物攻击条目的伤害字段（伤害展示与战斗结算同源的前提）。"""
+        for mid, monster in self.monster_data.items():
+            for key, action in (monster.get("攻击") or {}).items():
+                dmg = action.get("damage")
+                if not isinstance(dmg, str) or not dmg:
+                    logger.warning(
+                        f"monster {mid} ({monster.get('名字')}) 攻击[{key}] 缺少 damage 字段"
+                    )
 
     def get_event(self, day: str | int) -> str:
         return self.reply_data.get("event", {}).get(str(day), "")

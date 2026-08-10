@@ -28,7 +28,11 @@ from .item import Equipment
 class BaseModel(Model):
     class Meta:
         db_path = Path(__file__).parent.parent.parent / "inv.db"
-        database = SqliteDatabase(db_path)
+        database = SqliteDatabase(
+            db_path,
+            timeout=30,
+            pragmas={"journal_mode": "wal", "busy_timeout": 30000},
+        )
 
 
 class InvestigatorModel(BaseModel):
@@ -61,6 +65,9 @@ class InvestigatorModel(BaseModel):
     步枪 = IntegerField(default=25, verbose_name="步枪")
     急救 = IntegerField(default=30, verbose_name="急救")
     医学 = IntegerField(default=1, verbose_name="医学")
+
+    # 克苏鲁神话：初始 0，创建时不可分配，仅随奇遇事件增长
+    克苏鲁神话 = IntegerField(default=0, verbose_name="克苏鲁神话")
 
     # Flags
     issurvive = BooleanField(default=True, verbose_name="是否存活")
@@ -100,10 +107,14 @@ class InvestigatorRepository:
 
     @staticmethod
     def _migrate(db: Any) -> None:
-        """旧库补充新增列（spells）。"""
+        """旧库补充新增列（spells / 克苏鲁神话）。"""
         with contextlib.suppress(Exception):
             db.execute_sql(
                 "ALTER TABLE investigators ADD COLUMN spells TEXT DEFAULT '[]'"
+            )
+        with contextlib.suppress(Exception):
+            db.execute_sql(
+                "ALTER TABLE investigators ADD COLUMN 克苏鲁神话 INTEGER DEFAULT 0"
             )
 
     def find_by_qq(self, qq: str) -> Optional[InvestigatorModel]:
@@ -196,6 +207,20 @@ class InvestigatorRepository:
                     item.save()
                 return True
             return False
+
+    def collect_inherited_scrolls(self, qq: str) -> list[tuple[str, int]]:
+        """收集角色背包中的法术残卷（死亡重建时继承，与 501 复活道具同类处理）。"""
+        inv = self.find_by_qq(qq)
+        if not inv:
+            return []
+        result = []
+        for it in InventoryItemModel.select().where(
+            InventoryItemModel.investigator == inv
+        ):
+            item = Equipment(it.item_id)
+            if item.is_valid and (item.type == "spell_scroll" or it.item_id == "501"):
+                result.append((it.item_id, it.quantity))
+        return result
 
     def equip_item(self, qq: str, item_id: str):
         t = data_loader.get_text
@@ -306,6 +331,10 @@ class Investigator:
     def save(self) -> None:
         if not hasattr(self, "update_data"):
             self.update_data = {}
+        # DB 伤害加值由力量/体型实时推导（事件/成长变更属性后自动重算）
+        self.db = calculate_damage_bonus(
+            self.get_skill("体型", 0), self.get_skill("力量", 0)
+        )
         update_dict = {
             "name": self.name,
             "db": self.db,
@@ -586,6 +615,9 @@ class CreateInvestigator:
     def create_investigator(self, qq: str, name: str) -> Investigator:
         if not self.select:
             raise ValueError("尚未选择调查员模板。")
+        inherited = investigator_repo.collect_inherited_scrolls(qq)
         investigator_repo.delete_by_qq(qq)
         new_model = investigator_repo.create_and_save(qq, name, self.select)
+        for item_id, qty in inherited:
+            investigator_repo.add_item_to_inventory(new_model, item_id, qty)
         return Investigator(new_model)

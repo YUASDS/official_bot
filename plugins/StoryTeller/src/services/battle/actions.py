@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Optional
 
 from ...models.item import Equipment
+from ...models.player import investigator_repo
 from ..damage_calculator import calculate_damage as calc_dmg
 from ..dice_roller import (
     ConfrontationRoll,
@@ -124,15 +125,36 @@ class BattleActionsMixin:
         player_text = self._apply_damage_to_player(final_val, armor_absorbed=True)
         return monster_text, player_text
 
-    def _get_player_damage_formula(self, weapon: Equipment) -> str:
+    def _get_player_damage_formula(self, weapon: Equipment, include_db: bool = True) -> str:
         damage = weapon.damage_dice
-        db = self.investigator.db
-        if db and db != "0":
-            damage = f"{damage}+{db}" if not db.startswith("-") else f"{damage}{db}"
+        if include_db:
+            db = self.investigator.db
+            if db and db != "0":
+                damage = f"{damage}+{db}" if not db.startswith("-") else f"{damage}{db}"
+        # 环境玩家伤害加成（如满月 +1d4，数据自带符号）
+        dmg_mod = self.environment.get("玩家", {}).get("伤害", "")
+        if dmg_mod:
+            if dmg_mod.startswith(("+", "-")):
+                damage = f"{damage}{dmg_mod}"
+            else:
+                damage = f"{damage}+{dmg_mod}"
         return damage
 
-    def _handle_player_critical_failure(self, weapon: Equipment) -> str:
-        if weapon.name == "弹簧折刀":
+    def _break_weapon(self, part: str) -> None:
+        """武器损毁：销毁后默认装备弹簧折刀（101），避免战斗内无武器死锁。"""
+        self.investigator.break_equipped_item(part)
+        if not self.investigator.get_equipped_id("近战"):
+            self.investigator.add_item_to_inventory("101", 1)
+            investigator_repo.equip_item(self.investigator.qq, "101")
+        self.investigator.update_equipment()
+        self._update_gun_status()
+
+    def _handle_player_critical_failure(self, weapon: Equipment, context: str = "attack") -> str:
+        """玩家大失败：不可损毁武器自伤；可损毁武器损毁并回退弹簧折刀。
+
+        context=attack 用「格斗大失败」文案，context=defense（反击）用「反击大失败」文案。
+        """
+        if not weapon.breakable:
             expr, damage_val = roll_dice("1d4")
             self._apply_damage_to_player(damage_val)
             return (
@@ -140,8 +162,22 @@ class BattleActionsMixin:
                 .replace("$骰子", "1d4")
                 .replace("$伤害", expr)
             )
-        self.investigator.break_equipped_item(self.current_action)
-        return self._get_reply("反击大失败").replace("$装备", weapon.name)
+        reply_key = "格斗大失败" if context == "attack" else "反击大失败"
+        text = self._get_reply(reply_key).replace("$装备", weapon.name)
+        self._break_weapon(self.current_action)
+        return text
+
+    def _handle_dodge_fumble(self) -> str:
+        """闪避大失败：近战武器脱手滑落（仅可损毁武器，不可损毁武器安然无恙）。"""
+        weapon_id = self.investigator.get_equipped_id("近战")
+        if not weapon_id:
+            return ""
+        weapon = Equipment(weapon_id)
+        if not weapon.breakable:
+            return ""
+        text = self._get_reply("闪避大失败").replace("$装备", weapon.name)
+        self._break_weapon("近战")
+        return text
 
     # --- Ranged ---
     def _ranged_attack(self, shot_count: int) -> tuple:
@@ -166,7 +202,11 @@ class BattleActionsMixin:
         )
 
         if roll.level > SuccessLevel.FAILURE:
-            expr, val = calc_dmg(weapon.damage_dice, roll.level, weapon.has_penetration)
+            expr, val = calc_dmg(
+                self._get_player_damage_formula(weapon, include_db=False),
+                roll.level,
+                weapon.has_penetration,
+            )
             reply_template = self._get_reply("射击大成功") if roll.level > SuccessLevel.HARD_SUCCESS else self._get_reply("射击成功")
             player_text = self._fill_damage(reply_template, expr, val)
             monster_text = self._apply_damage_to_monster(val)
@@ -174,8 +214,7 @@ class BattleActionsMixin:
             return (roll_description, exchange, self._end_turn())
         if roll.level == SuccessLevel.CRITICAL_FAILURE:
             player_text = self._get_reply("射击大失败").replace("$装备", weapon.name)
-            self.investigator.break_equipped_item("远程")
-            self._update_gun_status()
+            self._break_weapon("远程")
             exchange = self._exchange([], [self._get_weapon_reply(weapon), player_text])
             return (roll_description, exchange, self._end_turn())
         player_text = self._get_reply("射击失败")
@@ -210,12 +249,15 @@ class BattleActionsMixin:
 
             if roll.level == SuccessLevel.CRITICAL_FAILURE:
                 player_texts.append(self._get_reply("射击大失败").replace("$装备", weapon.name))
-                self.investigator.break_equipped_item("远程")
-                self._update_gun_status()
+                self._break_weapon("远程")
                 critical_failure = True
                 break
             if roll.level > SuccessLevel.FAILURE:
-                expr, val = calc_dmg(weapon.damage_dice, roll.level, weapon.has_penetration)
+                expr, val = calc_dmg(
+                    self._get_player_damage_formula(weapon, include_db=False),
+                    roll.level,
+                    weapon.has_penetration,
+                )
                 player_texts.append(self._t("battle.multi_shot_damage", expr=expr, value=val))
                 total_damage += val
 
@@ -262,7 +304,7 @@ class BattleActionsMixin:
             )
         monster_action = self.monster.get_action(self.current_turn)
         expr, val = calc_dmg(monster_action["damage"])
-        self.hp_record["inv"] = max(0, self.hp_record["inv"] - val)
+        self._apply_damage_to_player(val)
         return (
             f"{flee_check}\n\n"
             f"{self._t('battle.flee_fail', damage_expr=expr, damage=val)}",
@@ -314,8 +356,13 @@ class BattleActionsMixin:
                 self.succeded_skill.add("格斗")
 
         critical_text = ""
-        if confrontation.level2 == SuccessLevel.CRITICAL_FAILURE and weapon:
-            critical_text = self._handle_player_critical_failure(weapon)
+        if confrontation.level2 == SuccessLevel.CRITICAL_FAILURE:
+            if player_action == "闪避":
+                critical_text = self._handle_dodge_fumble()
+            elif weapon:
+                critical_text = self._handle_player_critical_failure(
+                    weapon, context="defense"
+                )
 
         monster_succeeds = confrontation.get_result(player_action)
 

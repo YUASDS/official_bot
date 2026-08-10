@@ -51,14 +51,12 @@ class BattleReporterMixin:
             else t("battle.monster_turn")
         )
         inv = self.investigator
-        max_san = inv.get_skill("意志") or inv.get_skill("san", 0)
         rows = [
             t(
                 "report.status_inv_mini",
                 icon=t("report.icon_inv"),
                 name=self.player_name,
                 san=inv.get_skill("san", 0),
-                max_san=max_san,
                 hp=self.hp_record["inv"],
                 max_hp=inv.get_max_hp(),
             ),
@@ -190,14 +188,12 @@ class BattleReporterMixin:
         """回合中的迷你状态表（SAN + HP，无先攻列）。"""
         t = self._t
         inv = self.investigator
-        max_san = inv.get_skill("意志") or inv.get_skill("san", 0)
         rows = [
             t(
                 "report.status_inv_mini",
                 icon=t("report.icon_inv"),
                 name=self.player_name,
                 san=inv.get_skill("san", 0),
-                max_san=max_san,
                 hp=self.hp_record["inv"],
                 max_hp=inv.get_max_hp(),
             ),
@@ -217,7 +213,6 @@ class BattleReporterMixin:
         """【结算·战报】小节：战斗结束时的状态汇总。"""
         t = self._t
         inv = self.investigator
-        max_san = inv.get_skill("意志") or inv.get_skill("san", 0)
         rows = [
             t("battle.settle_header"),
             t("battle.settle_sep"),
@@ -229,12 +224,12 @@ class BattleReporterMixin:
             t(
                 "battle.settle_row",
                 label=t("battle.settle_san"),
-                value=f"{inv.get_skill('san', 0)}/{max_san}",
+                value=f"{inv.get_skill('san', 0)}",
             ),
             t(
                 "battle.settle_row",
                 label=t("battle.settle_day"),
-                value=str(inv.day),
+                value=str(self._battle_day),
             ),
         ]
         return f"{report_section(t('battle.settle_title'))}\n" + "\n".join(rows)

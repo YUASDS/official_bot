@@ -56,6 +56,7 @@ class Equipment:
         # Assuming max_bullet is synonymous with bullet in static data
         self.max_bullet = self.bullet
         self.spell = self._data.get("spell", "")
+        self.breakable = self._data.get("breakable", True)
 
     @property
     def is_valid(self) -> bool:
@@ -67,14 +68,17 @@ class Equipment:
     def get_brief_description(self) -> str:
         if not self.is_valid:
             return f"ID: {self.id}\n{data_loader.get_text('player.invalid_item')}"
-        attributes = [
-            ("ID", self.id),
-            ("护甲", str(self.armor_point) if self.armor_point else ""),
-            ("伤害", self.damage_dice),
-            ("价格", str(self.price)),
-        ]
-        non_empty = [(k, v) for k, v in attributes if v]
-        return " ".join(f"{k}: {v}" for k, v in non_empty)
+        attributes = [("ID", self.id)]
+        if self.type == "spell_scroll":
+            attributes.append(("类型", "残卷"))
+        else:
+            if self.armor_point:
+                attributes.append(("护甲", str(self.armor_point)))
+            if self.damage_dice and self.damage_dice != "0":
+                attributes.append(("伤害", self.damage_dice))
+        if self.price:
+            attributes.append(("价格", str(self.price)))
+        return " ".join(f"{k}: {v}" for k, v in attributes)
 
     def get_full_description(self) -> str:
         if not self.is_valid:

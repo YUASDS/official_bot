@@ -9,7 +9,7 @@ from .data_loader import data_loader
 
 _t = data_loader.get_text
 
-SKILL_NAMES = ["格斗", "闪避", "侦查", "聆听", "手枪", "步枪", "急救", "医学"]
+SKILL_NAMES = ["格斗", "闪避", "侦查", "聆听", "手枪", "步枪", "急救", "医学", "克苏鲁神话"]
 
 _CREATE_TEMPLATE = Path(__file__).parent.parent.parent / "data" / "create_card.html"
 _CARD_TEMPLATE = Path(__file__).parent.parent.parent / "data" / "info_card.html"
