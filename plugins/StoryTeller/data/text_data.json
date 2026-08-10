@@ -62,6 +62,7 @@
         "victory_title": " 🏆 胜利",
         "death_text": " 💀 {name} 倒下了……",
         "death_hint": "> 角色已死亡。重新 `/创建调查员` 开启新的冒险吧。",
+        "death_ending": "你倒在了庄园的阴影里，黑暗吞没了最后一丝呼吸……庄园的低语声渐渐远去，只留下永恒的死寂。",
         "settle_title": "结算·战报",
         "settle_header": "| 项目 | 数值 |",
         "settle_sep": "| :--- | :--- |",

@@ -297,7 +297,7 @@ def _end_card_html(service: BattleService) -> str:
             t("battle.death_text", name=service.player_name).replace("## ", ""),
             "重新创建调查员继续冒险",
         )
-        ending = d["ending"]
+        ending = t("battle.death_ending")
 
     # 胜利明细（侦查检定/战利品/成长）渲染进卡片
     detail = ""
