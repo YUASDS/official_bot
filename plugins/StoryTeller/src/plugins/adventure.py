@@ -468,7 +468,7 @@ async def _send_sanity_zero(
 
 
 async def _send_end_buttons(battle: BattleService, bot: Bot, send: Callable) -> None:
-    """战斗结束引导按钮：阵亡→复活/创建；胜利→调查员信息。"""
+    """战斗结束引导按钮：阵亡→复活/创建；胜利/逃跑→调查员信息 + 购买冒险卷。"""
     t = data_loader.get_text
     mention = battle.investigator.qq
     if battle.hp_record["inv"] <= 0:
@@ -480,14 +480,25 @@ async def _send_end_buttons(battle: BattleService, bot: Bot, send: Callable) -> 
                 mention=mention,
             )
         )
-    elif battle.hp_record["mon"] <= 0:
-        await send(
-            md_message(
-                f"\n**{t('character.info_button')}**\n{cmd_tag('/调查员信息')}",
-                bot,
-                mention=mention,
-            )
-        )
+        return
+
+    kb = build_keyboard(
+        [
+            [
+                (t("character.info_button"), "info"),
+                (t("adventure.scroll_buy_button"), "buy:401"),
+            ]
+        ]
+    )
+    msg = md_message(
+        f"\n**{t('character.info_button')}**\n{cmd_tag('/调查员信息')}\n\n"
+        f"**{t('adventure.scroll_buy_button')}**\n{cmd_tag('/购买 401')}",
+        bot,
+        mention=mention,
+    )
+    if kb is not None and not isinstance(msg, str):
+        msg.append(kb)
+    await send(msg)
 
 
 async def _send_combat_result(

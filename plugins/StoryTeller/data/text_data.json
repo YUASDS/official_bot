@@ -121,7 +121,8 @@
         "adventure_button": "⚔️ 今日冒险",
         "check_desc": "{icon} **{skill}检定**：`{dice} / {target}` {level}",
         "event_no_gold": "乌帕不足",
-        "event_skip_battle": "（你避开了今日的战斗，安然度过这一天。）"
+        "event_skip_battle": "（你避开了今日的战斗，安然度过这一天。）",
+        "scroll_buy_button": "📜 购买冒险卷"
     },
     "spell": {
         "learn_title": "研读·法术",
