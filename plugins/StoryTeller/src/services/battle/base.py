@@ -1,0 +1,82 @@
+"""BattleService · 状态管理：战斗全部可变状态与环境修正。"""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Literal, Optional
+
+from ...models.item import Equipment
+
+if TYPE_CHECKING:
+    from ...models.monster import Monster
+    from ...models.player import Investigator
+
+
+class BattleBaseMixin:
+    def __init__(self, investigator: Investigator, monster: Monster) -> None:
+        self.investigator = investigator
+        self.monster = monster
+        self.player_name = investigator.name
+        self.hp_record = {"inv": investigator.hp, "mon": monster.hp}
+        self.current_turn: Literal["inv", "mon"] = "inv"
+        self.current_action = "格斗"
+
+        self.gun: Optional[Equipment] = None
+        self.bullet = 0
+        self.max_bullet = 0
+        self.succeded_skill = set()
+        self._update_gun_status()
+
+        self.is_madness = False
+        self.madness_duration = 0
+
+        self.environment: dict[str, dict] = {}
+        self._weapon_reply_shown = False
+        self.fled = False
+        self._turn_counter = 0
+        self.end_parts: tuple[str, str] = ("", "")
+        self.end_card_ext: dict = {}
+
+        # 法术资源：MP = 意志/5（战斗中不回复）；临时生命（先抵伤害）
+        self.max_mp = investigator.get_skill("意志", 0) // 5
+        self.mp = self.max_mp
+        self.temp_hp = 0
+
+    def get_turn_token(self) -> int:
+        """当前回合令牌（用于按钮防重复点击）。"""
+        return self._turn_counter
+
+    def _advance_turn(self) -> None:
+        self._turn_counter += 1
+
+    def set_environment(self, env_data: dict) -> None:
+        self.environment = env_data
+
+    def set_madness(self, is_madness: bool, duration: int = 5) -> None:
+        self.is_madness = is_madness
+        self.madness_duration = duration
+
+    def _get_player_modified_skill(self, skill_name: str, default: int = 0) -> int:
+        base = self.investigator.get_skill(skill_name, default)
+        player_mods = self.environment.get("玩家", {})
+        if skill_name in player_mods:
+            base += player_mods[skill_name]
+        return max(0, base)
+
+    def _get_monster_modified(self, attr: str, default: int = 0) -> int:
+        base = getattr(self.monster, attr, default)
+        monster_mods = self.environment.get("怪物", {})
+        if attr in monster_mods:
+            base += monster_mods[attr]
+        return base
+
+    def _update_gun_status(self):
+        gun_id = self.investigator.get_equipped_id("远程")
+        if gun_id:
+            self.gun = Equipment(gun_id)
+            if self.gun.is_valid:
+                self.bullet = self.gun.bullet
+                self.max_bullet = self.gun.max_bullet
+            else:
+                self.gun = None
+        else:
+            self.gun = None

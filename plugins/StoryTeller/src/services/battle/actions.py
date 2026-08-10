@@ -1,0 +1,354 @@
+"""BattleService · 战斗动作：近战、远程、防御/逃跑。"""
+
+from __future__ import annotations
+
+from typing import Optional
+
+from ...models.item import Equipment
+from ..damage_calculator import calculate_damage as calc_dmg
+from ..dice_roller import (
+    ConfrontationRoll,
+    DiceRoll,
+    PenaltyDiceRoll,
+    SuccessLevel,
+    get_success_description,
+    get_success_icon,
+    roll_dice,
+)
+
+
+class BattleActionsMixin:
+    # --- Melee ---
+    def _melee_attack(self) -> tuple:
+        weapon_id = self.investigator.get_equipped_id(self.current_action)
+        if not weapon_id:
+            return (self._t("battle.no_melee_weapon"), self._end_turn())
+
+        weapon = Equipment(weapon_id)
+        if not weapon.is_valid:
+            return (self._t("battle.invalid_equip_id", id=weapon_id), self._end_turn())
+
+        monster_action = self.monster.get_action(self.current_turn)
+        player_skill = self._get_player_modified_skill(weapon.identify_skill, 25)
+        monster_skill = monster_action["skill"] + self.environment.get("怪物", {}).get("反击技能", 0)
+        confrontation = ConfrontationRoll(player_skill, monster_skill)
+
+        roll_desc = self._check_section(
+            weapon.identify_skill,
+            [
+                self._check_row(
+                    self.player_name,
+                    weapon.identify_skill,
+                    confrontation.dice1,
+                    confrontation.skill1,
+                    confrontation.level1,
+                ),
+                self._check_row(
+                    self.monster.名字,
+                    "反击",
+                    confrontation.dice2,
+                    confrontation.skill2,
+                    confrontation.level2,
+                ),
+            ],
+        )
+
+        if confrontation.level1 == SuccessLevel.CRITICAL_FAILURE:
+            failure_desc = self._handle_player_critical_failure(weapon)
+            monster_parts = [monster_action["counterattack"]]
+            # 玩家大失败：仅当怪物自身检定成功（成功/困难/极难/大成功）才命中
+            if confrontation.level2 > SuccessLevel.FAILURE:
+                monster_dmg, _ = self._handle_monster_attack_success(
+                    monster_action, confrontation, level=confrontation.level2
+                )
+                monster_parts.append(monster_dmg)
+            exchange = self._exchange(
+                monster_parts,
+                [self._get_weapon_reply(weapon), failure_desc],
+            )
+            return (roll_desc, exchange, self._end_turn())
+
+        if confrontation.get_result("反击"):
+            return self._handle_player_melee_success(confrontation, weapon, monster_action, roll_desc)
+        return self._handle_player_melee_failure(confrontation, weapon, monster_action, roll_desc)
+
+    def _handle_player_melee_success(self, confrontation, weapon, monster_action, roll_desc):
+        damage_formula = self._get_player_damage_formula(weapon)
+        expr, val = calc_dmg(damage_formula, confrontation.level1, weapon.has_penetration)
+        reply_key = "格斗大成功" if confrontation.level1 > SuccessLevel.HARD_SUCCESS else "格斗成功"
+        player_text = self._fill_damage(
+            self._get_reply(reply_key), expr, val
+        ).replace("$装备", weapon.name)
+        monster_text = self._apply_damage_to_monster(val)
+        exchange = self._exchange(
+            [monster_action["counterattack"], monster_text],
+            [self._get_weapon_reply(weapon), player_text],
+        )
+        return (roll_desc, exchange, self._end_turn())
+
+    def _handle_player_melee_failure(self, confrontation, weapon, monster_action, roll_desc):
+        if confrontation.level1 < 1 and confrontation.level2 < 1:
+            player_text = self._get_reply(f"{self.current_action}失败").replace("$装备", weapon.name)
+            monster_text = monster_action.get("counter_false", "")
+        else:
+            monster_text, player_text = self._handle_monster_attack_success(monster_action, confrontation)
+        exchange = self._exchange(
+            [monster_action["counterattack"], monster_text],
+            [self._get_weapon_reply(weapon), player_text],
+        )
+        return (roll_desc, exchange, self._end_turn())
+
+    def _handle_monster_attack_success(
+        self, monster_action, confrontation, level: int | None = None
+    ):
+        if level is None:
+            level = confrontation.level1
+        armor = self.investigator.get_armor_value()
+        expr, val = calc_dmg(
+            monster_action["damage"],
+            level,
+            monster_action.get("ex", False),
+        )
+        # 环境怪物伤害加成（先加成再结算护甲，确保生效且计入展示）
+        dmg_mod = self.environment.get("怪物", {}).get("伤害", "")
+        if dmg_mod:
+            extra_expr, extra = roll_dice(dmg_mod)
+            val += extra
+            expr = f"{expr}+{extra_expr}"
+        final_val = max(0, val - armor)
+        monster_text = self._fill_damage(
+            monster_action.get("attack_succ", monster_action.get("desc", "攻击")),
+            expr,
+            final_val,
+        )
+        player_text = self._apply_damage_to_player(final_val, armor_absorbed=True)
+        return monster_text, player_text
+
+    def _get_player_damage_formula(self, weapon: Equipment) -> str:
+        damage = weapon.damage_dice
+        db = self.investigator.db
+        if db and db != "0":
+            damage = f"{damage}+{db}" if not db.startswith("-") else f"{damage}{db}"
+        return damage
+
+    def _handle_player_critical_failure(self, weapon: Equipment) -> str:
+        if weapon.name == "弹簧折刀":
+            expr, damage_val = roll_dice("1d4")
+            self._apply_damage_to_player(damage_val)
+            return (
+                self._get_reply("大失败_初始")
+                .replace("$骰子", "1d4")
+                .replace("$伤害", expr)
+            )
+        self.investigator.break_equipped_item(self.current_action)
+        return self._get_reply("反击大失败").replace("$装备", weapon.name)
+
+    # --- Ranged ---
+    def _ranged_attack(self, shot_count: int) -> tuple:
+        if not self.gun or not self.gun.is_valid:
+            return (self._t("battle.no_ranged_weapon"),)
+        if self.bullet < shot_count:
+            return (self._t("battle.no_ammo", count=self.bullet),)
+
+        self.bullet -= shot_count
+        weapon = self.gun
+        player_skill = self._get_player_modified_skill(weapon.identify_skill, 20)
+
+        if shot_count > 1:
+            return self._multiple_shot(shot_count, weapon, player_skill)
+        return self._single_shot(weapon, player_skill)
+
+    def _single_shot(self, weapon: Equipment, player_skill: int) -> tuple:
+        roll = DiceRoll(player_skill)
+        roll_description = self._check_section(
+            weapon.identify_skill,
+            [self._check_row(self.player_name, weapon.identify_skill, roll.dice, roll.skill, roll.level)],
+        )
+
+        if roll.level > SuccessLevel.FAILURE:
+            expr, val = calc_dmg(weapon.damage_dice, roll.level, weapon.has_penetration)
+            reply_template = self._get_reply("射击大成功") if roll.level > SuccessLevel.HARD_SUCCESS else self._get_reply("射击成功")
+            player_text = self._fill_damage(reply_template, expr, val)
+            monster_text = self._apply_damage_to_monster(val)
+            exchange = self._exchange([monster_text], [self._get_weapon_reply(weapon), player_text])
+            return (roll_description, exchange, self._end_turn())
+        if roll.level == SuccessLevel.CRITICAL_FAILURE:
+            player_text = self._get_reply("射击大失败").replace("$装备", weapon.name)
+            self.investigator.break_equipped_item("远程")
+            self._update_gun_status()
+            exchange = self._exchange([], [self._get_weapon_reply(weapon), player_text])
+            return (roll_description, exchange, self._end_turn())
+        player_text = self._get_reply("射击失败")
+        exchange = self._exchange([], [self._get_weapon_reply(weapon), player_text])
+        return (roll_description, exchange, self._end_turn())
+
+    def _multiple_shot(self, shot_count: int, weapon: Equipment, player_skill: int) -> tuple:
+        rows = []
+        total_damage = 0
+        player_texts = []
+        critical_failure = False
+
+        for _i in range(shot_count):
+            roll = PenaltyDiceRoll(player_skill)
+            icon = get_success_icon(roll.level)
+            rows.append(
+                self._t(
+                    "report.check_row_penalty",
+                    icon=icon,
+                    name=self.player_name,
+                    skill=weapon.identify_skill,
+                    dice=roll.final_result,
+                    target=roll.skill,
+                    rolls=",".join(map(str, roll.penalty_rolls)),
+                    result=self._t(
+                        "report.check_result",
+                        icon=icon,
+                        level=get_success_description(roll.level),
+                    ),
+                )
+            )
+
+            if roll.level == SuccessLevel.CRITICAL_FAILURE:
+                player_texts.append(self._get_reply("射击大失败").replace("$装备", weapon.name))
+                self.investigator.break_equipped_item("远程")
+                self._update_gun_status()
+                critical_failure = True
+                break
+            if roll.level > SuccessLevel.FAILURE:
+                expr, val = calc_dmg(weapon.damage_dice, roll.level, weapon.has_penetration)
+                player_texts.append(self._t("battle.multi_shot_damage", expr=expr, value=val))
+                total_damage += val
+
+        roll_description = self._check_section(weapon.identify_skill, rows)
+        player_text = "\n".join(player_texts)
+
+        if not critical_failure and total_damage > 0:
+            player_text += f"\n{self._t('battle.total_damage', total=total_damage)}"
+            monster_text = self._apply_damage_to_monster(total_damage)
+        else:
+            monster_text = ""
+
+        exchange = self._exchange(
+            [monster_text],
+            [self._get_weapon_reply(weapon), player_text],
+        )
+        return (roll_description, exchange, self._end_turn())
+
+    def _reload_weapon(self) -> tuple:
+        if self.max_bullet > 0:
+            self.bullet = self.max_bullet
+            return (self._t("battle.reload_done"), self._end_turn())
+        return (self._t("battle.no_reloadable"),)
+
+    def _flee(self) -> tuple:
+        flee_skill = self._get_player_modified_skill("敏捷", 25)
+        roll = DiceRoll(flee_skill)
+        self.get_success_record_description(roll.level)
+        flee_check = self._check_section(
+            "逃跑", [self._check_row(self.player_name, "逃跑", roll.dice, flee_skill, roll.level)]
+        )
+        if roll.level > SuccessLevel.FAILURE:
+            self.fled = True
+            self.investigator.hp = self.hp_record["inv"]
+            self.investigator.is_adventure = False
+            self.investigator.save()
+            self.end_parts = (
+                f"{flee_check}\n\n{self._t('battle.flee_success')}",
+                "",
+            )
+            return (
+                f"{flee_check}\n\n"
+                f"{self._t('battle.flee_success')}",
+            )
+        monster_action = self.monster.get_action(self.current_turn)
+        expr, val = calc_dmg(monster_action["damage"])
+        self.hp_record["inv"] = max(0, self.hp_record["inv"] - val)
+        return (
+            f"{flee_check}\n\n"
+            f"{self._t('battle.flee_fail', damage_expr=expr, damage=val)}",
+            self._end_turn(),
+        )
+
+    # --- Defensive ---
+    def _handle_defensive_action(self, player_action: str) -> tuple:
+        monster_action = self.monster.get_action(self.current_turn)
+        weapon = None
+        if player_action == "闪避":
+            player_skill = self._get_player_modified_skill("闪避", 25)
+            action_reply = self._get_reply("闪避")
+        else:
+            player_skill = self._get_player_modified_skill("格斗", 25)
+            weapon_id = self.investigator.get_equipped_id("格斗")
+            if not weapon_id:
+                return (self._t("battle.no_counter_weapon"), self._end_turn())
+            weapon = Equipment(weapon_id)
+            action_reply = self._get_weapon_reply(weapon)
+
+        monster_skill = monster_action["skill"] + self.environment.get("怪物", {}).get("反击技能", 0)
+        confrontation = ConfrontationRoll(monster_skill, player_skill)
+        check_key = "闪避" if player_action == "闪避" else "反击"
+        roll_desc = self._check_section(
+            check_key,
+            [
+                self._check_row(
+                    self.monster.名字,
+                    "攻击",
+                    confrontation.dice1,
+                    confrontation.skill1,
+                    confrontation.level1,
+                ),
+                self._check_row(
+                    self.player_name,
+                    check_key,
+                    confrontation.dice2,
+                    confrontation.skill2,
+                    confrontation.level2,
+                ),
+            ],
+        )
+
+        # 反击按"格斗"技能结算成长鉴定（战报仍显示"反击"）
+        if player_action == "反击":
+            self.succeded_skill.discard("反击")
+            if confrontation.level2 > SuccessLevel.FAILURE:
+                self.succeded_skill.add("格斗")
+
+        critical_text = ""
+        if confrontation.level2 == SuccessLevel.CRITICAL_FAILURE and weapon:
+            critical_text = self._handle_player_critical_failure(weapon)
+
+        monster_succeeds = confrontation.get_result(player_action)
+
+        if monster_succeeds:
+            monster_text, player_text = self._handle_monster_attack_success(monster_action, confrontation)
+        elif player_action == "闪避":
+            monster_text = ""
+            player_text = self._get_reply("闪避成功")
+        elif confrontation.level1 < 1 and confrontation.level2 < 1:
+            monster_text = monster_action.get("attack_false", monster_action.get("counterattack", ""))
+            player_text = ""
+        else:
+            player_text, monster_text = self._handle_player_counter_success(weapon)
+
+        exchange = self._exchange(
+            [
+                monster_action.get("attack", monster_action.get("desc", "攻击")),
+                monster_text,
+            ],
+            [action_reply, player_text, critical_text],
+        )
+
+        return (roll_desc, exchange, self._end_turn())
+
+    def _handle_player_counter_success(self, weapon: Optional[Equipment]) -> tuple[str, str]:
+        if not weapon or not weapon.is_valid:
+            return self._t("battle.counter_failed"), ""
+
+        damage_formula = self._get_player_damage_formula(weapon)
+        expr, val = calc_dmg(damage_formula)
+
+        player_text = self._fill_damage(
+            self._get_reply("反击成功"), expr, val
+        ).replace("$装备", weapon.name)
+        monster_text = self._apply_damage_to_monster(val)
+        return player_text, monster_text
