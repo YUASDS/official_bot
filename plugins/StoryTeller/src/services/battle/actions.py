@@ -110,12 +110,17 @@ class BattleActionsMixin:
             level,
             monster_action.get("ex", False),
         )
-        # 环境怪物伤害加成（先加成再结算护甲，确保生效且计入展示）
+        # 环境怪物伤害加成（先加成再结算护甲，确保生效且计入展示）；
+        # 表达式含骰子标注，如 1d8+1+1d4=3+1+2
         dmg_mod = self.environment.get("怪物", {}).get("伤害", "")
         if dmg_mod:
             extra_expr, extra = roll_dice(dmg_mod)
             val += extra
-            expr = f"{expr}+{extra_expr}"
+            if "=" in expr:
+                formula, breakdown = expr.split("=", 1)
+                expr = f"{formula}{dmg_mod}={breakdown}+{extra_expr}"
+            else:
+                expr = f"{expr}{dmg_mod}={expr}+{extra_expr}"
         final_val = max(0, val - armor)
         monster_text = self._fill_damage(
             monster_action.get("attack_succ", monster_action.get("desc", "攻击")),
