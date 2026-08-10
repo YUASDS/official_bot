@@ -31,7 +31,7 @@ class BattleActionsMixin:
 
         monster_action = self.monster.get_action(self.current_turn)
         player_skill = self._get_player_modified_skill(weapon.identify_skill, 25)
-        monster_skill = monster_action["skill"] + self.environment.get("怪物", {}).get("反击技能", 0)
+        monster_skill = self._get_monster_attack_skill(monster_action)
         confrontation = ConfrontationRoll(player_skill, monster_skill)
 
         roll_desc = self._check_section(
@@ -326,7 +326,7 @@ class BattleActionsMixin:
             weapon = Equipment(weapon_id)
             action_reply = self._get_weapon_reply(weapon)
 
-        monster_skill = monster_action["skill"] + self.environment.get("怪物", {}).get("反击技能", 0)
+        monster_skill = self._get_monster_attack_skill(monster_action)
         confrontation = ConfrontationRoll(monster_skill, player_skill)
         check_key = "闪避" if player_action == "闪避" else "反击"
         roll_desc = self._check_section(

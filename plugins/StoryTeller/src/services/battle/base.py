@@ -62,11 +62,26 @@ class BattleBaseMixin:
         player_mods = self.environment.get("玩家", {})
         if skill_name in player_mods:
             base += player_mods[skill_name]
+        # 「射击」为枪械通用修正，作用于手枪/步枪两类鉴定技能
+        elif skill_name in ("手枪", "步枪") and "射击" in player_mods:
+            base += player_mods["射击"]
         return max(0, base)
+
+    def _get_monster_attack_skill(self, monster_action: dict) -> int:
+        """怪物攻击技能：攻击表技能 + 环境反击技能/格斗修正。"""
+        mods = self.environment.get("怪物", {})
+        return (
+            monster_action["skill"]
+            + mods.get("反击技能", 0)
+            + mods.get("格斗", 0)
+        )
 
     def _get_monster_modified(self, attr: str, default: int = 0) -> int:
         base = getattr(self.monster, attr, default)
         monster_mods = self.environment.get("怪物", {})
+        # 数据键「敏捷」与代码属性 dex 互为别名
+        if attr == "dex" and "敏捷" in monster_mods:
+            attr = "敏捷"
         if attr in monster_mods:
             base += monster_mods[attr]
         return base
