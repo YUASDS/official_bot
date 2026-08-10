@@ -624,19 +624,20 @@ class BattleService:
             monster_action["damage"],
             level,
             monster_action.get("ex", False),
-            armor,
         )
+        # 环境怪物伤害加成（先加成再结算护甲，确保生效且计入展示）
+        dmg_mod = self.environment.get("怪物", {}).get("伤害", "")
+        if dmg_mod:
+            extra_expr, extra = roll_dice(dmg_mod)
+            val += extra
+            expr = f"{expr}+{extra_expr}"
+        final_val = max(0, val - armor)
         monster_text = self._fill_damage(
             monster_action.get("attack_succ", monster_action.get("desc", "攻击")),
             expr,
-            val,
+            final_val,
         )
-        player_text = self._apply_damage_to_player(val)
-        # Apply environment monster damage buff
-        dmg_mod = self.environment.get("怪物", {}).get("伤害", "")
-        if dmg_mod:
-            _, extra = roll_dice(dmg_mod)
-            val += extra
+        player_text = self._apply_damage_to_player(final_val, armor_absorbed=True)
         return monster_text, player_text
 
     def _get_player_damage_formula(self, weapon: Equipment) -> str:
@@ -869,13 +870,17 @@ class BattleService:
         return player_text, monster_text
 
     # --- Damage application ---
-    def _apply_damage_to_player(self, damage: int) -> str:
+    def _apply_damage_to_player(
+        self, damage: int, armor_absorbed: bool = False
+    ) -> str:
         if damage <= 0:
             return self._get_reply("低伤害")
 
         initial_hp = self.hp_record["inv"]
-        armor = self.investigator.get_armor_value()
-        actual_damage = max(0, damage - armor)
+        actual_damage = damage
+        if not armor_absorbed:
+            armor = self.investigator.get_armor_value()
+            actual_damage = max(0, damage - armor)
         # 临时生命（护盾）优先抵扣
         if self.temp_hp > 0:
             absorbed = min(self.temp_hp, actual_damage)
