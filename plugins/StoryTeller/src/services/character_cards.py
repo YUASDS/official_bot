@@ -121,6 +121,15 @@ def spell_brief(spell_id: str) -> str:
     return f"MP {spell.get('mp_cost', 1)}｜SAN {spell.get('san_cost', 0)}｜{eff}"
 
 
+def _bag_item_damage(item: Equipment) -> str:
+    """背包物品的数值摘要：近战/远程武器显示伤害骰，防具显示护甲值。"""
+    if item.part in ("近战", "远程") and item.damage_dice and item.damage_dice != "0":
+        return f"伤害 {item.damage_dice}"
+    if item.part == "防具" and item.armor_point > 0:
+        return f"护甲 {item.armor_point}"
+    return ""
+
+
 def info_card_html(inv: Investigator, gold: int) -> str:
     """构建调查员信息 HTML 卡片。"""
     attrs = inv.get_full_attributes_dict()
@@ -149,7 +158,8 @@ def info_card_html(inv: Investigator, gold: int) -> str:
         equip_rows += '<div class="row"><span class="k">防具</span><span class="v">→ 无</span></div>'
 
     bag_rows = "".join(
-        f'<div class="row"><span class="k">{item.name} x{qty}</span></div>'
+        f'<div class="row"><span class="k">{item.name} x{qty}</span>'
+        f'<span class="v">{_bag_item_damage(item)}</span></div>'
         for item_id, qty in list(equipments.items())[:6]
         for item in [Equipment(item_id)]
         if item.is_valid
