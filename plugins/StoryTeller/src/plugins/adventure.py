@@ -671,15 +671,9 @@ async def handle_adventure(event: Event, bot: Bot):
             gold = get_info(user_id).gold
             labels = [_event_option_label(opt, gold) for opt in event_data["选项"]]
 
-            # 事件选项按钮（商品选项显示价格 / 乌帕不足）
-            event_kb = build_keyboard(
-                [
-                    [
-                        (labels[i], f"event:{opt['输入']}")
-                        for i, opt in enumerate(event_data["选项"])
-                    ]
-                ]
-            )
+            # 事件选项按钮（商品选项显示价格 / 乌帕不足；每行 3 个，多行自适应）
+            options = event_data["选项"]
+            event_kb = build_keyboard(_event_option_rows(labels, options))
 
             # 奇遇 CG 卡片（全平台）+ 选项按钮；图片失败回退文本
             card_html = _battle_card_html(service, event_desc=event_data["描述"])
@@ -1324,6 +1318,19 @@ async def handle_event_choice(
         await _send(_send_turn(battle, bot, battle.get_action_section()))
         return
     await _send(_send_turn(battle, bot, reply))
+
+
+def _event_option_rows(
+    labels: list[str], options: list[dict]
+) -> list[list[tuple[str, str]]]:
+    """事件选项按钮行：每行 3 个，超出自动换行。"""
+    return [
+        [
+            (labels[i], f"event:{opt['输入']}")
+            for i, opt in enumerate(options[j : j + 3], j)
+        ]
+        for j in range(0, len(options), 3)
+    ]
 
 
 # --- 按钮回调注册 ---
