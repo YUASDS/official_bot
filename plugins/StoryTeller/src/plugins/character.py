@@ -35,6 +35,7 @@ _t = data_loader.get_text
 _CREATE_TEMPLATE = Path(__file__).parent.parent.parent / "data" / "create_card.html"
 
 # --- Commands ---
+SKILL_NAMES = ["格斗", "闪避", "侦查", "聆听", "手枪", "步枪", "急救", "医学"]
 create_cmd = on_command(
     "创建调查员", aliases={"create_investigator"}, priority=10, block=True
 )
@@ -393,6 +394,12 @@ def _info_card_html(inv: Investigator, gold: int) -> str:
         for k, v in attrs.items()
     )
 
+    skill_items = "".join(
+        f'<div class="attr"><span class="k">{k}</span>'
+        f'<span class="v">{inv.get_skill(k, 0)}</span></div>'
+        for k in SKILL_NAMES
+    )
+
     equipments, res_name = inv.get_equipments()
     equip_rows = ""
     for part, item_id in inv._equipped.items():
@@ -426,6 +433,7 @@ def _info_card_html(inv: Investigator, gold: int) -> str:
         .replace("__DAY__", str(inv.day))
         .replace("__GOLD__", str(gold))
         .replace("__ATTRS__", attr_items)
+        .replace("__SKILLS__", skill_items)
         .replace("__EQUIPS__", equip_rows)
         .replace("__BAG__", bag_rows)
         .replace("__SPELLS__", spell_rows)
@@ -496,6 +504,10 @@ async def build_info_message(user_id: str, bot: Bot):
     for k, v in attrs.items():
         attr_rows.append(_t("character.attr_table_row", name=k, value=v))
 
+    skill_rows = [_t("character.skill_table_header"), _t("character.attr_table_sep")]
+    for k in SKILL_NAMES:
+        skill_rows.append(_t("character.attr_table_row", name=k, value=inv.get_skill(k, 0)))
+
     spell_lines = [
         f"{_spell_name(sid)}（{_spell_brief(sid)}）" for sid in inv.get_spells()
     ]
@@ -503,6 +515,7 @@ async def build_info_message(user_id: str, bot: Bot):
         f"\n{_t('character.info_title')}\n\n"
         f"{_t('character.info_status', status=survival, day=inv.day, gold=get_info(user_id).gold)}\n\n"
         f"{_t('character.info_attrs')}\n{chr(10).join(attr_rows)}\n\n"
+        f"{_t('character.skill_title')}\n{chr(10).join(skill_rows)}\n\n"
         f"{inv.str_equipments()}\n\n"
         f"{_t('spell_list_title')}\n"
         + ("\n".join(spell_lines) if spell_lines else _t("spell.list_empty"))
