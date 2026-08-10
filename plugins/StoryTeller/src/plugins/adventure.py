@@ -4,6 +4,7 @@ from nonebot.exception import FinishedException
 from nonebot.params import CommandArg
 from loguru import logger
 import random
+from typing import Any, Callable
 
 from ..services.battle import BattleService
 from ..models.player import Investigator, investigator_repo
@@ -62,17 +63,18 @@ adventure_cmd = on_command(
 )
 
 
-@adventure_cmd.handle()
-async def handle_adventure(event: Event, bot: Bot):
-    user_id = event.get_user_id()
+async def _run_adventure(
+    user_id: str, bot: Bot, send: Callable, finish: Callable
+) -> None:
+    """今日冒险完整流程（命令与按钮共用）。finish 发送后须抛出 FinishedException 中断流程。"""
     try:
         inv_model = investigator_repo.find_by_qq(user_id)
         if inv_model is None:
-            await adventure_cmd.finish(need_create_message(bot, mention=user_id))
+            await finish(need_create_message(bot, mention=user_id))
         inv = Investigator(inv_model)
         if not inv.is_survive:
             t = data_loader.get_text
-            await adventure_cmd.finish(
+            await finish(
                 md_message(
                     f"\n{t('adventure.player_dead')}\n\n"
                     f"{cmd_tag('/复活', show=t('character.resurrect_button'))}\n"
@@ -83,7 +85,7 @@ async def handle_adventure(event: Event, bot: Bot):
                 )
             )
         if battle_manager.get_battle(user_id):
-            await adventure_cmd.finish(
+            await finish(
                 md_message(
                     f"\n{data_loader.get_text('adventure.in_battle')}",
                     bot,
@@ -93,7 +95,7 @@ async def handle_adventure(event: Event, bot: Bot):
         if _adventure_done_today(user_id):
             # 冒险卷（401）：背包持有则自动使用，获得额外冒险次数
             if investigator_repo.remove_item_from_inventory(user_id, "401", 1):
-                await adventure_cmd.send(
+                await send(
                     md_message(
                         f"\n{data_loader.get_text('adventure.scroll_used')}",
                         bot,
@@ -101,7 +103,7 @@ async def handle_adventure(event: Event, bot: Bot):
                     )
                 )
             else:
-                await adventure_cmd.finish(
+                await finish(
                     md_message(
                         f"\n{data_loader.get_text('adventure.daily_done')}",
                         bot,
@@ -114,7 +116,7 @@ async def handle_adventure(event: Event, bot: Bot):
 
         monster_id = monster_repo.find_random_id_for_day(inv.day)
         if not monster_id:
-            await adventure_cmd.finish(
+            await finish(
                 md_message(
                     f"\n{data_loader.get_text('adventure.no_monster_config')}",
                     bot,
@@ -186,7 +188,7 @@ async def handle_adventure(event: Event, bot: Bot):
             # 奇遇 CG 卡片（全平台）+ 选项按钮；图片失败回退文本
             card_html = battle_card_html(service, event_desc=event_data["描述"])
             img = await render_pic(card_html)
-            if img is not None and await send_pic(bot, img, adventure_cmd.send):
+            if img is not None and await send_pic(bot, img, send):
                 options = "\n".join(
                     f" {data_loader.get_text('adventure.event_choice', input=label)}"
                     for label in labels
@@ -207,7 +209,7 @@ async def handle_adventure(event: Event, bot: Bot):
                 event_msg = md_message(f"{header}{event_text}", bot, mention=user_id)
             if event_kb is not None and not isinstance(event_msg, str):
                 event_msg.append(event_kb)
-            await adventure_cmd.send(event_msg)
+            await send(event_msg)
             return
 
         # --- 无奇遇：理智检定 → 战斗开始 ---
@@ -219,7 +221,7 @@ async def handle_adventure(event: Event, bot: Bot):
             inv.save()
             _mark_adventure_done(user_id)
             await send_sanity_zero(
-                service, inv, san_desc, san_loss, bot, adventure_cmd.send
+                service, inv, san_desc, san_loss, bot, send
             )
             return
         if is_mad:
@@ -255,7 +257,7 @@ async def handle_adventure(event: Event, bot: Bot):
         cg_shown = False
         img = await render_pic(battle_card_html(service, day_event))
         if img is not None:
-            cg_shown = await send_pic(bot, img, adventure_cmd.send)
+            cg_shown = await send_pic(bot, img, send)
 
         # 开场战报卡片：CG 已展示异象/环境修正，战斗卡片不再重复
         battle_reply = (
@@ -268,29 +270,57 @@ async def handle_adventure(event: Event, bot: Bot):
             f"{service.get_action_section()}"
         )
         img = await render_pic(battle_open_html(service, battle_reply))
-        if img is not None and await send_pic(bot, img, adventure_cmd.send):
-            await adventure_cmd.send(
+        if img is not None and await send_pic(bot, img, send):
+            await send(
                 send_turn(service, bot, service.get_action_section())
             )
             return
 
         # 图片失败回退 md（含完整开场内容）
         if not cg_shown:
-            await adventure_cmd.send(send_turn(service, bot, reply))
+            await send(send_turn(service, bot, reply))
             return
-        await adventure_cmd.send(send_turn(service, bot, battle_reply))
+        await send(send_turn(service, bot, battle_reply))
 
     except FinishedException:
         raise
     except Exception as e:
         logger.exception(f"Error starting adventure for {user_id}: {e}")
-        await adventure_cmd.finish(
+        await finish(
             md_message(
                 f"\n{data_loader.get_text('adventure.start_error')}",
                 bot,
                 mention=user_id,
             )
         )
+
+
+@adventure_cmd.handle()
+async def handle_adventure(event: Event, bot: Bot):
+    await _run_adventure(
+        event.get_user_id(), bot, adventure_cmd.send, adventure_cmd.finish
+    )
+
+
+async def handle_adventure_button(
+    user_id: str,
+    payload: str,
+    bot: Bot,
+    group_openid: str = "",
+    token: int | None = None,
+) -> None:
+    """「今日冒险」按钮回调：与命令共用同一流程。"""
+    async def _send(msg: Any) -> None:
+        await _send_to_user(bot, user_id, msg, group_openid)
+
+    async def _finish(msg: Any) -> None:
+        await _send_to_user(bot, user_id, msg, group_openid)
+        raise FinishedException
+
+    try:
+        await _run_adventure(user_id, bot, _send, _finish)
+    except FinishedException:
+        pass
 
 
 resurrect_cmd = on_command(
@@ -616,4 +646,5 @@ async def handle_event_choice(
 register_button_handler("action", handle_combat_action)
 register_button_handler("event", handle_event_choice)
 register_button_handler("resurrect", handle_resurrect_button)
+register_button_handler("adventure", handle_adventure_button)
 setup_button_callback()

@@ -58,9 +58,14 @@ async def handle_buy(event: Event, bot: Bot, msg: Message = CommandArg()) -> Non
     ok, res = shop_service.buy_item(user_id, item_id, quantity, items)
     send_msg = md_message(f"\n{res}", bot, mention=user_id)
 
-    # 购买成功后附加「调查员信息」按钮（QQ 平台）
+    # 购买成功后附加按钮（QQ 平台）：调查员信息；冒险卷(401)额外提供今日冒险
     if ok:
-        kb = build_keyboard([[(data_loader.get_text("character.info_button"), "info")]])
+        kb_rows = [[(data_loader.get_text("character.info_button"), "info")]]
+        if item_id == "401":
+            kb_rows.append(
+                [(data_loader.get_text("adventure.adventure_button"), "adventure")]
+            )
+        kb = build_keyboard(kb_rows)
         if kb is not None and not isinstance(send_msg, str):
             send_msg.append(kb)
     await buy_cmd.finish(send_msg)
@@ -88,9 +93,12 @@ async def handle_buy_button(
     msg = md_message(f"\n{res}", bot, mention=user_id)
 
     if ok:
-        kb = build_keyboard(
-            [[(data_loader.get_text("character.info_button"), "info")]]
-        )
+        kb_rows = [[(data_loader.get_text("character.info_button"), "info")]]
+        if item_id == "401":
+            kb_rows.append(
+                [(data_loader.get_text("adventure.adventure_button"), "adventure")]
+            )
+        kb = build_keyboard(kb_rows)
         if kb is not None and not isinstance(msg, str):
             msg.append(kb)
     await _send_to_user(bot, user_id, msg, group_openid)
