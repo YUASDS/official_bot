@@ -7,6 +7,7 @@ from .src.plugins.shop import shop_cmd, buy_cmd
 from .src.plugins.character import create_cmd, info_cmd, choose_cmd, skill_cmd, use_item_cmd
 from .src.plugins.help import help_cmd
 from .src.plugins.profile import profile_cmd
+from .src.plugins.gm import gm_gift_cmd, gm_scroll_cmd
 
 # Define plugin metadata
 __plugin_meta__ = PluginMetadata(

@@ -124,6 +124,12 @@
         "event_skip_battle": "（你避开了今日的战斗，安然度过这一天。）",
         "scroll_buy_button": "📜 购买冒险卷"
     },
+    "gm": {
+        "denied": "⛔ 你没有管理员权限。",
+        "need_number": "请输入正确的数量。",
+        "gift_ok": "🎁 已向 {count} 名玩家发放 {num} 乌帕。",
+        "scroll_ok": "📜 已向 {count} 位调查员发放冒险卷 x{num}。"
+    },
     "spell": {
         "learn_title": "研读·法术",
         "learn_desc": "你展开残卷，研读其中禁忌的知识……",
