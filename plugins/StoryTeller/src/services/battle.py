@@ -571,8 +571,15 @@ class BattleService:
 
         if confrontation.level1 == SuccessLevel.CRITICAL_FAILURE:
             failure_desc = self._handle_player_critical_failure(weapon)
+            monster_parts = [monster_action["counterattack"]]
+            # 玩家大失败：仅当怪物自身检定成功（成功/困难/极难/大成功）才命中
+            if confrontation.level2 > SuccessLevel.FAILURE:
+                monster_dmg, _ = self._handle_monster_attack_success(
+                    monster_action, confrontation, level=confrontation.level2
+                )
+                monster_parts.append(monster_dmg)
             exchange = self._exchange(
-                [monster_action["counterattack"]],
+                monster_parts,
                 [self._get_weapon_reply(weapon), failure_desc],
             )
             return (roll_desc, exchange, self._end_turn())
@@ -607,11 +614,15 @@ class BattleService:
         )
         return (roll_desc, exchange, self._end_turn())
 
-    def _handle_monster_attack_success(self, monster_action, confrontation):
+    def _handle_monster_attack_success(
+        self, monster_action, confrontation, level: int | None = None
+    ):
+        if level is None:
+            level = confrontation.level1
         armor = self.investigator.get_armor_value()
         expr, val = calc_dmg(
             monster_action["damage"],
-            confrontation.level1,
+            level,
             monster_action.get("ex", False),
             armor,
         )
