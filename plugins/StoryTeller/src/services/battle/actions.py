@@ -18,6 +18,14 @@ from ..dice_roller import (
 )
 
 
+def _append_damage_modifier(expr: str, dmg_mod: str, extra_expr: str) -> str:
+    """@description 将环境伤害加成并入骰子表达式（1d8=7 → 1d8+1d4=7+2）。纯函数。"""
+    if "=" not in expr:
+        return f"{expr}{dmg_mod}={expr}+{extra_expr}"
+    formula, breakdown = expr.split("=", 1)
+    return f"{formula}{dmg_mod}={breakdown}+{extra_expr}"
+
+
 class BattleActionsMixin:
     # --- Melee ---
     def _melee_attack(self) -> tuple:
@@ -57,10 +65,11 @@ class BattleActionsMixin:
         if confrontation.level1 == SuccessLevel.CRITICAL_FAILURE:
             failure_desc = self._handle_player_critical_failure(weapon)
             monster_parts = [monster_action["counterattack"]]
-            # 玩家大失败：仅当怪物自身检定成功（成功/困难/极难/大成功）才命中
+            # 玩家大失败：仅当怪物自身检定成功（成功/困难/极难/大成功）才命中；
+            # 反击伤害恒为普通伤害，不叠加暴击（critical=False）
             if confrontation.level2 > SuccessLevel.FAILURE:
                 monster_dmg, _ = self._handle_monster_attack_success(
-                    monster_action, confrontation, level=confrontation.level2
+                    monster_action, confrontation, critical=False
                 )
                 monster_parts.append(monster_dmg)
             exchange = self._exchange(
@@ -100,27 +109,22 @@ class BattleActionsMixin:
         return (roll_desc, exchange, self._end_turn())
 
     def _handle_monster_attack_success(
-        self, monster_action, confrontation, level: int | None = None
+        self,
+        monster_action,
+        confrontation,
+        level: int | None = None,
+        critical: bool = True,
     ):
+        """@description 怪物攻击成功结算：critical=False 时强制普通伤害（反击不叠暴击）。
+
+        返回 (怪物文案, 玩家承受文案)；命中判定由调用方完成。
+        """
         if level is None:
             level = confrontation.level1
+        if not critical:
+            level = min(level, SuccessLevel.SUCCESS)
         armor = self.investigator.get_armor_value()
-        expr, val = calc_dmg(
-            monster_action["damage"],
-            level,
-            monster_action.get("ex", False),
-        )
-        # 环境怪物伤害加成（先加成再结算护甲，确保生效且计入展示）；
-        # 表达式含骰子标注，如 1d8+1+1d4=3+1+2
-        dmg_mod = self.environment.get("怪物", {}).get("伤害", "")
-        if dmg_mod:
-            extra_expr, extra = roll_dice(dmg_mod)
-            val += extra
-            if "=" in expr:
-                formula, breakdown = expr.split("=", 1)
-                expr = f"{formula}{dmg_mod}={breakdown}+{extra_expr}"
-            else:
-                expr = f"{expr}{dmg_mod}={expr}+{extra_expr}"
+        expr, val = self._monster_damage_roll(monster_action, level)
         final_val = max(0, val - armor)
         monster_text = self._fill_damage(
             monster_action.get("attack_succ", monster_action.get("desc", "攻击")),
@@ -129,6 +133,19 @@ class BattleActionsMixin:
         )
         player_text = self._apply_damage_to_player(final_val, armor_absorbed=True)
         return monster_text, player_text
+
+    def _monster_damage_roll(self, monster_action: dict, level: int) -> tuple[str, int]:
+        """@description 掷怪物伤害：基础伤害骰 + 环境「怪物·伤害」加成，返回 (表达式, 总值)。"""
+        expr, val = calc_dmg(
+            monster_action["damage"],
+            level,
+            monster_action.get("ex", False),
+        )
+        dmg_mod = self.environment.get("怪物", {}).get("伤害", "")
+        if not dmg_mod:
+            return expr, val
+        extra_expr, extra = roll_dice(dmg_mod)
+        return _append_damage_modifier(expr, dmg_mod, extra_expr), val + extra
 
     def _get_player_damage_formula(self, weapon: Equipment, include_db: bool = True) -> str:
         damage = weapon.damage_dice
