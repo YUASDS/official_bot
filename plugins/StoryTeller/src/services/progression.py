@@ -15,15 +15,15 @@ def build_day_monster_pool(max_day: int = 40) -> dict[str, list[str]]:
         elif day <= 30:
             pools[str(day)] = ["15", "18", "22"]
         else:
-            pools[str(day)] = ["26", "31", "35"]
+            pools[str(day)] = ["21", "23", "25"]
 
     # 关键里程碑日使用更明确的Boss池
     pools["10"] = ["10", "11", "14"]
     if max_day >= 20:
         pools["20"] = ["20", "24", "25"]
     if max_day >= 30:
-        pools["30"] = ["30", "32", "34"]
+        pools["30"] = ["19", "20", "21"]
     if max_day >= 40:
-        pools["40"] = ["36", "38", "40"]
+        pools["40"] = ["10", "21", "25"]
 
     return pools
