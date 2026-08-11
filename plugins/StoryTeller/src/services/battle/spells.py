@@ -9,20 +9,20 @@ from ...utils.md_format import report_quote, report_section
 
 class BattleSpellsMixin:
     def _cast_spell(self, spell_id: str) -> tuple:
-        """释放法术：MP/SAN 校验 → 扣资源 → 对抗（部分法术）→ 效果结算。"""
+        """@description 释放法术：校验失败（未学会/无MP/SAN不足）不消耗回合；对抗失败仍结算代价。"""
         t = self._t
         if not self.investigator.has_spell(spell_id):
-            return (t("spell.not_learned"), self._end_turn())
+            return (t("spell.not_learned"),)
         spell = data_loader.spell_data.get(spell_id)
         if not spell:
-            return (t("spell.not_learned"), self._end_turn())
+            return (t("spell.not_learned"),)
 
         mp_cost = int(spell.get("mp_cost", 1))
         san_cost = int(spell.get("san_cost", 0))
         if self.mp < mp_cost:
-            return (t("spell.no_mp", mp=self.mp, max_mp=self.max_mp), self._end_turn())
+            return (t("spell.no_mp", mp=self.mp, max_mp=self.max_mp),)
         if self.investigator.get_skill("san", 0) < san_cost:
-            return (t("spell.no_san"), self._end_turn())
+            return (t("spell.no_san"),)
 
         # 扣除资源（无论成败）
         self.mp -= mp_cost

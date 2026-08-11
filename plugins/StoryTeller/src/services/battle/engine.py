@@ -17,10 +17,17 @@ class BattleEngineMixin:
         monster_dex = self._get_monster_modified("dex", 50)
         self.current_turn = "inv" if player_dex >= monster_dex else "mon"
 
+    def _player_actions(self) -> dict[str, list[str]]:
+        """@description 玩家可用行动：装备技能 + 已学法术（施法<ID> 供按钮/命令直达）。"""
+        actions = self.investigator.get_available_actions()
+        spell_actions = {f"施法{sid}" for sid in self.investigator.get_spells()}
+        actions["inv"] = sorted(set(actions["inv"]) | spell_actions)
+        return actions
+
     def get_available_actions_for_turn(self) -> list[str]:
-        """当前回合可用行动列表（供按钮展示）。"""
+        """@description 当前回合可用行动列表（供按钮展示）。"""
         if not hasattr(self, "available_actions"):
-            self.available_actions = self.investigator.get_available_actions()
+            self.available_actions = self._player_actions()
         return self.available_actions.get(self.current_turn, [])
 
     def start_turn(self) -> str:

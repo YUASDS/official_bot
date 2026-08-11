@@ -16,6 +16,7 @@ from ..services.battle_cards import (
 )
 from ..services.combat_messaging import (
     send_combat_result,
+    send_event_skip_battle,
     send_sanity_zero,
     send_turn,
 )
@@ -393,19 +394,15 @@ async def handle_combat(event: Event, bot: Bot, msg: Message = CommandArg()):
                 battle.investigator, user_id, matched
             )
             if skip_battle:
-                # 检定成功：跳过今日战斗
+                # 检定成功：跳过今日战斗（图片卡片优先，失败回退 md）
                 battle.investigator.is_adventure = False
                 battle.investigator.save()
                 battle_manager.remove_battle(user_id)
                 _mark_adventure_done(user_id)
-                await combat_cmd.finish(
-                    md_message(
-                        f"{event_reply}\n\n"
-                        f"{data_loader.get_text('adventure.event_skip_battle')}",
-                        bot,
-                        mention=user_id,
-                    )
+                await send_event_skip_battle(
+                    battle, event_reply, bot, combat_cmd.send, combat_cmd.finish
                 )
+                return
         else:
             event_reply = data_loader.get_text("adventure.event_default")
             skip_battle = False
@@ -577,19 +574,12 @@ async def handle_event_choice(
             battle.investigator, user_id, matched
         )
         if skip_battle:
-            # 检定成功：跳过今日战斗
+            # 检定成功：跳过今日战斗（图片卡片优先，失败回退 md）
             battle.investigator.is_adventure = False
             battle.investigator.save()
             battle_manager.remove_battle(user_id)
             _mark_adventure_done(user_id)
-            await _send(
-                md_message(
-                    f"{event_reply}\n\n"
-                    f"{data_loader.get_text('adventure.event_skip_battle')}",
-                    bot,
-                    mention=user_id,
-                )
-            )
+            await send_event_skip_battle(battle, event_reply, bot, _send, _send)
             return
     else:
         event_reply = data_loader.get_text("adventure.event_default")

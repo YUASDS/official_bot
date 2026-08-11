@@ -19,6 +19,9 @@ from .data_loader import data_loader
 
 _t = data_loader.get_text
 
+# QQ 键盘上限 5 行 × 3 按钮；超出部分在图片卡片/文本中完整展示
+_MAX_USE_BUTTONS = 15
+
 
 async def card_msg(user_id: str):
     """渲染调查员信息图片（QQ 平台）；失败返回 None。"""
@@ -41,7 +44,7 @@ def info_kb_msg(user_id: str, bot: Bot):
     inv = Investigator.load(user_id)
 
     equipments, res_name = inv.get_equipments()
-    item_ids = list(equipments.keys())[:6]
+    item_ids = list(equipments.keys())
     tags = [
         cmd_tag(
             f"/使用物品 {item_id}",
@@ -106,9 +109,9 @@ async def build_info_message(user_id: str, bot: Bot):
         res += f"\n\n{cmd_tag('/今日冒险', show=_t('adventure.adventure_button'))}"
     msg = md_message(res, bot, mention=user_id)
 
-    # 背包物品「使用」按钮（QQ 平台）
+    # 背包物品「使用」按钮（QQ 平台；受键盘行数上限约束，超出部分见卡片/文本）
     equipments, res_name = inv.get_equipments()
-    item_ids = list(equipments.keys())[:6]
+    item_ids = list(equipments.keys())[:_MAX_USE_BUTTONS]
     if item_ids:
         kb_rows = [
             [

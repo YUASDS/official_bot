@@ -105,7 +105,7 @@ class BattleReporterMixin:
         )
 
     def get_action_section(self) -> str:
-        """【行动·抉择】行动列表小节：攻击类一行，其余逐个列出。"""
+        """@description 【行动·抉择】行动列表小节：攻击类一行，其余逐个列出，法术附名称与MP。"""
         t = self._t
         actions = self.get_available_actions_for_turn()
         attack_list = data_loader.get_text("battle.attack_actions") or []
@@ -117,8 +117,22 @@ class BattleReporterMixin:
             codes = " ".join(t("report.action_code", action=a) for a in attack)
             lines.append(t("report.action_group", actions=codes))
         for a in others:
+            if a.startswith("施法"):
+                continue
             lines.append(t("report.action", action=a))
+        lines.extend(self._spell_action_lines())
         return "\n".join(lines)
+
+    def _spell_action_lines(self) -> list[str]:
+        """@description 已学法术行动提示行：`施法<ID> 名称（MP消耗）`。"""
+        t = self._t
+        lines = []
+        for sid in self.investigator.get_spells():
+            spell = data_loader.spell_data.get(sid) or {}
+            name = spell.get("name", sid)
+            mp = spell.get("mp_cost", 1)
+            lines.append(t("report.action", action=f"施法{sid} {name}（MP{mp}）"))
+        return lines
 
     def _check_row(self, name: str, skill: str, dice: int, target: int, level: int) -> str:
         """构造检定表格行。"""
@@ -235,7 +249,7 @@ class BattleReporterMixin:
         return f"{report_section(t('battle.settle_title'))}\n" + "\n".join(rows)
 
     def _get_next_turn_prompt(self) -> str:
-        self.available_actions = self.investigator.get_available_actions()
+        self.available_actions = self._player_actions()
         t = self._t
         owner = (
             t("battle.your_turn")

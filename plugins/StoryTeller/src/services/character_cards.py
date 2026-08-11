@@ -160,7 +160,7 @@ def info_card_html(inv: Investigator, gold: int) -> str:
     bag_rows = "".join(
         f'<div class="row"><span class="k">{item.name} x{qty}</span>'
         f'<span class="v">{_bag_item_damage(item)}</span></div>'
-        for item_id, qty in list(equipments.items())[:6]
+        for item_id, qty in equipments.items()
         for item in [Equipment(item_id)]
         if item.is_valid
     ) or '<div class="row"><span class="k">（空）</span></div>'

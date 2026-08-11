@@ -31,11 +31,11 @@ class BattleActionsMixin:
     def _melee_attack(self) -> tuple:
         weapon_id = self.investigator.get_equipped_id(self.current_action)
         if not weapon_id:
-            return (self._t("battle.no_melee_weapon"), self._end_turn())
+            return (self._t("battle.no_melee_weapon"),)
 
         weapon = Equipment(weapon_id)
         if not weapon.is_valid:
-            return (self._t("battle.invalid_equip_id", id=weapon_id), self._end_turn())
+            return (self._t("battle.invalid_equip_id", id=weapon_id),)
 
         monster_action = self.monster.get_action(self.current_turn)
         player_skill = self._get_player_modified_skill(weapon.identify_skill, 25)
@@ -163,11 +163,12 @@ class BattleActionsMixin:
         return damage
 
     def _break_weapon(self, part: str) -> None:
-        """武器损毁：销毁后默认装备弹簧折刀（101），避免战斗内无武器死锁。"""
+        """@description 武器损毁：仅当无近战装备且背包已有弹簧折刀(101)时回退装备，不补发新刀。"""
         self.investigator.break_equipped_item(part)
         if not self.investigator.get_equipped_id("近战"):
-            self.investigator.add_item_to_inventory("101", 1)
-            investigator_repo.equip_item(self.investigator.qq, "101")
+            equipments, _ = self.investigator.get_equipments()
+            if "101" in equipments:
+                investigator_repo.equip_item(self.investigator.qq, "101")
         self.investigator.update_equipment()
         self._update_gun_status()
 
@@ -190,16 +191,14 @@ class BattleActionsMixin:
         return text
 
     def _handle_dodge_fumble(self) -> str:
-        """闪避大失败：近战武器脱手滑落（仅可损毁武器，不可损毁武器安然无恙）。"""
+        """@description 闪避大失败：仅展示叙事（武器不掉落，属设计行为）。"""
         weapon_id = self.investigator.get_equipped_id("近战")
         if not weapon_id:
             return ""
         weapon = Equipment(weapon_id)
         if not weapon.breakable:
             return ""
-        text = self._get_reply("闪避大失败").replace("$装备", weapon.name)
-        self._break_weapon("近战")
-        return text
+        return self._get_reply("闪避大失败").replace("$装备", weapon.name)
 
     # --- Ranged ---
     def _ranged_attack(self, shot_count: int) -> tuple:
@@ -275,6 +274,7 @@ class BattleActionsMixin:
                 critical_failure = True
                 break
             if roll.level > SuccessLevel.FAILURE:
+                self.succeded_skill.add(weapon.identify_skill)  # 多连射成功同样参与成长鉴定
                 expr, val = calc_dmg(
                     self._get_player_damage_formula(weapon, include_db=False),
                     roll.level,
@@ -335,23 +335,46 @@ class BattleActionsMixin:
 
     # --- Defensive ---
     def _handle_defensive_action(self, player_action: str) -> tuple:
+        """@description 防御行动入口：闪避/反击的检定展示与结果结算。"""
         monster_action = self.monster.get_action(self.current_turn)
-        weapon = None
+        weapon = self._defense_weapon(player_action)
+        if player_action == "反击" and weapon is None:
+            return (self._t("battle.no_counter_weapon"),)
+        confrontation = self._defense_confrontation(player_action, monster_action)
+        roll_desc = self._defense_roll_desc(player_action, confrontation)
+        self._record_counter_growth(player_action, confrontation)
+        critical_text = self._defense_critical_text(player_action, weapon, confrontation)
         if player_action == "闪避":
-            player_skill = self._get_player_modified_skill("闪避", 25)
-            action_reply = self._get_reply("闪避")
+            monster_text, player_text = self._resolve_dodge(confrontation, monster_action)
         else:
-            player_skill = self._get_player_modified_skill("格斗", 25)
-            weapon_id = self.investigator.get_equipped_id("格斗")
-            if not weapon_id:
-                return (self._t("battle.no_counter_weapon"), self._end_turn())
-            weapon = Equipment(weapon_id)
-            action_reply = self._get_weapon_reply(weapon)
+            monster_text, player_text = self._resolve_counter(
+                confrontation, monster_action, weapon
+            )
+        exchange = self._defense_exchange(
+            monster_action, monster_text, player_text, critical_text, player_action, weapon
+        )
+        return (roll_desc, exchange, self._end_turn())
 
+    def _defense_weapon(self, player_action: str) -> Optional[Equipment]:
+        """@description 反击所需的近战武器（闪避无武器需求），未装备返回 None。"""
+        if player_action == "闪避":
+            return None
+        weapon_id = self.investigator.get_equipped_id("格斗")
+        return Equipment(weapon_id) if weapon_id else None
+
+    def _defense_confrontation(
+        self, player_action: str, monster_action: dict
+    ) -> ConfrontationRoll:
+        """@description 防御检定：怪物攻击 vs 玩家闪避/反击，返回对抗结果。"""
+        skill = "闪避" if player_action == "闪避" else "格斗"
+        player_skill = self._get_player_modified_skill(skill, 25)
         monster_skill = self._get_monster_attack_skill(monster_action)
-        confrontation = ConfrontationRoll(monster_skill, player_skill)
+        return ConfrontationRoll(monster_skill, player_skill)
+
+    def _defense_roll_desc(self, player_action: str, confrontation) -> str:
+        """@description 防御检定表格：怪物攻击行 + 玩家闪避/反击行。"""
         check_key = "闪避" if player_action == "闪避" else "反击"
-        roll_desc = self._check_section(
+        return self._check_section(
             check_key,
             [
                 self._check_row(
@@ -371,43 +394,73 @@ class BattleActionsMixin:
             ],
         )
 
-        # 反击按"格斗"技能结算成长鉴定（战报仍显示"反击"）
-        if player_action == "反击":
-            self.succeded_skill.discard("反击")
-            if confrontation.level2 > SuccessLevel.FAILURE:
-                self.succeded_skill.add("格斗")
+    def _record_counter_growth(self, player_action: str, confrontation) -> None:
+        """@description 反击按「格斗」技能记录成长（战报仍显示「反击」）。"""
+        if player_action != "反击":
+            return
+        self.succeded_skill.discard("反击")
+        if confrontation.level2 > SuccessLevel.FAILURE:
+            self.succeded_skill.add("格斗")
 
-        critical_text = ""
-        if confrontation.level2 == SuccessLevel.CRITICAL_FAILURE:
-            if player_action == "闪避":
-                critical_text = self._handle_dodge_fumble()
-            elif weapon:
-                critical_text = self._handle_player_critical_failure(
-                    weapon, context="defense"
-                )
+    def _defense_critical_text(
+        self, player_action: str, weapon: Optional[Equipment], confrontation
+    ) -> str:
+        """@description 玩家防御大失败惩罚：闪避掉武器/反击武器损毁，返回文案。"""
+        if confrontation.level2 != SuccessLevel.CRITICAL_FAILURE:
+            return ""
+        if player_action == "闪避":
+            return self._handle_dodge_fumble()
+        if weapon:
+            return self._handle_player_critical_failure(weapon, context="defense")
+        return ""
 
-        monster_succeeds = confrontation.get_result(player_action)
+    def _resolve_dodge(self, confrontation, monster_action) -> tuple[str, str]:
+        """@description 闪避结算：怪物自身检定成功才命中；双方失败互相落空。返回 (怪物文案, 玩家文案)。"""
+        player_dodged = confrontation.level2 > SuccessLevel.FAILURE
+        monster_hit = confrontation.level1 > SuccessLevel.FAILURE and not player_dodged
+        if monster_hit:
+            return self._handle_monster_attack_success(monster_action, confrontation)
+        if player_dodged:
+            return "", self._get_reply("闪避成功")
+        return (
+            monster_action.get("attack_false", monster_action.get("counterattack", "")),
+            "",
+        )
 
-        if monster_succeeds:
-            monster_text, player_text = self._handle_monster_attack_success(monster_action, confrontation)
-        elif player_action == "闪避":
-            monster_text = ""
-            player_text = self._get_reply("闪避成功")
-        elif confrontation.level1 < 1 and confrontation.level2 < 1:
-            monster_text = monster_action.get("attack_false", monster_action.get("counterattack", ""))
-            player_text = ""
-        else:
-            player_text, monster_text = self._handle_player_counter_success(weapon)
+    def _resolve_counter(
+        self, confrontation, monster_action, weapon: Optional[Equipment]
+    ) -> tuple[str, str]:
+        """@description 反击结算：怪物攻击成功→玩家受伤；双方失败→落空；否则玩家反击命中。返回 (怪物文案, 玩家文案)。"""
+        if confrontation.get_result("反击"):
+            return self._handle_monster_attack_success(monster_action, confrontation)
+        if confrontation.level1 < 1 and confrontation.level2 < 1:
+            return (
+                monster_action.get("attack_false", monster_action.get("counterattack", "")),
+                "",
+            )
+        player_text, monster_text = self._handle_player_counter_success(weapon)
+        return monster_text, player_text
 
-        exchange = self._exchange(
+    def _defense_exchange(
+        self,
+        monster_action: dict,
+        monster_text: str,
+        player_text: str,
+        critical_text: str,
+        player_action: str,
+        weapon: Optional[Equipment],
+    ) -> str:
+        """@description 防御交锋小节：怪物攻击叙事 + 玩家防御叙事。"""
+        action_reply = (
+            self._get_reply("闪避") if player_action == "闪避" else self._get_weapon_reply(weapon)
+        )
+        return self._exchange(
             [
                 monster_action.get("attack", monster_action.get("desc", "攻击")),
                 monster_text,
             ],
             [action_reply, player_text, critical_text],
         )
-
-        return (roll_desc, exchange, self._end_turn())
 
     def _handle_player_counter_success(self, weapon: Optional[Equipment]) -> tuple[str, str]:
         if not weapon or not weapon.is_valid:

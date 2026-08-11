@@ -95,6 +95,22 @@ async def send_end_buttons(battle: BattleService, bot: Bot, send: Callable) -> N
     await send(msg)
 
 
+async def send_event_skip_battle(
+    battle: BattleService,
+    event_reply: str,
+    bot: Bot,
+    send: Callable,
+    finish: Callable,
+) -> None:
+    """@description 奇遇检定成功跳过战斗：图片卡片优先，渲染/发送失败回退 md 文本。"""
+    t = data_loader.get_text
+    reply = f"{event_reply}\n\n{t('adventure.event_skip_battle')}"
+    img = await render_pic(battle_open_html(battle, reply))
+    if img is not None and await send_pic(bot, img, send):
+        return
+    await finish(md_message(reply, bot, mention=battle.investigator.qq))
+
+
 async def send_combat_result(
     battle: BattleService,
     bot: Bot,

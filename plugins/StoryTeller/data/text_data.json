@@ -82,7 +82,7 @@
         "growth_inc": "  → 技能成长：1d10={value}",
         "monster_dead": "怪物倒下了。",
         "no_damage": "攻击无效。",
-        "multi_shot_damage": "{expr}（{value}点）",
+        "multi_shot_damage": "{expr}={value}",
         "total_damage": "**总伤害：{total}**",
         "fled_title": "逃出生天",
         "fled_ending": "你从怪物的利爪下挣脱，庄园的迷雾仍在身后低语。",
