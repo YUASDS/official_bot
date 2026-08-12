@@ -48,6 +48,14 @@ from ..utils.md_format import (
 from util.DaylyRecord import add_data, get_data, write_json
 
 
+def _resurrect_price() -> int:
+    """复活道具（501）售价：扫描 shop_data 价格档位（默认 500）。"""
+    for price_key, items in data_loader.shop_data.items():
+        if isinstance(items, list) and "501" in items:
+            return int(price_key)
+    return 500
+
+
 def _adventure_done_today(user_id: str) -> bool:
     """今日冒险是否已完成（按自然日记录，0 点自动重置）。"""
     return bool(get_data(user_id, "adventure_done"))
@@ -75,9 +83,18 @@ async def _run_adventure(
         inv = Investigator(inv_model)
         if not inv.is_survive:
             t = data_loader.get_text
+            from database.db import get_info
+
+            gold = get_info(user_id).gold
+            price = _resurrect_price()
+            enough = (
+                t("adventure.resurrect_price_enough")
+                if gold >= price
+                else t("adventure.resurrect_price_not_enough")
+            )
             await finish(
                 md_message(
-                    f"\n{t('adventure.player_dead')}\n\n"
+                    f"\n{t('adventure.player_dead_price', price=price, gold=gold, enough=enough)}\n\n"
                     f"{cmd_tag('/复活', show=t('character.resurrect_button'))}\n"
                     f"{cmd_tag('/今日商店', show=t('shop.shop_button'))}\n"
                     f"{cmd_tag('/创建调查员', show=t('character.create_button'))}",

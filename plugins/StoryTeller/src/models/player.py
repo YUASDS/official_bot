@@ -582,12 +582,20 @@ class CreateInvestigator:
         t = data_loader.get_text
         pattern = re.compile(r"[^\d\s]+|\d+")
         match = pattern.findall(skills)
-        if not str.isdigit(match[-1]):
+        if not match or not str.isdigit(match[-1]):
             return False, t("character.skill_set_error")
         a = iter(match)
         match_dic = dict(zip(a, a))
         for key in match_dic:
             match_dic[key] = int(match_dic[key])
+        user_select_tmp = self.select.copy()
+        # 先查技能合法性，再查单项上限，最后查总点数（避免错误文案互相遮蔽）
+        for key, val in match_dic.items():
+            if key not in user_select_tmp:
+                return False, t("character.skill_not_exist", name=key)
+            if user_select_tmp[key] + val > 75:
+                return False, t("character.skill_over_cap", name=key)
+            user_select_tmp[key] += val
         tol = sum(match_dic.values())
         if tol > self.skill_point:
             return False, t(
@@ -600,15 +608,8 @@ class CreateInvestigator:
                 "character.skill_too_few",
                 total=self.skill_point,
                 allocated=tol,
+                left=self.skill_point - tol,
             )
-        user_select_tmp = self.select.copy()
-        for key in match_dic:
-            if key in user_select_tmp:
-                user_select_tmp[key] += match_dic[key]
-                if user_select_tmp[key] > 75:
-                    return False, t("character.skill_over_cap", name=key)
-            else:
-                return False, t("character.skill_not_exist", name=key)
         self.select.update(user_select_tmp)
         return True, t("character.skill_set_ok")
 

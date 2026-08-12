@@ -11,8 +11,24 @@ class BattleSpellsMixin:
     def _cast_spell(self, spell_id: str) -> tuple:
         """@description 释放法术：校验失败（未学会/无MP/SAN不足）不消耗回合；对抗失败仍结算代价。"""
         t = self._t
+        spells = self.investigator.get_spells()
+        if not spell_id:
+            # 裸「施法」：给出格式与已学法术（或获取途径）
+            hint = t("spell.no_id")
+            if spells:
+                known = "、".join(
+                    f"{data_loader.spell_data.get(sid, {}).get('name', sid)}"
+                    f"（施法{sid}）"
+                    for sid in spells
+                )
+                hint += f"\n> 已学会：{known}"
+            else:
+                hint += f"\n> {t('spell.learn_hint')}"
+            return (hint,)
         if not self.investigator.has_spell(spell_id):
-            return (t("spell.not_learned"),)
+            return (
+                f"{t('spell.not_learned')}\n> {t('spell.learn_hint')}",
+            )
         spell = data_loader.spell_data.get(spell_id)
         if not spell:
             return (t("spell.not_learned"),)

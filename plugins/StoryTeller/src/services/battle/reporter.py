@@ -266,7 +266,11 @@ class BattleReporterMixin:
                 t("battle.ammo_label", bullet=self.bullet, max_bullet=self.max_bullet)
             )
         if self.max_mp > 0:
-            lines.append(f"**{t('spell.mp_label')}：{self.mp}/{self.max_mp}**")
+            mp_line = f"**{t('spell.mp_label')}：{self.mp}/{self.max_mp}**"
+            if not getattr(self, "_mp_hint_shown", False):
+                self._mp_hint_shown = True
+                mp_line += f" {t('spell.mp_source')}"
+            lines.append(mp_line)
         if self.temp_hp > 0:
             lines.append(f"**{t('spell.temp_hp_label')}：{self.temp_hp}**")
         lines.append(self.get_action_section())

@@ -53,6 +53,9 @@ class BattleSettlementMixin:
             add_gold(self.investigator.qq, gold)
             if dropped_item:
                 self.investigator.add_item_to_inventory(dropped_item.id, 1)
+                if dropped_item.type == "spell_scroll":
+                    # 首次获得残卷：提示研读途径（胜利结算会自动研读）
+                    bonus_text += f"\n> {self._t('spell.learn_hint')}"
         else:
             bonus_text = self._quote(self._get_reply("侦查失败"))
 

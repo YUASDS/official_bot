@@ -44,7 +44,13 @@ class BattleEngineMixin:
         if self.current_turn == "inv" and not action.startswith("施法"):
             available = self.get_available_actions_for_turn()
             if available and action not in available:
-                return (self._t("battle.unknown_player_action", action=action),)
+                return (
+                    self._t(
+                        "battle.unknown_player_action",
+                        action=action,
+                        actions="、".join(available),
+                    ),
+                )
         handler = {
             "inv": self._execute_player_action,
             "mon": self._execute_monster_action,
@@ -68,12 +74,25 @@ class BattleEngineMixin:
         handler = action_handlers.get(action)
         if handler:
             return handler()
-        return (self._t("battle.unknown_player_action", action=action),)
+        available = self.get_available_actions_for_turn()
+        return (
+            self._t(
+                "battle.unknown_player_action",
+                action=action,
+                actions="、".join(available),
+            ),
+        )
 
     def _execute_monster_action(self, action: str) -> tuple:
         if action in ("反击", "闪避"):
             return self._handle_defensive_action(action)
-        return (self._t("battle.unknown_defense_action", action=action),)
+        return (
+            self._t(
+                "battle.unknown_defense_action",
+                action=action,
+                actions="反击、闪避",
+            ),
+        )
 
     def _resolve_madness(self) -> tuple:
         """疯狂失控：按战斗轮顺序自动结算，怪物行动一次+玩家随机行动一次为一回合，直至疯狂结束。"""
@@ -122,7 +141,11 @@ class BattleEngineMixin:
             self.investigator.is_survive = False
             self.investigator.save()
             header = self._t("battle.death_text", name=self.player_name)
-            detail = f"{self._settlement()}\n\n{self._t('battle.death_hint')}"
+            detail = (
+                f"{self._settlement()}\n\n"
+                f"> {self._t('battle.death_ending')}\n\n"
+                f"{self._t('battle.death_hint')}"
+            )
             self.end_parts = (header, detail)
             return f"{header}\n\n{detail}"
         if self.hp_record["mon"] <= 0:

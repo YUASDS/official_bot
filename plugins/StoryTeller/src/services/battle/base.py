@@ -42,6 +42,7 @@ class BattleBaseMixin:
         self.max_mp = investigator.get_skill("意志", 0) // 5
         self.mp = self.max_mp
         self.temp_hp = 0
+        self._mp_hint_shown = False
 
     def get_turn_token(self) -> int:
         """当前回合令牌（用于按钮防重复点击）。"""

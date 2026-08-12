@@ -1,3 +1,5 @@
+import random
+
 from ..models.monster import Monster
 from ..models.player import Investigator
 from ..utils.md_format import report_check_table, report_section
@@ -89,6 +91,9 @@ def run_sanity_and_madness(
                     "adventure.int_check_success",
                     duration=madness_duration,
                 )
+                rambles = data_loader.text_data.get("madness", {}).get("rambles") or []
+                if rambles:
+                    quote += f"\n> 「{random.choice(rambles)}」"
             else:
                 level_icon = get_success_icon(0)
                 level_text = data_loader.get_text("dice.failure")

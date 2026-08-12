@@ -1,5 +1,6 @@
 """战斗消息发送流：编排「卡片图片 + md 回退 + 行动按钮」的发送顺序与战斗结束引导。"""
 
+import random
 from typing import Callable
 
 from nonebot.adapters import Bot, Message
@@ -200,9 +201,12 @@ async def send_sanity_zero(
 
     img = await render_pic(sanity_zero_card_html(inv, san_loss))
     if img is None or not await send_pic(bot, img, send):
+        rambles = data_loader.text_data.get("madness", {}).get("rambles") or []
+        ramble = random.choice(rambles) if rambles else ""
         await send(
             md_message(
-                f"{san_desc}\n\n{data_loader.get_text('adventure.sanity_zero')}",
+                f"{san_desc}\n\n> 「{ramble}」\n\n"
+                f"{data_loader.get_text('adventure.sanity_zero')}",
                 bot,
                 mention=inv.qq,
             )
