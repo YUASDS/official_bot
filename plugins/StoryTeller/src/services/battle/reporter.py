@@ -120,14 +120,17 @@ class BattleReporterMixin:
             if a.startswith("施法"):
                 continue
             lines.append(t("report.action", action=a))
-        lines.extend(self._spell_action_lines())
+        lines.extend(self._spell_action_lines(actions))
         return "\n".join(lines)
 
-    def _spell_action_lines(self) -> list[str]:
-        """@description 已学法术行动提示行：`施法<ID> 名称（MP消耗）`。"""
+    def _spell_action_lines(self, actions: list[str]) -> list[str]:
+        """@description 当前回合可用法术的行动提示行：`施法<ID> 名称（MP消耗）`。"""
         t = self._t
         lines = []
-        for sid in self.investigator.get_spells():
+        for action in actions:
+            if not action.startswith("施法"):
+                continue
+            sid = action.removeprefix("施法")
             spell = data_loader.spell_data.get(sid) or {}
             name = spell.get("name", sid)
             mp = spell.get("mp_cost", 1)
