@@ -56,6 +56,29 @@ def _resurrect_price() -> int:
     return 500
 
 
+def _scroll_price() -> int:
+    """冒险卷（401）售价：shop_data 0 档固定价（默认 10）。"""
+    items = data_loader.shop_data.get("0") or {}
+    return int(items.get("401", 10))
+
+
+def _daily_done_msg(user_id: str, bot: Bot):
+    """@description 今日冒险已完成的消息：含购买冒险卷并开始冒险的按钮与指令。"""
+    t = data_loader.get_text
+    price = _scroll_price()
+    kb = build_keyboard([[(t("adventure.scroll_buy_button"), "scroll_adventure")]])
+    msg = md_message(
+        f"\n{t('adventure.daily_done')}\n\n"
+        f"{t('adventure.daily_done_buy', price=price)}\n"
+        f"{cmd_tag('/购买 401', show=t('adventure.scroll_buy_button'))}",
+        bot,
+        mention=user_id,
+    )
+    if kb is not None and not isinstance(msg, str):
+        msg.append(kb)
+    return msg
+
+
 def _adventure_done_today(user_id: str) -> bool:
     """今日冒险是否已完成（按自然日记录，0 点自动重置）。"""
     return bool(get_data(user_id, "adventure_done"))
@@ -121,13 +144,7 @@ async def _run_adventure(
                     )
                 )
             else:
-                await finish(
-                    md_message(
-                        f"\n{data_loader.get_text('adventure.daily_done')}",
-                        bot,
-                        mention=user_id,
-                    )
-                )
+                await finish(_daily_done_msg(user_id, bot))
 
         inv.restore_hp()
         inv.save()
@@ -339,6 +356,28 @@ async def handle_adventure_button(
         await _run_adventure(user_id, bot, _send, _finish)
     except FinishedException:
         pass
+
+
+async def handle_scroll_adventure_button(
+    user_id: str,
+    payload: str,
+    bot: Bot,
+    group_openid: str = "",
+    token: int | None = None,
+) -> None:
+    """「购买冒险卷并冒险」按钮回调：购买 401 后自动开始今日冒险。"""
+    from ..services.shop_service import shop_service
+
+    items = shop_service.get_todays_shop("seed")
+    ok, res = shop_service.buy_item(user_id, "401", 1, items)
+    await _send_to_user(
+        bot,
+        user_id,
+        md_message(f"\n{res}", bot, mention=user_id),
+        group_openid,
+    )
+    if ok:
+        await handle_adventure_button(user_id, "", bot, group_openid, token)
 
 
 resurrect_cmd = on_command(
@@ -654,4 +693,5 @@ register_button_handler("action", handle_combat_action)
 register_button_handler("event", handle_event_choice)
 register_button_handler("resurrect", handle_resurrect_button)
 register_button_handler("adventure", handle_adventure_button)
+register_button_handler("scroll_adventure", handle_scroll_adventure_button)
 setup_button_callback()

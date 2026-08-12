@@ -190,6 +190,14 @@ class BattleActionsMixin:
         self._break_weapon(self.current_action)
         return text
 
+    def _ranged_crit_failure(self, dice: int, weapon: Equipment) -> str:
+        """@description 枪械大失败结算：骰 100 枪械损毁，96-99 卡壳（不损毁）。"""
+        if dice == 100:
+            text = self._get_reply("射击大失败").replace("$装备", weapon.name)
+            self._break_weapon("远程")
+            return text
+        return self._get_reply("射击卡壳").replace("$装备", weapon.name)
+
     def _handle_dodge_fumble(self) -> str:
         """@description 闪避大失败：仅展示叙事（武器不掉落，属设计行为）。"""
         weapon_id = self.investigator.get_equipped_id("近战")
@@ -234,8 +242,7 @@ class BattleActionsMixin:
             exchange = self._exchange([monster_text], [self._get_weapon_reply(weapon), player_text])
             return (roll_description, exchange, self._end_turn())
         if roll.level == SuccessLevel.CRITICAL_FAILURE:
-            player_text = self._get_reply("射击大失败").replace("$装备", weapon.name)
-            self._break_weapon("远程")
+            player_text = self._ranged_crit_failure(roll.dice, weapon)
             exchange = self._exchange([], [self._get_weapon_reply(weapon), player_text])
             return (roll_description, exchange, self._end_turn())
         player_text = self._get_reply("射击失败")
@@ -269,8 +276,7 @@ class BattleActionsMixin:
             )
 
             if roll.level == SuccessLevel.CRITICAL_FAILURE:
-                player_texts.append(self._get_reply("射击大失败").replace("$装备", weapon.name))
-                self._break_weapon("远程")
+                player_texts.append(self._ranged_crit_failure(roll.final_result, weapon))
                 critical_failure = True
                 break
             if roll.level > SuccessLevel.FAILURE:

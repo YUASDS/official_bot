@@ -152,6 +152,11 @@ async def send_combat_result(
         return
 
     # 普通回合：战报卡片 + 行动按钮消息（仅行动抉择）
+    # 单段信息结果（弹药不足/无武器/未知行动等）：卡片无正文，直接发文本，避免消息被吞
+    if not any(x for x in result[:-1]):
+        response = "\n" + "\n\n".join(str(x) for x in result if x)
+        await send(send_turn(battle, bot, response))
+        return
     img = await render_pic(battle_round_html(battle, result))
     if img is not None and await send_pic(bot, img, send):
         await send(send_turn(battle, bot, battle.get_action_section()))
