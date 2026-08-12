@@ -57,6 +57,7 @@ class BattleBaseMixin:
     def set_madness(self, is_madness: bool, duration: int = 5) -> None:
         self.is_madness = is_madness
         self.madness_duration = duration
+        self.madness_total = duration if is_madness else 0
 
     def _get_player_modified_skill(self, skill_name: str, default: int = 0) -> int:
         base = self.investigator.get_skill(skill_name, default)

@@ -49,11 +49,25 @@ from util.DaylyRecord import add_data, get_data, write_json
 
 
 def _resurrect_price() -> int:
-    """复活道具（501）售价：扫描 shop_data 价格档位（默认 500）。"""
+    """复活道具（501）售价：扫描 shop_data 价格档位（默认 200）。"""
     for price_key, items in data_loader.shop_data.items():
         if isinstance(items, list) and "501" in items:
             return int(price_key)
-    return 500
+    return 200
+
+
+def _danger_warning(day: int) -> str:
+    """高难日预警：当日怪物池高危占比≥2/3（必战级），或池内含拉卡德/修格斯（Boss 叙事怪）时返回提示行。
+
+    把"必死"变"可决策"：玩家可提前备防具/武器，或进场后果断逃跑。
+    """
+    pool = monster_repo._checkpoint_data.get(str(day)) or []
+    monsters = data_loader.monster_data
+    risky = [mid for mid in pool if monsters.get(mid, {}).get("高危")]
+    boss_ids = {"10", "5"}  # 拉卡德 / 修格斯
+    if risky and (len(risky) * 3 >= len(pool) * 2 or boss_ids & set(pool)):
+        return data_loader.get_text("adventure.danger_warning")
+    return ""
 
 
 def _scroll_price() -> int:
@@ -199,9 +213,14 @@ async def _run_adventure(
             day_event,
             monster_intro,
         ]
+        warning = _danger_warning(inv.day)
+        if warning:
+            anomaly_lines.insert(1, warning)
         anomaly = f"{report_section(anomaly_title)}\n" f"{report_quote(anomaly_lines)}"
 
         header = f"\n{env_desc}\n{day_event}" if env_desc else f"\n{day_event}"
+        if warning:
+            header += f"\n{warning}"
 
         # --- 奇遇：固定日期事件当天必触发；否则 40% 随机（按条件过滤）---
         event_data = pick_random_event(inv)
@@ -296,6 +315,7 @@ async def _run_adventure(
 
         # 开场战报卡片：CG 已展示异象/环境修正，战斗卡片不再重复
         battle_reply = (
+            f"{warning}\n\n"
             f"{report_section(data_loader.get_text('battle.monster_intro_title'))}\n"
             f"{monster_intro}\n\n"
             f"{san_desc}{madness_desc}\n\n"
@@ -493,8 +513,10 @@ async def handle_combat(event: Event, bot: Bot, msg: Message = CommandArg()):
                 "adventure.monster_intro_default", name=battle.monster.name
             ),
         )
+        warning = _danger_warning(battle.investigator.day)
+        event_block = f"{event_reply}\n\n{warning}" if warning else event_reply
         reply = (
-            f"{event_reply}\n\n"
+            f"{event_block}\n\n"
             f"{report_section(data_loader.get_text('battle.monster_intro_title'))}\n"
             f"{monster_intro}\n\n"
             f"{san_desc}{madness_desc}\n\n"
@@ -672,8 +694,10 @@ async def handle_event_choice(
             "adventure.monster_intro_default", name=battle.monster.name
         ),
     )
+    warning = _danger_warning(battle.investigator.day)
+    event_block = f"{event_reply}\n\n{warning}" if warning else event_reply
     reply = (
-        f"{event_reply}\n\n"
+        f"{event_block}\n\n"
         f"{report_section(data_loader.get_text('battle.monster_intro_title'))}\n"
         f"{monster_intro}\n\n"
         f"{san_desc}{madness_desc}\n\n"

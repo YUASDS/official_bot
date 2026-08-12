@@ -61,7 +61,8 @@ class BattleEngineMixin:
 
     def _execute_player_action(self, action: str) -> tuple:
         if action.startswith("施法"):
-            spell_id = action.removeprefix("施法").strip()
+            # 容忍「施法701 枯萎术（MP2）」这类带名称后缀的输入，取首个 token 为法术 ID
+            spell_id = action.removeprefix("施法").strip().split(" ", 1)[0].strip()
             return self._cast_spell(spell_id)
         action_handlers = {
             "格斗": self._melee_attack,
@@ -108,10 +109,15 @@ class BattleEngineMixin:
                 self.is_madness = False
                 break
             if self.current_turn == "inv":
+                remaining = self.madness_duration
                 self.madness_duration -= 1
                 available = self.investigator.get_available_actions().get("inv", [])
                 random_action = random.choice(available) if available else "格斗"
                 msg = self._t("battle.madness_action", action=random_action)
+                if remaining > 1:
+                    msg += self._t("adventure.madness_remaining", count=remaining - 1)
+                elif remaining == 1:
+                    msg += self._t("adventure.madness_last")
                 if self.madness_duration == 0:
                     self.is_madness = False
                     msg += self._t("battle.madness_end")

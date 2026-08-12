@@ -162,15 +162,21 @@ class BattleActionsMixin:
                 damage = f"{damage}+{dmg_mod}"
         return damage
 
-    def _break_weapon(self, part: str) -> None:
-        """@description 武器损毁：仅当无近战装备且背包已有弹簧折刀(101)时回退装备，不补发新刀。"""
+    def _break_weapon(self, part: str) -> str:
+        """@description 武器损毁：仅当无近战装备且背包已有弹簧折刀(101)时回退装备，不补发新刀。
+
+        返回回退提示文本（成功回退折刀时非空，供战斗文案追加）。
+        """
         self.investigator.break_equipped_item(part)
+        fallback = ""
         if not self.investigator.get_equipped_id("近战"):
             equipments, _ = self.investigator.get_equipments()
             if "101" in equipments:
                 investigator_repo.equip_item(self.investigator.qq, "101")
+                fallback = self._t("battle.weapon_fallback")
         self.investigator.update_equipment()
         self._update_gun_status()
+        return fallback
 
     def _handle_player_critical_failure(self, weapon: Equipment, context: str = "attack") -> str:
         """玩家大失败：不可损毁武器自伤；可损毁武器损毁并回退弹簧折刀。
@@ -187,8 +193,8 @@ class BattleActionsMixin:
             )
         reply_key = "格斗大失败" if context == "attack" else "反击大失败"
         text = self._get_reply(reply_key).replace("$装备", weapon.name)
-        self._break_weapon(self.current_action)
-        return text
+        fallback = self._break_weapon(self.current_action)
+        return text + fallback
 
     def _ranged_crit_failure(self, dice: int, weapon: Equipment) -> str:
         """@description 枪械大失败结算：骰 100 枪械损毁；96-99 卡壳（弹夹清零、中断连射，需换弹）。"""
