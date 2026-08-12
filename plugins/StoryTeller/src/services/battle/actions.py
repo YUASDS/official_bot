@@ -191,11 +191,12 @@ class BattleActionsMixin:
         return text
 
     def _ranged_crit_failure(self, dice: int, weapon: Equipment) -> str:
-        """@description 枪械大失败结算：骰 100 枪械损毁，96-99 卡壳（不损毁）。"""
+        """@description 枪械大失败结算：骰 100 枪械损毁；96-99 卡壳（弹夹清零、中断连射，需换弹）。"""
         if dice == 100:
             text = self._get_reply("射击大失败").replace("$装备", weapon.name)
             self._break_weapon("远程")
             return text
+        self.bullet = 0  # 卡壳：弹夹子弹清零，需换弹才能继续
         return self._get_reply("射击卡壳").replace("$装备", weapon.name)
 
     def _handle_dodge_fumble(self) -> str:
