@@ -415,9 +415,14 @@ class BattleActionsMixin:
         return ""
 
     def _resolve_dodge(self, confrontation, monster_action) -> tuple[str, str]:
-        """@description 闪避结算：怪物自身检定成功才命中；双方失败互相落空。返回 (怪物文案, 玩家文案)。"""
-        player_dodged = confrontation.level2 > SuccessLevel.FAILURE
-        monster_hit = confrontation.level1 > SuccessLevel.FAILURE and not player_dodged
+        """@description 闪避结算：怪物须自身成功且等级高于闪避才命中；同级闪避成功；双方失败落空。返回 (怪物文案, 玩家文案)。"""
+        player_dodged = (
+            confrontation.level2 > SuccessLevel.FAILURE
+            and confrontation.level2 >= confrontation.level1
+        )
+        monster_hit = (
+            confrontation.level1 > SuccessLevel.FAILURE and not player_dodged
+        )
         if monster_hit:
             return self._handle_monster_attack_success(monster_action, confrontation)
         if player_dodged:
