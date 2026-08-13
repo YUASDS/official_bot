@@ -264,6 +264,7 @@
         "investigator_not_found": "调查员不存在",
         "item_not_found": "背包中未找到物品",
         "equip_success": "装备物品成功，装备:{name}，部位:{part}",
+        "cannot_equip": "{name} 不可装备（仅武器/防具可装备）",
         "use_need_id": "请输入物品ID，例如：/使用物品 101",
         "use_button": "使用 {name}",
         "use_hint": "点击下方按钮装备背包物品",

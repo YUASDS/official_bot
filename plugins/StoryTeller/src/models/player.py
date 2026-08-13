@@ -24,6 +24,10 @@ from ..services.dice_roller import calculate_damage_bonus, roll_dice
 from ..utils.game_utils import action2part
 from .item import Equipment
 
+# 可装备的部位白名单：仅武器/防具可进对应槽（近战/远程/防具）；
+# misc（信物/复活道具）与 法术（spell_scroll 残卷）不可装备（见 F-09/F-10）
+_EQUIPPABLE_PARTS = {"近战", "远程", "防具"}
+
 
 # --- Database Model ---
 class BaseModel(Model):
@@ -282,6 +286,11 @@ class InvestigatorRepository:
             return False, t("player.item_not_found")
         item = Equipment(item_id)
         part = item.part
+        # 类型过滤（F-09/F-10）：仅武器/防具（近战/远程/防具槽）可装备；
+        # misc/法术（spell_scroll）等道具不可装备——避免 501/残卷等污染装备槽、
+        # 避免幸运币（400）等信物以 misc 身份覆盖防具槽导致护甲归 0。
+        if part not in _EQUIPPABLE_PARTS:
+            return False, t("player.cannot_equip", name=item.name)
         with self.db.atomic():
             equipped_data = ujson.loads(inv_model.equipped_items or "{}")
             equipped_data[part] = item_id

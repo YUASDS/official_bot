@@ -7,7 +7,7 @@ import random
 from typing import Any, Callable
 
 from ..services.battle import BattleService
-from ..models.player import Investigator, investigator_repo
+from ..models.player import Investigator, ending_repo, investigator_repo
 from ..models.monster import Monster, monster_repo
 from ..services.battle_cards import (
     battle_card_html,
@@ -139,6 +139,17 @@ def _mark_adventure_done(user_id: str) -> None:
     """记录今日冒险已完成。"""
     add_data(user_id, "adventure_done", True)
     write_json()
+
+
+def _advance_day_after_event(inv: Investigator) -> None:
+    """事件检定成功跳过战斗后推进 day：与胜利结算一致（settlement.py，day40 冻结不推进）。
+
+    圣泉洗礼等「跳过战斗」事件此前不推进 day，导致 day5 反复触发/主线卡死（B1）。
+    day40 保持冻结（终局由守门人战斗结算），不再额外 +1。
+    """
+    if inv.day < 40:
+        inv.day += 1
+    inv.save()
 
 
 adventure_cmd = on_command(
@@ -277,12 +288,18 @@ async def _run_adventure(
 
             from database.db import get_info
 
+            # 展示层与执行层（apply_event_choice）条件求值入参一致：传真实 progress，
+            # 避免选项含「进度」算子时展示层恒置灰而执行层放行的打架（P3 一致性）
             gold = get_info(user_id).gold
-            labels = [event_option_label(opt, gold, inv) for opt in event_data["选项"]]
+            progress = ending_repo.ensure_progress(inv.qq, inv.day)
+            labels = [
+                event_option_label(opt, gold, inv, progress)
+                for opt in event_data["选项"]
+            ]
 
             # 事件选项按钮（商品选项显示价格 / 乌帕不足；条件未满足置灰锁定；每行 3 个）
             options = event_data["选项"]
-            locks = [event_option_locked(opt, inv) for opt in options]
+            locks = [event_option_locked(opt, inv, progress) for opt in options]
             event_kb = build_keyboard(event_option_rows(labels, options, locks))
 
             # 奇遇 CG 卡片（全平台）+ 选项按钮；图片失败回退文本
@@ -561,7 +578,7 @@ async def handle_combat(event: Event, bot: Bot, msg: Message = CommandArg()):
             if skip_battle:
                 # 检定成功：跳过今日战斗（图片卡片优先，失败回退 md）
                 battle.investigator.is_adventure = False
-                battle.investigator.save()
+                _advance_day_after_event(battle.investigator)  # day +1（day40 冻结），与胜利结算一致
                 battle_manager.remove_battle(user_id)
                 _mark_adventure_done(user_id)
                 await send_event_skip_battle(
@@ -938,7 +955,7 @@ async def handle_event_choice(
         if skip_battle:
             # 检定成功：跳过今日战斗（图片卡片优先，失败回退 md）
             battle.investigator.is_adventure = False
-            battle.investigator.save()
+            _advance_day_after_event(battle.investigator)  # day +1（day40 冻结），与胜利结算一致
             battle_manager.remove_battle(user_id)
             _mark_adventure_done(user_id)
             await send_event_skip_battle(battle, event_reply, bot, _send, _send)

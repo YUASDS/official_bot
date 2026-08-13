@@ -12,6 +12,10 @@ from .dice_roller import get_success_icon, roll_dice
 # 奇遇随机出现概率
 _EVENT_CHANCE = 0.4
 
+# 随机事件去重（D5）：近 _RECENT_RECORD_DAYS 天已触发事件不重复（user_id -> 事件 key 队列）
+_RECENT_RECORD_DAYS = 3
+_recent_events: dict[str, list[str]] = {}
+
 # State for active random events (user_id -> event context)
 event_states: dict[str, dict] = {}
 
@@ -170,7 +174,8 @@ def event_condition_ok(
 def pick_random_event(inv: Investigator) -> Optional[dict]:
     """选择今日事件：固定日期事件（触发.day）当天必触发；否则 40% 随机。
 
-    随机池排除固定日期事件与不满足条件的事件。
+    随机池排除固定日期事件、不满足条件的事件，以及近 3 天已触发过的事件（去重，
+    防重复刷取/降低重复感，见 D5）。候选池全部被去重时回退允许重复，避免当日无事件。
     """
     from ..models.player import ending_repo
 
@@ -181,12 +186,29 @@ def pick_random_event(inv: Investigator) -> Optional[dict]:
     if random.random() >= _EVENT_CHANCE or not data_loader.event_data:
         return None
     progress = ending_repo.ensure_progress(inv.qq, inv.day)
+    recent = _recent_events.get(inv.qq) or []
     pool = [
-        ev
-        for ev in data_loader.event_data.values()
-        if "触发" not in ev and event_condition_ok(ev, inv, progress)
+        key
+        for key, ev in data_loader.event_data.items()
+        if "触发" not in ev
+        and event_condition_ok(ev, inv, progress)
+        and key not in recent
     ]
-    return random.choice(pool) if pool else None
+    if not pool:
+        # 去重后候选池为空：回退全部可触发事件（随机池过小，允许当日重复）
+        pool = [
+            key
+            for key, ev in data_loader.event_data.items()
+            if "触发" not in ev and event_condition_ok(ev, inv, progress)
+        ]
+    if not pool:
+        return None
+    key = random.choice(pool)
+    # 记录本次触发，并裁剪至最近 N 天（队列长度上限 _RECENT_RECORD_DAYS）
+    queue = _recent_events.setdefault(inv.qq, [])
+    queue.append(key)
+    del queue[:-_RECENT_RECORD_DAYS]
+    return data_loader.event_data[key]
 
 
 def event_option_locked(
