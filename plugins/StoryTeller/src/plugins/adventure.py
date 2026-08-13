@@ -223,6 +223,9 @@ async def _run_adventure(
 
         # 隐藏挑战「启」：挑战旗标 → 强制怪物 38；否则每日开局概率触发对话（挑战/不挑战）
         qiren_forced = qiren_pending.pop(user_id, False)
+        if qiren_forced and inv.day >= 40:
+            # day40 门扉归守门人，启不参与（防御：残留挑战旗标不覆盖守门人 36）
+            qiren_forced = False
         if qiren_forced:
             monster_id = "38"
         elif qiren_should_trigger(inv):
@@ -701,7 +704,7 @@ async def handle_combat(event: Event, bot: Bot, msg: Message = CommandArg()):
             result = battle.execute_action(f"使用{item_id}")
             await send_combat_result(battle, bot, result, send=combat_cmd.send)
             if battle.fight_is_over():
-                _cleanup_battle(user_id, battle)
+                await _cleanup_battle(user_id, battle)
                 await _present_door_choice(user_id, battle, bot, combat_cmd.send)
             return
         ok, msg_text = investigator_repo.equip_item(user_id, item_id)
@@ -719,7 +722,7 @@ async def handle_combat(event: Event, bot: Bot, msg: Message = CommandArg()):
     await send_combat_result(battle, bot, result, send=combat_cmd.send)
 
     if battle.fight_is_over():
-        _cleanup_battle(user_id, battle)
+        await _cleanup_battle(user_id, battle)
         await _present_door_choice(user_id, battle, bot, combat_cmd.send)
 
 
@@ -774,7 +777,7 @@ async def handle_combat_action(
     await send_combat_result(battle, bot, result, send=_send)
 
     if battle.fight_is_over():
-        _cleanup_battle(user_id, battle)
+        await _cleanup_battle(user_id, battle)
         await _present_door_choice(user_id, battle, bot, _send, group_openid)
 
 

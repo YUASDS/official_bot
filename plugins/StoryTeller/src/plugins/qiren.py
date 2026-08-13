@@ -29,8 +29,11 @@ qiren_pending: dict[str, bool] = {}
 
 
 def qiren_unlocked(inv: Investigator) -> bool:
-    """触发条件门（独立函数）：day>=20 且持有 501/508 任一。"""
-    if inv.day < _QIREN_MIN_DAY:
+    """触发条件门（独立函数）：day>=20 且 day<40 且持有 501/508 任一。
+
+    day40 门扉归守门人，启不参与（结局线由守门人战斗接管）。
+    """
+    if inv.day < _QIREN_MIN_DAY or inv.day >= 40:
         return False
     equipments, _ = inv.get_equipments()
     return any(equipments.get(iid, 0) > 0 for iid in _QIREN_TRIGGER_ITEMS)
