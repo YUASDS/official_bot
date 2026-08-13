@@ -534,6 +534,9 @@ class Investigator:
                 elif isinstance(item.skill_bonus, str):
                     player_actions.add(item.skill_bonus)
 
+        # 「投掷」未实现：下架动作入口（装备数据 105/107 仍含该技能标签，仅不进入动作列表）
+        player_actions.discard("投掷")
+
         if "格斗" not in player_actions:
             player_actions.add("格斗")
         if "逃跑" not in player_actions:
@@ -741,6 +744,11 @@ class CreateInvestigator:
 
     def set_skill(self, skills: str):
         t = data_loader.get_text
+        if "-" in skills:
+            # 负数/连字符输入：技能点数不能为负，友好提示（避免 - 被当作技能名/数值解析）
+            return False, t(
+                "character.skill_negative", default="技能点数不能为负数哦~"
+            )
         pattern = re.compile(r"[^\d\s]+|\d+")
         match = pattern.findall(skills)
         if not match or not str.isdigit(match[-1]):

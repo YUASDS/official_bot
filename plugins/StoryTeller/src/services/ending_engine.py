@@ -654,6 +654,10 @@ def judge_door_choice(inv: Investigator, key: str) -> dict:
             }
         if defeat_cfg.get("end"):
             return _finish_door(inv, progress, defeat_cfg["end"], None, progress.run_id)
+        # 次数门：选择「重赴门前」即置位 refought，仅允许重赴一次
+        # （即使重赴再战失败/复活，也不再渲染 defeat_choices，防无限刷守门人掉落）
+        progress.refought = True
+        progress.save()
         return {
             "refight": True,
             "message": _nested_text(

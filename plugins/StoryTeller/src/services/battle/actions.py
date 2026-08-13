@@ -367,6 +367,14 @@ class BattleActionsMixin:
         rest = action.removeprefix("使用").strip()
         item_id = rest.split(" ", 1)[0].strip() if rest else ""
         mode = rest.split(" ", 1)[1].strip() if " " in rest else ""
+        if not item_id:
+            # 裸「使用」/「使用␣」：时空参数友好提示，避免歧义文案
+            return (
+                data_loader.get_text(
+                    "battle.need_item_id",
+                    default="请指定要使用的物品，例如：使用505。",
+                ),
+            )
         if item_id not in _CONSUMABLE_IDS:
             return (
                 data_loader.get_text(
