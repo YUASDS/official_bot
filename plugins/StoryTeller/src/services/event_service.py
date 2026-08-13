@@ -23,6 +23,18 @@ def delta_value(v) -> int:
     return v
 
 
+def _option_condition_ok(
+    option: dict, inv: Optional[Investigator], progress=None
+) -> bool:
+    """选项「条件」字段求值（3.3）：无条件或条件满足返回 True；无 inv 时不拦截。"""
+    cond = option.get("条件")
+    if not cond or inv is None:
+        return True
+    from ..services.ending_engine import eval_option_condition
+
+    return eval_option_condition(cond, inv, progress)
+
+
 def apply_event_effects(inv: Investigator, user_id: str, effects: dict) -> str:
     """应用奇遇事件效果并返回变更摘要（如「🧠 SAN +10 ｜ 💪 意志 +5」）。
 
@@ -60,6 +72,10 @@ def apply_event_effects(inv: Investigator, user_id: str, effects: dict) -> str:
         item = _Equipment(effects["物品"])
         inv.add_item_to_inventory(effects["物品"], 1)
         changes.append(f"🎒 获得 {item.name}")
+        # 信物获得登记 items_first（跨周目图鉴累计）
+        from ..services.ending_engine import register_relic_obtained
+
+        register_relic_obtained(inv, effects["物品"])
     if "技能" in effects:
         for sk_name, sk_delta in effects["技能"].items():
             sk_val = inv.get_skill(sk_name, 0) + sk_delta
@@ -115,7 +131,19 @@ def resolve_check_option(
 def apply_event_choice(
     inv: Investigator, user_id: str, matched: dict
 ) -> tuple[str, bool]:
-    """处理事件选项：乌帕校验 → 检定 → 效果 → 回复。返回 (消息, 是否跳过战斗)。"""
+    """处理事件选项：条件硬门 → 乌帕校验 → 检定 → 效果 → 回复。返回 (消息, 是否跳过战斗)。"""
+    from ..models.player import ending_repo
+
+    # 执行层硬门（3.3）：命令直输绕过按钮时再次求值，不满足直接拦截
+    progress = ending_repo.ensure_progress(inv.qq, inv.day)
+    if not _option_condition_ok(matched, inv, progress):
+        return (
+            data_loader.get_text(
+                "adventure.event_locked", default="条件未满足"
+            )
+            + "，无法选择此选项。",
+            False,
+        )
     effects, reply, passed = resolve_check_option(inv, matched)
     no_gold = event_buy_check(user_id, effects)
     if no_gold:
@@ -126,12 +154,17 @@ def apply_event_choice(
     return reply, skip
 
 
-def event_condition_ok(event_data: dict, inv: Investigator) -> bool:
-    """事件条件过滤：san_low（仅低 SAN 时进入随机池）。"""
+def event_condition_ok(
+    event_data: dict, inv: Investigator, progress=None
+) -> bool:
+    """事件条件过滤：san_low + 全选项条件未满足时事件整体出随机池（3.3）。"""
     cond = event_data.get("条件") or {}
-    return not (
-        "san_low" in cond and inv.get_skill("san", 0) >= cond["san_low"]
-    )
+    if "san_low" in cond and inv.get_skill("san", 0) >= cond["san_low"]:
+        return False
+    options = event_data.get("选项") or []
+    if options and all(not _option_condition_ok(o, inv, progress) for o in options):
+        return False
+    return True
 
 
 def pick_random_event(inv: Investigator) -> Optional[dict]:
@@ -139,22 +172,37 @@ def pick_random_event(inv: Investigator) -> Optional[dict]:
 
     随机池排除固定日期事件与不满足条件的事件。
     """
+    from ..models.player import ending_repo
+
     for ev in data_loader.event_data.values():
         trigger = ev.get("触发") or {}
         if trigger.get("day") == inv.day:
             return ev
     if random.random() >= _EVENT_CHANCE or not data_loader.event_data:
         return None
+    progress = ending_repo.ensure_progress(inv.qq, inv.day)
     pool = [
         ev
         for ev in data_loader.event_data.values()
-        if "触发" not in ev and event_condition_ok(ev, inv)
+        if "触发" not in ev and event_condition_ok(ev, inv, progress)
     ]
     return random.choice(pool) if pool else None
 
 
-def event_option_label(option: dict, gold: int) -> str:
-    """选项展示文本：商品选项显示价格，乌帕不足显示「乌帕不足」。"""
+def event_option_locked(
+    option: dict, inv: Optional[Investigator], progress=None
+) -> bool:
+    """选项是否条件未满足（展示层置灰标记）。"""
+    return not _option_condition_ok(option, inv, progress)
+
+
+def event_option_label(
+    option: dict,
+    gold: int,
+    inv: Optional[Investigator] = None,
+    progress=None,
+) -> str:
+    """选项展示文本：商品选项显示价格；条件未满足追加「（条件未满足）」。"""
     label = option["输入"]
     effects = option.get("效果") or {}
     price = -int(effects["金币"]) if effects.get("金币", 0) < 0 else 0
@@ -162,6 +210,9 @@ def event_option_label(option: dict, gold: int) -> str:
         if gold >= price:
             return f"{label}（{price} 乌帕）"
         return f"{label}（{data_loader.get_text('adventure.event_no_gold')}）"
+    if event_option_locked(option, inv, progress):
+        locked = data_loader.get_text("adventure.event_locked", default="条件未满足")
+        return f"{label}（{locked}）"
     return label
 
 
@@ -176,12 +227,19 @@ def event_reply_with_effects(event_reply: str, summary: str) -> str:
 
 
 def event_option_rows(
-    labels: list[str], options: list[dict]
+    labels: list[str],
+    options: list[dict],
+    locks: Optional[list[bool]] = None,
 ) -> list[list[tuple[str, str]]]:
-    """事件选项按钮行：每行 3 个，超出自动换行。"""
+    """事件选项按钮行：条件未满足的选项锁定（禁点回调 event_locked），每行 3 个。"""
+    locks = locks or []
     return [
         [
-            (labels[i], f"event:{opt['输入']}")
+            (
+                (labels[i], f"event_locked:{opt['输入']}")
+                if i < len(locks) and locks[i]
+                else (labels[i], f"event:{opt['输入']}")
+            )
             for i, opt in enumerate(options[j : j + 3], j)
         ]
         for j in range(0, len(options), 3)

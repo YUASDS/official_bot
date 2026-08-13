@@ -21,9 +21,16 @@ from ..services.combat_messaging import (
     send_turn,
 )
 from ..services.data_loader import data_loader
+from ..services.ending_engine import (
+    check_daily,
+    judge_door_choice,
+    pending_door_choice,
+    render_door_choice,
+)
 from ..services.event_service import (
     apply_event_choice,
     event_option_label,
+    event_option_locked,
     event_option_rows,
     event_states,
     pick_random_event,
@@ -54,6 +61,35 @@ def _resurrect_price() -> int:
         if isinstance(items, list) and "501" in items:
             return int(price_key)
     return 200
+
+
+# 门扉抉择状态（类比 event_states）：user_id -> {"choices": [...]}
+door_states: dict[str, dict] = {}
+
+
+async def _send_frozen_door(
+    user_id: str,
+    inv: Investigator,
+    block: str,
+    bot: Bot,
+    send: Callable,
+    finish: Callable,
+) -> None:
+    """门扉冻结拦截：若有未完成抉择则重渲染门扉按钮（防 bot 重启后卡死），否则直接拦截。"""
+    if pending_door_choice(inv):
+        door_render = render_door_choice(inv)
+        door_states[user_id] = {"choices": door_render["choices"]}
+        choices = door_render["choices"]
+        rows = [
+            [(c["label"], f"door:{c['key']}") for c in choices[i : i + 3]]
+            for i in range(0, len(choices), 3)
+        ]
+        kb = build_keyboard(rows)
+        msg = md_message(f"\n{block}\n\n{door_render['text']}", bot, mention=user_id)
+        if kb is not None and not isinstance(msg, str):
+            msg.append(kb)
+        await finish(msg)
+    await finish(md_message(f"\n{block}", bot, mention=user_id))
 
 
 def _danger_warning(day: int) -> str:
@@ -163,6 +199,14 @@ async def _run_adventure(
         inv.restore_hp()
         inv.save()
 
+        # 每日推进出口（④）：inactive_days 清零、day 同步、信物里程碑、
+        # day==40 守卫、结局/门扉冻结拦截
+        _logs, _block = check_daily(inv)
+        if _block:
+            await _send_frozen_door(user_id, inv, _block, bot, send, finish)
+        for _log in _logs:
+            await send(md_message(f"\n{_log}", bot, mention=user_id))
+
         monster_id = monster_repo.find_random_id_for_day(inv.day)
         if not monster_id:
             await finish(
@@ -233,11 +277,12 @@ async def _run_adventure(
             from database.db import get_info
 
             gold = get_info(user_id).gold
-            labels = [event_option_label(opt, gold) for opt in event_data["选项"]]
+            labels = [event_option_label(opt, gold, inv) for opt in event_data["选项"]]
 
-            # 事件选项按钮（商品选项显示价格 / 乌帕不足；每行 3 个，多行自适应）
+            # 事件选项按钮（商品选项显示价格 / 乌帕不足；条件未满足置灰锁定；每行 3 个）
             options = event_data["选项"]
-            event_kb = build_keyboard(event_option_rows(labels, options))
+            locks = [event_option_locked(opt, inv) for opt in options]
+            event_kb = build_keyboard(event_option_rows(labels, options, locks))
 
             # 奇遇 CG 卡片（全平台）+ 选项按钮；图片失败回退文本
             card_html = battle_card_html(service, event_desc=event_data["描述"])
@@ -440,6 +485,36 @@ async def handle_combat(event: Event, bot: Bot, msg: Message = CommandArg()):
         await combat_cmd.finish(need_create_message(bot, mention=user_id))
     action = msg.extract_plain_text().strip()
 
+    # 门扉抉择命令通道（door 按钮/命令同通道）
+    door_state = door_states.get(user_id)
+    if door_state:
+        choice = action.removeprefix("/行动 ").removeprefix("/行动").strip()
+        door_key = _resolve_door_key(door_state, choice)
+        if not door_key:
+            await combat_cmd.finish(
+                md_message(
+                    f"\n{data_loader.get_text('door.invalid_choice', default='请选择门扉选项。')}",
+                    bot,
+                    mention=user_id,
+                )
+            )
+        door_states.pop(user_id, None)
+        inv_model = investigator_repo.find_by_qq(user_id)
+        if inv_model is None:
+            await combat_cmd.finish(need_create_message(bot, mention=user_id))
+        inv = Investigator(inv_model)
+        result = judge_door_choice(inv, door_key)
+        if result.get("error"):
+            await combat_cmd.finish(
+                md_message(f"\n{result['message']}", bot, mention=user_id)
+            )
+        if result.get("refight"):
+            await _start_day40_refight(user_id, bot, combat_cmd.send)
+            return
+        await combat_cmd.finish(
+            md_message(f"\n{result['message']}", bot, mention=user_id)
+        )
+
     # Check for pending event choice first
     ev_state = event_states.pop(user_id, None)
     if ev_state:
@@ -552,6 +627,14 @@ async def handle_combat(event: Event, bot: Bot, msg: Message = CommandArg()):
 
     if action.startswith(data_loader.get_text("adventure.use_item")):
         item_id = action.split()[1]
+        if item_id in ("505", "506"):
+            # 消耗品：走战斗动作（回复 HP / 骨哨助战）
+            result = battle.execute_action(f"使用{item_id}")
+            await send_combat_result(battle, bot, result, send=combat_cmd.send)
+            if battle.fight_is_over():
+                _cleanup_battle(user_id, battle)
+                await _present_door_choice(user_id, battle, bot, combat_cmd.send)
+            return
         ok, msg_text = investigator_repo.equip_item(user_id, item_id)
         if ok:
             battle.investigator.update_equipment()
@@ -567,11 +650,8 @@ async def handle_combat(event: Event, bot: Bot, msg: Message = CommandArg()):
     await send_combat_result(battle, bot, result, send=combat_cmd.send)
 
     if battle.fight_is_over():
-        inv = battle.investigator
-        inv.is_adventure = False
-        inv.save()
-        battle_manager.remove_battle(user_id)
-        _mark_adventure_done(user_id)
+        _cleanup_battle(user_id, battle)
+        await _present_door_choice(user_id, battle, bot, combat_cmd.send)
 
 
 async def handle_combat_action(
@@ -611,11 +691,151 @@ async def handle_combat_action(
     await send_combat_result(battle, bot, result, send=_send)
 
     if battle.fight_is_over():
-        inv = battle.investigator
-        inv.is_adventure = False
-        inv.save()
-        battle_manager.remove_battle(user_id)
-        _mark_adventure_done(user_id)
+        _cleanup_battle(user_id, battle)
+        await _present_door_choice(user_id, battle, bot, _send, group_openid)
+
+
+async def _cleanup_battle(user_id: str, battle: Any) -> None:
+    """战斗结束清理：解除冒险态、移除战斗、记录今日完成。"""
+    inv = battle.investigator
+    inv.is_adventure = False
+    inv.save()
+    battle_manager.remove_battle(user_id)
+    _mark_adventure_done(user_id)
+
+
+async def _present_door_choice(
+    user_id: str,
+    battle: Any,
+    bot: Bot,
+    send: Callable,
+    group_openid: str = "",
+) -> None:
+    """第 40 天门扉抉择按钮：战报后追加可点击的门扉选项。"""
+    door = getattr(battle, "door_choice", None)
+    if not door or not door.get("door_choice"):
+        return
+    door_states[user_id] = {"choices": door.get("choices") or [], "ended": False}
+    choices = door_states[user_id]["choices"]
+    rows = [
+        [(c["label"], f"door:{c['key']}") for c in choices[i : i + 3]]
+        for i in range(0, len(choices), 3)
+    ]
+    kb = build_keyboard(rows)
+    msg = md_message(
+        f"\n{data_loader.get_text('door.title', default='🚪 门扉抉择')}",
+        bot,
+        mention=user_id,
+    )
+    if kb is not None and not isinstance(msg, str):
+        msg.append(kb)
+    await send(msg)
+
+
+def _resolve_door_key(door_state: dict, text: str) -> str:
+    """命令文本 → 门扉选项 key（支持 key 或中文标签）。"""
+    if not text:
+        return ""
+    for c in door_state.get("choices") or []:
+        if text == c["key"] or text == c["label"]:
+            return c["key"]
+    return ""
+
+
+async def handle_door_choice(
+    user_id: str,
+    choice: str,
+    bot: Bot,
+    group_openid: str = "",
+    token: int | None = None,
+) -> None:
+    """门扉抉择按钮回调：判定分支并发送结局 / 重赴守门人。"""
+    inv_model = investigator_repo.find_by_qq(user_id)
+    if inv_model is None:
+        await _send_to_user(
+            bot,
+            user_id,
+            need_create_message(bot, mention=user_id),
+            group_openid,
+        )
+        return
+    inv = Investigator(inv_model)
+    result = judge_door_choice(inv, choice)
+
+    async def _send(msg) -> None:
+        await _send_to_user(bot, user_id, msg, group_openid)
+
+    if result.get("error"):
+        await _send(md_message(f"\n{result['message']}", bot, mention=user_id))
+        return
+    if result.get("refight"):
+        door_states.pop(user_id, None)
+        await _start_day40_refight(user_id, bot, _send)
+        return
+    door_states.pop(user_id, None)
+    await _send(md_message(f"\n{result['message']}", bot, mention=user_id))
+
+
+async def _start_day40_refight(
+    user_id: str, bot: Bot, send: Callable
+) -> None:
+    """「重赴门前」：以守门人 36 重开 day40 战斗（跳过事件与每日守卫）。"""
+    inv_model = investigator_repo.find_by_qq(user_id)
+    if inv_model is None:
+        await send(need_create_message(bot, mention=user_id))
+        return
+    inv = Investigator(inv_model)
+    inv.restore_hp()
+    inv.is_adventure = True
+    inv.day = 40
+    inv.save()
+    monster = Monster("36")
+    service = BattleService(inv, monster)
+    battle_manager.add_battle(user_id, service)
+    service.roll_initiative()
+
+    monster_intro = getattr(
+        monster,
+        "出场",
+        data_loader.get_text(
+            "adventure.monster_intro_default", name=monster.name
+        ),
+    )
+    reply = (
+        f"🚪 **你再次站到门前。**\n\n"
+        f"{data_loader.get_text('battle.day_line', day=inv.day)}\n\n"
+        f"{report_section(data_loader.get_text('battle.monster_intro_title'))}\n"
+        f"{monster_intro}\n\n"
+        f"{service.get_dex_compare_section()}\n\n"
+        f"{service.get_status_table()}\n\n"
+        f"{service.get_danger_section()}\n\n"
+        f"{service.get_action_section()}"
+    )
+    img = await render_pic(battle_open_html(service, reply))
+    if img is not None and await send_pic(bot, img, send):
+        await send(send_turn(service, bot, service.get_action_section()))
+        return
+    await send(send_turn(service, bot, reply))
+
+
+async def handle_event_locked(
+    user_id: str,
+    choice: str,
+    bot: Bot,
+    group_openid: str = "",
+    token: int | None = None,
+) -> None:
+    """条件未满足的事件选项：禁点提示（不消费 event_states，可另选其他选项）。"""
+    await _send_to_user(
+        bot,
+        user_id,
+        md_message(
+            f"\n{data_loader.get_text('adventure.event_locked', default='条件未满足')}，无法选择此选项。",
+            bot,
+            mention=user_id,
+        ),
+        group_openid,
+    )
 
 
 async def handle_event_choice(
@@ -715,6 +935,8 @@ async def handle_event_choice(
 # --- 按钮回调注册 ---
 register_button_handler("action", handle_combat_action)
 register_button_handler("event", handle_event_choice)
+register_button_handler("event_locked", handle_event_locked)
+register_button_handler("door", handle_door_choice)
 register_button_handler("resurrect", handle_resurrect_button)
 register_button_handler("adventure", handle_adventure_button)
 register_button_handler("scroll_adventure", handle_scroll_adventure_button)

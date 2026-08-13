@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import contextlib
 import re
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional, Union
 
@@ -93,6 +94,47 @@ class InventoryItemModel(BaseModel):
 
     class Meta:
         table_name = "inventory"
+
+
+class EndingProgressModel(BaseModel):
+    """表 A `ending_progress`：本局结局进度（按 qq 一行，新周目清空重建）。
+
+    字段严格对齐设计文档 3.1 表 A。
+    """
+
+    qq = CharField(unique=True, verbose_name="QQ号")
+    run_id = IntegerField(default=1, verbose_name="周目号")
+    day = IntegerField(default=1, verbose_name="本局当前day")
+    boss36_defeated = BooleanField(default=False, verbose_name="击败过守门人")
+    dead_once = BooleanField(default=False, verbose_name="第40天战败复活过")
+    mirror_defeated = BooleanField(default=False, verbose_name="击败过镜中之人")
+    fled_day40 = BooleanField(default=False, verbose_name="第40天逃跑过")
+    san_zero_hit = BooleanField(default=False, verbose_name="触发过SAN归零")
+    inactive_days = IntegerField(default=0, verbose_name="连续未冒险天数")
+    items_first = TextField(default="[]", verbose_name="首次获得信物ID列表(JSON)")
+    knowledge = IntegerField(default=0, verbose_name="知识度快照")
+    door_choice = CharField(default="", verbose_name="门扉抉择结果(空/A/B/C/Hidden/Witness)")
+    ended = BooleanField(default=False, verbose_name="本局是否已结算结局")
+
+    class Meta:
+        table_name = "ending_progress"
+
+
+class EndingCollectionModel(BaseModel):
+    """表 B `ending_collection`：账号级结局收集（跨周目/重建保留）。
+
+    字段严格对齐设计文档 3.1 表 B；独立于调查员表，delete_by_qq 不删它。
+    """
+
+    qq = CharField(unique=True, verbose_name="QQ号")
+    total_runs = IntegerField(default=0, verbose_name="累计周目数")
+    total_days = IntegerField(default=0, verbose_name="累计存活天数")
+    endings = TextField(default="[]", verbose_name="已解锁结局(JSON)")
+    ng_plus = IntegerField(default=0, verbose_name="新周目加成等级")
+    collection = TextField(default="{}", verbose_name="账号级图鉴收集标记(JSON)")
+
+    class Meta:
+        table_name = "ending_collection"
 
 
 # --- Repository ---
@@ -248,6 +290,115 @@ class InvestigatorRepository:
 
 
 investigator_repo = InvestigatorRepository()
+
+
+# --- EndingRepository ---
+class EndingRepository:
+    """结局进度（表 A）与账号级收集（表 B）仓储。"""
+
+    def __init__(self) -> None:
+        db = BaseModel._meta.database
+        if db.is_closed():
+            db.connect()
+        db.create_tables(
+            [EndingCollectionModel, EndingProgressModel], safe=True
+        )
+        self.db = db
+
+    # --- 表 B（账号级）---
+    def get_collection(self, qq: str) -> Optional[EndingCollectionModel]:
+        try:
+            return EndingCollectionModel.get(EndingCollectionModel.qq == qq)
+        except DoesNotExist:
+            return None
+
+    def ensure_collection(self, qq: str) -> EndingCollectionModel:
+        model = self.get_collection(qq)
+        if model is None:
+            model = EndingCollectionModel.create(qq=qq)
+        return model
+
+    # --- 表 A（本局进度）---
+    def get_progress(self, qq: str) -> Optional[EndingProgressModel]:
+        try:
+            return EndingProgressModel.get(EndingProgressModel.qq == qq)
+        except DoesNotExist:
+            return None
+
+    def ensure_progress(self, qq: str, day: int) -> EndingProgressModel:
+        """懒加载本局进度行；缺失时以表 B 当前周目号建行。"""
+        model = self.get_progress(qq)
+        if model is None:
+            collection = self.ensure_collection(qq)
+            model = EndingProgressModel.create(
+                qq=qq,
+                run_id=max(1, collection.total_runs),
+                day=day,
+            )
+        return model
+
+    def new_run(self, qq: str) -> EndingCollectionModel:
+        """创建新调查员（新周目）：表 B total_runs += 1，表 A 清空重建。
+
+        表 A 跟随当前调查员周目，角色重建即重置；表 B 独立于调查员表永久保留。
+        """
+        collection = self.ensure_collection(qq)
+        collection.total_runs += 1
+        collection.save()
+        old = self.get_progress(qq)
+        if old is not None:
+            old.delete_instance()
+        EndingProgressModel.create(
+            qq=qq,
+            run_id=collection.total_runs,
+            day=1,
+        )
+        return collection
+
+    def add_ending(
+        self,
+        qq: str,
+        ending_id: str,
+        variant: Optional[str] = None,
+        run: Optional[int] = None,
+    ) -> None:
+        """表 B `endings` 追加解锁记录（同结局同变体去重）。"""
+        collection = self.ensure_collection(qq)
+        try:
+            records = ujson.loads(collection.endings or "[]")
+        except (ValueError, TypeError):
+            records = []
+        if run is None:
+            run = collection.total_runs
+        payload = {
+            "id": ending_id,
+            "unlocked_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+            "run": run,
+        }
+        if variant:
+            payload["variant"] = variant
+        for rec in records:
+            if rec.get("id") == ending_id and rec.get("variant") == (variant or None):
+                return
+        records.append(payload)
+        collection.endings = ujson.dumps(records, ensure_ascii=False)
+        # NG+ 加成等级 = 已解锁结局种类数（解锁 ≥1 结局后开启）
+        collection.ng_plus = len({r.get("id") for r in records if r.get("id")})
+        collection.save()
+
+    def touch_relic_collection(self, qq: str, relic_ids: list[str]) -> None:
+        """表 B `collection` 累计已获得的信物标记（跨周目，与当前背包解耦）。"""
+        collection = self.ensure_collection(qq)
+        try:
+            marks = ujson.loads(collection.collection or "{}")
+        except (ValueError, TypeError):
+            marks = {}
+        marks = {**marks, **{rid: True for rid in relic_ids}}
+        collection.collection = ujson.dumps(marks, ensure_ascii=False)
+        collection.save()
+
+
+ending_repo = EndingRepository()
 
 
 # --- InvestigatorGenerator ---
@@ -617,6 +768,8 @@ class CreateInvestigator:
         if not self.select:
             raise ValueError("尚未选择调查员模板。")
         inherited = investigator_repo.collect_inherited_scrolls(qq)
+        # 周目继承：先以 qq 查表 B 建行、total_runs += 1，再重建表 A（新周目清空）
+        ending_repo.new_run(qq)
         investigator_repo.delete_by_qq(qq)
         new_model = investigator_repo.create_and_save(qq, name, self.select)
         for item_id, qty in inherited:

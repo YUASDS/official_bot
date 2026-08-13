@@ -5,6 +5,10 @@ from __future__ import annotations
 import random
 from typing import Optional
 
+from ..data_loader import data_loader
+from ..dice_roller import roll_dice
+from ..ending_engine import on_battle_40_end, render_door_choice
+
 # 失控自动结算的迭代上限（保险丝，正常每回合 2 步内必推进）
 _MAX_MADNESS_STEPS = 100
 
@@ -41,7 +45,7 @@ class BattleEngineMixin:
         if self.is_madness and self.madness_duration > 0:
             return self._resolve_madness()
         # 行动合法性校验（玩家回合）：仅允许当前可用行动，防命令直输越权
-        if self.current_turn == "inv" and not action.startswith("施法"):
+        if self.current_turn == "inv" and not action.startswith(("施法", "使用")):
             available = self.get_available_actions_for_turn()
             if available and action not in available:
                 return (
@@ -64,6 +68,9 @@ class BattleEngineMixin:
             # 容忍「施法701 枯萎术（MP2）」这类带名称后缀的输入，取首个 token 为法术 ID
             spell_id = action.removeprefix("施法").strip().split(" ", 1)[0].strip()
             return self._cast_spell(spell_id)
+        if action.startswith("使用"):
+            # 消耗品动作：/行动 使用505（回复 HP/临时）、使用506（骨哨助战）
+            return self._use_item_action(action)
         action_handlers = {
             "格斗": self._melee_attack,
             "射击": lambda: self._ranged_attack(1),
@@ -85,8 +92,28 @@ class BattleEngineMixin:
         )
 
     def _execute_monster_action(self, action: str) -> tuple:
+        parts: list[str] = []
+        # 骨哨助战：怪物行动前额外 1d4 伤害（猎犬持续 3 回合）
+        if getattr(self, "bone_whistle", 0) > 0:
+            self.bone_whistle -= 1
+            _expr, val = roll_dice("1d4")
+            self._apply_damage_to_monster(val)
+            parts.append(
+                data_loader.get_text(
+                    "battle.bone_whistle_tick",
+                    default="🦴 骨哨猎犬撕咬怪物，造成 {damage} 点伤害（剩余 {remaining} 回合）。",
+                    damage=val,
+                    remaining=self.bone_whistle,
+                )
+            )
+            if self.hp_record["mon"] <= 0:
+                over = self._check_combat_over()
+                if over:
+                    parts.append(over)
+                return tuple(parts)
         if action in ("反击", "闪避"):
-            return self._handle_defensive_action(action)
+            parts.extend(self._handle_defensive_action(action))
+            return tuple(parts)
         return (
             self._t(
                 "battle.unknown_defense_action",
@@ -144,6 +171,9 @@ class BattleEngineMixin:
 
     def _check_combat_over(self) -> Optional[str]:
         if self.hp_record["inv"] <= 0:
+            if self._battle_day == 40:
+                # 出口①：第 40 天战败走 1.3 分支（501 复活 → 门扉抉择 / 无 501 → E05）
+                return self._handle_day40_defeat()
             self.investigator.is_survive = False
             self.investigator.save()
             header = self._t("battle.death_text", name=self.player_name)
@@ -157,6 +187,33 @@ class BattleEngineMixin:
         if self.hp_record["mon"] <= 0:
             return self._handle_victory()
         return None
+
+    def _handle_day40_defeat(self) -> str:
+        """第 40 天战败（1.3）：持 501 自动复活并进入门扉抉择；无 501 直接 E05。"""
+        inv = self.investigator
+        inv.is_survive = False
+        inv.save()
+        result = on_battle_40_end(inv, win=False)
+        self.door_choice = result
+        if result.get("ended"):
+            header = self._t("battle.death_text", name=self.player_name)
+            detail = result["message"]
+            self.end_parts = (header, detail)
+            return f"{header}\n\n{detail}"
+        # 复活成功 → 门扉抉择（含「重赴门前/驻足旁观」）
+        door_render = render_door_choice(inv)
+        result["choices"] = door_render["choices"]
+        revive_title = data_loader.get_text(
+            "battle.day40_revive_title", default="🌌 灯焰摇曳"
+        )
+        revive_text = data_loader.get_text(
+            "battle.day40_revive",
+            default="你倒下的一瞬，怀中古圣者的遗愿燃起微光，将你从门缝中拉了回来。",
+        )
+        header = revive_title
+        detail = f"{self._quote(revive_text)}\n\n{door_render['text']}"
+        self.end_parts = (header, detail)
+        return f"{header}\n\n{detail}"
 
     def fight_is_over(self) -> bool:
         return (

@@ -44,6 +44,9 @@ class BattleBaseMixin:
         self.temp_hp = 0
         self._mp_hint_shown = False
 
+        # 骨哨助战剩余回合（506 消耗品，怪物行动前额外 1d4 伤害）
+        self.bone_whistle = 0
+
     def get_turn_token(self) -> int:
         """当前回合令牌（用于按钮防重复点击）。"""
         return self._turn_counter

@@ -1,4 +1,4 @@
-"""BattleService · 战斗动作：近战、远程、防御/逃跑。"""
+"""BattleService · 战斗动作：近战、远程、防御/逃跑、消耗品。"""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ from typing import Optional
 from ...models.item import Equipment
 from ...models.player import investigator_repo
 from ..damage_calculator import calculate_damage as calc_dmg
+from ..data_loader import data_loader
 from ..dice_roller import (
     ConfrontationRoll,
     DiceRoll,
@@ -16,6 +17,9 @@ from ..dice_roller import (
     get_success_icon,
     roll_dice,
 )
+
+# 战斗消耗品 ID（505 米戈神经凝胶 / 506 廷达洛斯的骨哨）
+_CONSUMABLE_IDS = {"505", "506"}
 
 
 def _append_damage_modifier(expr: str, dmg_mod: str, extra_expr: str) -> str:
@@ -345,6 +349,68 @@ class BattleActionsMixin:
             f"{self._t('battle.flee_fail', damage_expr=expr, damage=val)}",
             self._end_turn(),
         )
+
+    # --- Consumable ---
+    def _has_item(self, item_id: str) -> bool:
+        equipments, _ = self.investigator.get_equipments()
+        return equipments.get(item_id, 0) > 0
+
+    def _use_item_action(self, action: str) -> tuple:
+        """消耗品动作入口：/行动 使用505[ 临时]（回复 HP / 临时生命）、使用506（骨哨）。"""
+        rest = action.removeprefix("使用").strip()
+        item_id = rest.split(" ", 1)[0].strip() if rest else ""
+        mode = rest.split(" ", 1)[1].strip() if " " in rest else ""
+        if item_id not in _CONSUMABLE_IDS:
+            return (
+                data_loader.get_text(
+                    "battle.consumable_only", default="战斗中只能使用消耗品道具。"
+                ),
+            )
+        if not self._has_item(item_id):
+            return (
+                data_loader.get_text(
+                    "battle.no_item", default="背包中没有该物品（{id}）。", id=item_id
+                ),
+            )
+        if item_id == "505":
+            return self._use_gel(mode)
+        return self._use_bone_whistle()
+
+    def _use_gel(self, mode: str = "") -> tuple:
+        """米戈神经凝胶：默认回复 1d6 HP；带「临时/护盾」参数获得 1d4 临时生命。"""
+        is_temp = any(k in mode for k in ("临时", "护盾", "t", "temp")) if mode else False
+        if is_temp:
+            _expr, val = roll_dice("1d4")
+            self.temp_hp += val
+            text = data_loader.get_text(
+                "battle.gel_temp", default="🧪 米戈神经凝胶凝结成护膜，获得 {value} 点临时生命。", value=val
+            )
+        else:
+            max_hp = self.investigator.get_max_hp()
+            before = self.hp_record["inv"]
+            _expr, val = roll_dice("1d6")
+            self.hp_record["inv"] = min(max_hp, before + val)
+            healed = self.hp_record["inv"] - before
+            text = data_loader.get_text(
+                "battle.gel_heal", default="🧪 米戈神经凝胶的凝血作用生效，回复 {value} 点生命。", value=healed
+            )
+        investigator_repo.remove_item_from_inventory(
+            self.investigator.qq, "505", 1
+        )
+        return (text, self._end_turn())
+
+    def _use_bone_whistle(self) -> tuple:
+        """廷达洛斯的骨哨：召唤猎犬助战 3 回合（怪物行动前额外 1d4 伤害）。"""
+        investigator_repo.remove_item_from_inventory(
+            self.investigator.qq, "506", 1
+        )
+        self.bone_whistle = 3
+        text = data_loader.get_text(
+            "battle.bone_whistle_start",
+            default="🦴 你吹响廷达洛斯的骨哨——脚下的阴影站了起来，猎犬将助战 {turns} 回合。",
+            turns=3,
+        )
+        return (text, self._end_turn())
 
     # --- Defensive ---
     def _handle_defensive_action(self, player_action: str) -> tuple:

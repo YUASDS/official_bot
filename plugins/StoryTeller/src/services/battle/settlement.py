@@ -14,6 +14,12 @@ from ..dice_roller import (
     get_success_icon,
     roll_dice,
 )
+from ..ending_engine import (
+    first_kill_drop,
+    on_battle_40_end,
+    register_relic_obtained,
+    render_door_choice,
+)
 
 
 class BattleSettlementMixin:
@@ -53,11 +59,27 @@ class BattleSettlementMixin:
             add_gold(self.investigator.qq, gold)
             if dropped_item:
                 self.investigator.add_item_to_inventory(dropped_item.id, 1)
+                register_relic_obtained(self.investigator, dropped_item.id)
                 if dropped_item.type == "spell_scroll":
                     # 首次获得残卷：提示研读途径（胜利结算会自动研读）
                     bonus_text += f"\n> {self._t('spell.learn_hint')}"
         else:
             bonus_text = self._quote(self._get_reply("侦查失败"))
+
+        # 首杀必掉信物（第 5 章：独立于侦查检定，登记 items_first）
+        first_relic = first_kill_drop(self.investigator, self.monster.id)
+        if first_relic:
+            self.investigator.add_item_to_inventory(first_relic, 1)
+            first_line = data_loader.get_text(
+                "battle.first_kill_relic",
+                default="🎖 首杀必掉信物：{name}（已计入收集）",
+                name=Equipment(first_relic).name,
+            )
+            bonus_text = (
+                f"{bonus_text}\n{self._quote(first_line)}"
+                if bonus_text
+                else self._quote(first_line)
+            )
 
         # 隐藏幸运检定：成功回复 1d3 SAN（检定过程不展示，失败无任何提示）
         luck_line = ""
@@ -70,7 +92,14 @@ class BattleSettlementMixin:
             luck_line = self._t("battle.victory_luck", value=gain)
 
         self.investigator.hp = self.hp_record["inv"]
-        self.investigator.day += 1
+
+        # 出口①：第 40 天胜利 → 冻结 day（不再 +1）并进入门扉抉择
+        door_result = None
+        if self._battle_day == 40:
+            door_result = on_battle_40_end(self.investigator, win=True)
+            self.door_choice = door_result
+        else:
+            self.investigator.day += 1
 
         growth_lines: list[str] = []
         for skill_name in self.succeded_skill:
@@ -121,6 +150,11 @@ class BattleSettlementMixin:
             detail_parts.append(
                 f"{self._t('battle.victory_growth')}\n" + "\n".join(growth_lines)
             )
+        # 门扉抉择（第 40 天胜利）：追加选项文本，按钮由调用方渲染
+        if door_result and door_result.get("door_choice"):
+            door_render = render_door_choice(self.investigator)
+            door_result["choices"] = door_render["choices"]
+            detail_parts.append(door_render["text"])
         detail_parts.append(self._settlement())
         return header, "\n\n".join(detail_parts)
 

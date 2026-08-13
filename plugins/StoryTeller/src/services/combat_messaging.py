@@ -64,6 +64,9 @@ def send_turn(battle: BattleService, bot: Bot, text: str) -> Message:
 
 async def send_end_buttons(battle: BattleService, bot: Bot, send: Callable) -> None:
     """战斗结束引导按钮：阵亡→复活/创建；胜利/逃跑→调查员信息 + 购买冒险卷。"""
+    if getattr(battle, "door_choice", None):
+        # 门扉抉择：引导按钮由门扉按钮接管
+        return
     t = data_loader.get_text
     mention = battle.investigator.qq
     if battle.hp_record["inv"] <= 0:
@@ -136,6 +139,13 @@ async def send_combat_result(
                 )
 
         # 2. 结算卡片 + 结束引导按钮
+        if getattr(battle, "door_choice", None):
+            # 门扉抉择：结算卡片与引导按钮由调用方接管（战报末尾已含抉择文案）
+            if result[-1]:
+                await send(
+                    md_message(str(result[-1]), bot, mention=battle.investigator.qq)
+                )
+            return
         img = await render_pic(end_card_html(battle))
         if img is not None and await send_pic(bot, img, send):
             await send_end_buttons(battle, bot, send)
