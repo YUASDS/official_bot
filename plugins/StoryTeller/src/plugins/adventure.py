@@ -4,6 +4,7 @@ from nonebot.exception import FinishedException
 from nonebot.params import CommandArg
 from loguru import logger
 import random
+import copy
 from typing import Any, Callable
 
 from ..services.battle import BattleService
@@ -38,6 +39,7 @@ from ..services.event_service import (
 )
 from ..services.resurrect import do_resurrect
 from ..services.sanity import run_sanity_and_madness
+from .qiren import qiren_pending, qiren_should_trigger, qiren_send_dialogue
 from ..utils.active_battles import battle_manager
 from ..utils.buttons import (
     _send_to_user,
@@ -219,7 +221,15 @@ async def _run_adventure(
         for _log in _logs:
             await send(md_message(f"\n{_log}", bot, mention=user_id))
 
-        monster_id = monster_repo.find_random_id_for_day(inv.day)
+        # 隐藏挑战「启」：挑战旗标 → 强制怪物 38；否则每日开局概率触发对话（挑战/不挑战）
+        qiren_forced = qiren_pending.pop(user_id, False)
+        if qiren_forced:
+            monster_id = "38"
+        elif qiren_should_trigger(inv):
+            await qiren_send_dialogue(user_id, bot, send)
+            return
+        else:
+            monster_id = monster_repo.find_random_id_for_day(inv.day)
         if not monster_id:
             await finish(
                 md_message(
@@ -239,7 +249,12 @@ async def _run_adventure(
         # --- Environment ---
         env = {}
         env_desc = ""
-        if data_loader.environment_data:
+        if qiren_forced:
+            # 隐藏挑战强制环境「庄园.黑色满月」
+            env = copy.deepcopy(data_loader.environment_data["庄园.黑色满月"])
+            env["name"] = "庄园.黑色满月"
+            env_desc = f"【庄园.黑色满月】{env.get('描述', '')}"
+        elif data_loader.environment_data:
             env_key = random.choice(list(data_loader.environment_data.keys()))
             env = data_loader.environment_data[env_key].copy()
             env["name"] = env_key
@@ -279,7 +294,8 @@ async def _run_adventure(
             header += f"\n{warning}"
 
         # --- 奇遇：固定日期事件当天必触发；否则 40% 随机（按条件过滤）---
-        event_data = pick_random_event(inv)
+        # 隐藏挑战强制怪物 38 时跳过奇遇（替换今日遭遇）
+        event_data = None if qiren_forced else pick_random_event(inv)
         if event_data:
             battle_manager.add_battle(user_id, service)
             event_states[user_id] = {

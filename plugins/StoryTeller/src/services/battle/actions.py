@@ -68,14 +68,20 @@ class BattleActionsMixin:
 
         if confrontation.level1 == SuccessLevel.CRITICAL_FAILURE:
             failure_desc = self._handle_player_critical_failure(weapon)
-            monster_parts = [monster_action["counterattack"]]
-            # 玩家大失败：仅当怪物自身检定成功（成功/困难/极难/大成功）才命中；
-            # 反击伤害恒为普通伤害，不叠加暴击（critical=False）
-            if confrontation.level2 > SuccessLevel.FAILURE:
-                monster_dmg, _ = self._handle_monster_attack_success(
-                    monster_action, confrontation, critical=False
-                )
-                monster_parts.append(monster_dmg)
+            # 闪避模式/怪物大失败：怪物不反击伤害
+            if getattr(self.monster, "is_dodging", False):
+                monster_parts = [self._monster_dodge_text()]
+            elif confrontation.level2 == SuccessLevel.CRITICAL_FAILURE:
+                monster_parts = [self._monster_fumble_text(monster_action)]
+            else:
+                monster_parts = [monster_action["counterattack"]]
+                # 玩家大失败：仅当怪物自身检定成功（成功/困难/极难/大成功）才命中；
+                # 反击伤害恒为普通伤害，不叠加暴击（critical=False）
+                if confrontation.level2 > SuccessLevel.FAILURE:
+                    monster_dmg, _ = self._handle_monster_attack_success(
+                        monster_action, confrontation, critical=False
+                    )
+                    monster_parts.append(monster_dmg)
             exchange = self._exchange(
                 monster_parts,
                 [self._get_weapon_reply(weapon), failure_desc],
@@ -99,16 +105,32 @@ class BattleActionsMixin:
             self._get_reply(reply_key), expr, val
         ).replace("$装备", weapon.name)
         monster_text = self._apply_damage_to_monster(val)
+        # 闪避模式：怪物闪避（不反击）；怪物大失败：自身失控
+        if getattr(self.monster, "is_dodging", False):
+            monster_react = self._monster_dodge_text()
+        elif confrontation.level2 == SuccessLevel.CRITICAL_FAILURE:
+            monster_react = self._monster_fumble_text(monster_action)
+        else:
+            monster_react = monster_action.get("counterattack", "")
         exchange = self._exchange(
-            [monster_action["counterattack"], monster_text],
+            [monster_react, monster_text],
             [self._get_weapon_reply(weapon), player_text],
         )
         return (roll_desc, exchange, self._end_turn())
 
     def _handle_player_melee_failure(self, confrontation, weapon, monster_action, roll_desc):
-        if confrontation.level1 < 1 and confrontation.level2 < 1:
+        dodging = getattr(self.monster, "is_dodging", False)
+        if dodging:
+            # 闪避模式：玩家攻击落空 → 怪物闪避，不反击伤害
             player_text = self._get_reply(f"{self.current_action}失败").replace("$装备", weapon.name)
-            monster_text = monster_action.get("counter_false", "")
+            monster_text = self._monster_dodge_text()
+        elif confrontation.level1 < 1 and confrontation.level2 < 1:
+            player_text = self._get_reply(f"{self.current_action}失败").replace("$装备", weapon.name)
+            monster_text = (
+                self._monster_fumble_text(monster_action)
+                if confrontation.level2 == SuccessLevel.CRITICAL_FAILURE
+                else monster_action.get("counter_false", "")
+            )
         else:
             monster_text, player_text = self._handle_monster_attack_success(monster_action, confrontation)
         exchange = self._exchange(
@@ -116,6 +138,18 @@ class BattleActionsMixin:
             [self._get_weapon_reply(weapon), player_text],
         )
         return (roll_desc, exchange, self._end_turn())
+
+    def _monster_dodge_text(self) -> str:
+        """闪避模式：玩家攻击回合怪物闪避文案（不反击伤害）。"""
+        return self._t("battle.monster_dodge")
+
+    def _monster_fumble_text(self, monster_action: dict) -> str:
+        """怪物大失败文案：AI 远程用 attack_fumble（枪炸自伤），近战回退 attack_false；老怪物回退原文案。"""
+        return (
+            monster_action.get("attack_fumble")
+            or monster_action.get("attack_false")
+            or monster_action.get("counterattack", "")
+        )
 
     def _handle_monster_attack_success(
         self,
@@ -135,11 +169,13 @@ class BattleActionsMixin:
         armor = self.investigator.get_armor_value()
         expr, val = self._monster_damage_roll(monster_action, level)
         final_val = max(0, val - armor)
-        monster_text = self._fill_damage(
-            monster_action.get("attack_succ", monster_action.get("desc", "攻击")),
-            expr,
-            final_val,
+        # 大成功（极难/大成功）用 attack_crit 独立文案，回退 attack_succ
+        succ_template = (
+            monster_action.get("attack_crit", monster_action.get("attack_succ", ""))
+            if level > SuccessLevel.HARD_SUCCESS
+            else monster_action.get("attack_succ", monster_action.get("desc", "攻击"))
         )
+        monster_text = self._fill_damage(succ_template, expr, final_val)
         player_text = self._apply_damage_to_player(final_val, armor_absorbed=True)
         return monster_text, player_text
 
@@ -517,12 +553,15 @@ class BattleActionsMixin:
         monster_hit = (
             confrontation.level1 > SuccessLevel.FAILURE and not player_dodged
         )
+        if confrontation.level1 == SuccessLevel.CRITICAL_FAILURE:
+            # 怪物大失败：自身失控，未造成伤害
+            return self._monster_fumble_text(monster_action), ""
         if monster_hit:
             return self._handle_monster_attack_success(monster_action, confrontation)
         if player_dodged:
             return "", self._get_reply("闪避成功")
         return (
-            monster_action.get("attack_false", monster_action.get("counterattack", "")),
+            self._monster_fumble_text(monster_action),
             "",
         )
 
@@ -530,11 +569,17 @@ class BattleActionsMixin:
         self, confrontation, monster_action, weapon: Optional[Equipment]
     ) -> tuple[str, str]:
         """@description 反击结算：怪物攻击成功→玩家受伤；双方失败→落空；否则玩家反击命中。返回 (怪物文案, 玩家文案)。"""
+        if confrontation.level1 == SuccessLevel.CRITICAL_FAILURE:
+            # 怪物大失败：自身失控，未造成伤害；玩家反击可命中
+            player_text = ""
+            if confrontation.level2 > SuccessLevel.FAILURE:
+                player_text, _monster_text = self._handle_player_counter_success(weapon)
+            return self._monster_fumble_text(monster_action), player_text
         if confrontation.get_result("反击"):
             return self._handle_monster_attack_success(monster_action, confrontation)
         if confrontation.level1 < 1 and confrontation.level2 < 1:
             return (
-                monster_action.get("attack_false", monster_action.get("counterattack", "")),
+                self._monster_fumble_text(monster_action),
                 "",
             )
         player_text, monster_text = self._handle_player_counter_success(weapon)

@@ -116,6 +116,15 @@ class BattleEngineMixin:
                 if over:
                     parts.append(over)
                 return tuple(parts)
+        # AI 怪物：回合前推进状态（一次性），若为施法回合则自动施法并结束回合
+        if getattr(self.monster, "_ai_data", None) is not None:
+            self.monster.advance_ai()
+            ai_action = self.monster.get_ai_action("mon")
+            if ai_action.get("type") == "spell":
+                parts.extend(self._execute_monster_spell(ai_action))
+                self.monster.complete_spell_turn()
+                parts.append(self._end_turn())
+                return tuple(parts)
         if action in ("反击", "闪避"):
             parts.extend(self._handle_defensive_action(action))
             return tuple(parts)
@@ -126,6 +135,45 @@ class BattleEngineMixin:
                 actions="反击、闪避",
             ),
         )
+
+    def _execute_monster_spell(self, monster_action: dict) -> list[str]:
+        """AI 怪物回合法术：释放预取法术（愈合术/肉体守护），应用效果并展示专属文案。"""
+        t = self._t
+        spell_id = monster_action.get("spell", "")
+        spell = data_loader.spell_data.get(spell_id, {})
+        name = spell.get("name", spell_id)
+
+        spell_texts = self.monster.法术文案
+        cast_text = (
+            spell_texts.get(spell_id, "") if isinstance(spell_texts, dict) else ""
+        ) or spell.get("des", "")
+
+        # 消耗怪物 MP（意志//5）
+        mp_cost = int(spell.get("mp_cost", 1))
+        if getattr(self.monster, "mp", 0) is not None:
+            self.monster.mp = max(0, self.monster.mp - mp_cost)
+
+        effect = spell.get("effect", {})
+        etype = effect.get("type", "damage")
+        dice = effect.get("dice", "1d3")
+        expr, val = roll_dice(dice)
+        if etype == "heal":
+            before = self.hp_record["mon"]
+            self.hp_record["mon"] = min(self.monster.max_hp, before + val)
+            self.monster.hp = self.hp_record["mon"]
+            healed = self.hp_record["mon"] - before
+            effect_line = t(
+                "battle.monster_spell_heal", expr=expr, val=val, value=healed
+            )
+        elif etype == "temp_hp":
+            self.monster_temp_hp += val
+            effect_line = t(
+                "battle.monster_spell_shield", expr=expr, val=val, value=val
+            )
+        else:
+            effect_line = ""
+        lines = [t("battle.monster_spell_title", name=name), cast_text, effect_line]
+        return ["\n".join(x for x in lines if x)]
 
     def _resolve_madness(self) -> tuple:
         """疯狂失控：按战斗轮顺序自动结算，怪物行动一次+玩家随机行动一次为一回合，直至疯狂结束。"""

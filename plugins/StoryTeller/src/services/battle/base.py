@@ -43,6 +43,8 @@ class BattleBaseMixin:
         self.mp = self.max_mp
         self.temp_hp = 0
         self._mp_hint_shown = False
+        # 怪物临时生命（AI 怪物施法护盾先抵伤害）
+        self.monster_temp_hp = 0
 
         # 骨哨助战剩余回合（506 消耗品，怪物行动前额外 1d4 伤害）
         self.bone_whistle = 0
@@ -73,13 +75,27 @@ class BattleBaseMixin:
         return max(0, base)
 
     def _get_monster_attack_skill(self, monster_action: dict) -> int:
-        """怪物攻击技能：攻击表技能 + 环境反击技能/格斗修正。"""
+        """怪物攻击技能：攻击表技能 + 环境反击技能/格斗修正；远程行动吃「射击」修正。
+
+        AI 怪物处于「闪避模式」且玩家攻击回合时，怪物改用闪避技能防御
+        （闪避 99 + 环境闪避修正）。
+        """
         mods = self.environment.get("怪物", {})
-        return (
+        if (
+            getattr(self.monster, "is_dodging", False)
+            and self.current_turn == "inv"
+        ):
+            return int(getattr(self.monster, "_ai_dodge", 99)) + mods.get(
+                "闪避", 0
+            )
+        skill = (
             monster_action["skill"]
             + mods.get("反击技能", 0)
             + mods.get("格斗", 0)
         )
+        if monster_action.get("type") == "ranged":
+            skill += mods.get("射击", 0)
+        return skill
 
     def _get_monster_modified(self, attr: str, default: int = 0) -> int:
         base = getattr(self.monster, attr, default)

@@ -147,3 +147,7 @@ logs
 util/day
 util/browser/data
 # End of https://www.toptal.com/developers/gitignore/api/python
+# OMO plugin runtime artifacts
+.omo/
+.qa
+task_plan.md

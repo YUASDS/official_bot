@@ -55,7 +55,21 @@ class BattleSettlementMixin:
         )
 
         bonus_text = ""
-        if search_roll.level > SuccessLevel.FAILURE:
+        if self.monster.id == "38":
+            # 隐藏挑战「启」：固定 100 乌帕 + 双物品 501/508（独立于侦查检定）
+            gold = 100
+            add_gold(self.investigator.qq, gold)
+            item_names: list[str] = []
+            for item_id in ("501", "508"):
+                self.investigator.add_item_to_inventory(item_id, 1)
+                register_relic_obtained(self.investigator, item_id)
+                item_names.append(Equipment(item_id).name)
+            bonus_text = self._t(
+                "battle.qiren_reward",
+                items="、".join(item_names),
+                gold=gold,
+            )
+        elif search_roll.level > SuccessLevel.FAILURE:
             gold, dropped_item, bonus_text = self.monster.generate_loot(self._battle_day)
             add_gold(self.investigator.qq, gold)
             if dropped_item:

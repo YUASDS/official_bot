@@ -9,6 +9,7 @@ from .src.plugins.help import help_cmd
 from .src.plugins.profile import profile_cmd
 from .src.plugins.gm import gm_gift_cmd, gm_scroll_cmd
 from .src.plugins.ending import ending_cmd
+from .src.plugins.qiren import qiren_pending
 
 # Define plugin metadata
 __plugin_meta__ = PluginMetadata(

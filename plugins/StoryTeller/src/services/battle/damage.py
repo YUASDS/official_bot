@@ -35,7 +35,14 @@ class BattleDamageMixin:
         initial_hp = self.hp_record["mon"]
         # 怪物装甲已在 calc_dmg 调用点按 armor=monster.armor 平扣，此处不再重复减伤
         actual_damage = max(0, damage)
+        # 怪物临时生命（护盾）优先抵扣
+        if self.monster_temp_hp > 0:
+            absorbed = min(self.monster_temp_hp, actual_damage)
+            self.monster_temp_hp -= absorbed
+            actual_damage -= absorbed
         self.hp_record["mon"] = max(0, self.hp_record["mon"] - actual_damage)
+        # 同步怪物实例 HP（AI 受伤检测 / 怪物施法依赖）
+        self.monster.hp = self.hp_record["mon"]
 
         if actual_damage > initial_hp / 2:
             return getattr(self.monster, "高伤害", self._t("monster.high_damage"))

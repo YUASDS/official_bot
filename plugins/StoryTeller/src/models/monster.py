@@ -73,6 +73,21 @@ class Monster:
         self.敏捷 = self.dex
         self.名字 = self.name
 
+        # AI 状态机（仅含 `ai` 字段的怪物启用；老怪物零回归）
+        self._ai_data = self._data.get("ai")
+        self._ai_phase = "开火" if self._ai_data else None
+        self._shots_fired = 0
+        self._ai_pending_spell = None
+        self._ai_dodging = False
+        self._ai_dodge = 99
+        if self._ai_data:
+            self._ai_dodge = int(
+                (self._ai_data.get("受伤后") or {}).get("闪避", 99)
+            )
+        # 怪物法术资源：MP = 意志//5（缺省 0，老怪物不受影响）
+        self.max_mp = int(self._data.get("意志", 0)) // 5 if self._ai_data else 0
+        self.mp = self.max_mp
+
     def _attack_damage_list(self) -> list[str]:
         """攻击表所有伤害骰（去重保序），与战斗结算使用同一字段。"""
         damages: list[str] = []
@@ -102,6 +117,8 @@ class Monster:
 
     def get_action(self, turn: str) -> dict[str, Any]:
         """获取怪物在此回合的行动详情（整场战斗固定一次，保证技能/文本/伤害一致）。"""
+        if self._data.get("ai"):
+            return self.get_ai_action(turn)
         t = data_loader.get_text
         if getattr(self, "_battle_action", None) is not None:
             return self._battle_action
@@ -126,6 +143,94 @@ class Monster:
         if "attack_false" not in action:
             action["attack_false"] = action.get("counterattack", t("monster.default_action"))
         self._battle_action = action
+        return action
+
+    # --- AI 状态机（仅 ai 怪物，`get_ai_action` 纯读、`advance_ai` 副作用） ---
+    def get_ai_action(self, turn: str) -> dict[str, Any]:
+        """AI 怪物当前阶段行动（纯读，不做副作用）：按阶段返回 melee/ranged/spell。"""
+        if self._ai_pending_spell is not None:
+            spell = data_loader.spell_data.get(self._ai_pending_spell, {})
+            return {
+                "type": "spell",
+                "spell": self._ai_pending_spell,
+                "name": spell.get("name", self._ai_pending_spell),
+                "des": spell.get("des", ""),
+            }
+        if self._ai_phase == "开火":
+            return self._ai_ranged_action()
+        return self._ai_melee_action()
+
+    def advance_ai(self) -> None:
+        """副作用：怪物行动真实结算前推进 AI 状态（每次怪物回合调用一次）。
+
+        受伤优先（打断开火剩余喷子）→ 预取待施法术；开火按次数推进并切换近战。
+        施法回合结束后由 complete_spell_turn 清除待施法术并进入闪避模式。
+        """
+        if self._ai_data is None:
+            return
+        if self._ai_pending_spell is not None:
+            return  # 本轮为施法回合，不推进攻击次数
+        if self.hp < self.max_hp and not self._ai_dodging:
+            spells = (self._ai_data.get("受伤后") or {}).get("法术", [])
+            self._ai_pending_spell = random.choice(spells) if spells else None
+            self._ai_phase = "受伤后"
+            return
+        if self._ai_phase == "开火":
+            self._shots_fired += 1
+            if self._shots_fired >= int(self._ai_data["开火"].get("次数", 2)):
+                self._ai_phase = "近战"
+
+    def complete_spell_turn(self) -> None:
+        """施法回合结算：清除待施法术，永久进入闪避模式。"""
+        if self._ai_data is None:
+            return
+        self._ai_pending_spell = None
+        self._ai_dodging = True
+        self._ai_phase = "受伤后"
+
+    @property
+    def is_dodging(self) -> bool:
+        """AI 怪物是否处于「闪避模式」：玩家攻击回合不反击伤害，改为闪避。"""
+        return bool(getattr(self, "_ai_dodging", False))
+
+    def _ai_ranged_action(self) -> dict[str, Any]:
+        """开火行动：喷子双发文案从怪物条目 `玩家文案` 读取（玩家视角原文）。"""
+        action = dict(self._ai_data["开火"])
+        player_texts = self._data.get("玩家文案", {})
+        if isinstance(player_texts, dict):
+            if not action.get("attack_succ"):
+                action["attack_succ"] = player_texts.get("射击成功", "")
+            if not action.get("attack_crit"):
+                action["attack_crit"] = player_texts.get("射击大成功", "")
+            if not action.get("attack_false"):
+                action["attack_false"] = player_texts.get("射击失败", "")
+            if not action.get("attack_fumble"):
+                action["attack_fumble"] = player_texts.get("射击大失败", "")
+            if not action.get("counterattack"):
+                action["counterattack"] = player_texts.get(
+                    "射击失败", action.get("attack", "")
+                )
+        return self._ensure_ai_fields(action)
+
+    def _ai_melee_action(self) -> dict[str, Any]:
+        return self._ensure_ai_fields(dict(self._ai_data["近战"]))
+
+    def _ensure_ai_fields(self, action: dict[str, Any]) -> dict[str, Any]:
+        """补齐 AI 行动缺失的标准文案字段（不修改源数据，返回副本）。"""
+        t = data_loader.get_text
+        action = dict(action)
+        if not action.get("desc"):
+            action["desc"] = action.get("动作", t("monster.default_action"))
+        if not action.get("attack"):
+            action["attack"] = action.get("desc", t("monster.default_action"))
+        if not action.get("attack_succ"):
+            action["attack_succ"] = action.get("attack", t("monster.default_action"))
+        if not action.get("attack_false"):
+            action["attack_false"] = action.get(
+                "counterattack", t("monster.default_action")
+            )
+        if not action.get("counterattack"):
+            action["counterattack"] = action.get("attack", t("monster.default_action"))
         return action
 
     def generate_loot(self, day: int = 1):
