@@ -23,6 +23,7 @@ from ..services.combat_messaging import (
 from ..services.data_loader import data_loader
 from ..services.ending_engine import (
     check_daily,
+    check_san_zero,
     judge_door_choice,
     pending_door_choice,
     render_door_choice,
@@ -316,6 +317,9 @@ async def _run_adventure(
             run_sanity_and_madness(inv, monster)
         )
         if san_zero:
+            # 出口②：SAN 归零（永久疯狂）→ 登记 E06 + 清理战场残留（防 /行动 命中遗留 battle）
+            check_san_zero(inv)
+            battle_manager.remove_battle(user_id)
             inv.is_survive = False
             inv.save()
             _mark_adventure_done(user_id)
@@ -528,6 +532,16 @@ async def handle_combat(event: Event, bot: Bot, msg: Message = CommandArg()):
                     mention=user_id,
                 )
             )
+        if not battle.investigator.is_survive:
+            # P0-1 防线：死亡角色不进入事件流程，清理战场残留
+            battle_manager.remove_battle(user_id)
+            await combat_cmd.finish(
+                md_message(
+                    f"\n{data_loader.get_text('adventure.player_dead')}",
+                    bot,
+                    mention=user_id,
+                )
+            )
 
         # Strip /行动 prefix
         choice = action.removeprefix("/行动 ").removeprefix("/行动").strip()
@@ -565,6 +579,9 @@ async def handle_combat(event: Event, bot: Bot, msg: Message = CommandArg()):
             run_sanity_and_madness(battle.investigator, battle.monster)
         )
         if san_zero:
+            # 出口②：SAN 归零（永久疯狂）→ 登记 E06 + 清理战场残留（P0-1 防线）
+            check_san_zero(battle.investigator)
+            battle_manager.remove_battle(user_id)
             battle.investigator.is_survive = False
             battle.investigator.save()
             _mark_adventure_done(user_id)
@@ -615,6 +632,16 @@ async def handle_combat(event: Event, bot: Bot, msg: Message = CommandArg()):
                 mention=user_id,
             )
         )
+    if not battle.investigator.is_survive:
+        # P0-1 防线：死亡角色不能继续战斗，清理战场残留（防 SAN 归零后 /行动 打完整场）
+        battle_manager.remove_battle(user_id)
+        await combat_cmd.finish(
+            md_message(
+                f"\n{data_loader.get_text('adventure.player_dead')}",
+                bot,
+                mention=user_id,
+            )
+        )
 
     if not action:
         await combat_cmd.finish(
@@ -626,7 +653,16 @@ async def handle_combat(event: Event, bot: Bot, msg: Message = CommandArg()):
         )
 
     if action.startswith(data_loader.get_text("adventure.use_item")):
-        item_id = action.split()[1]
+        tokens = action.split()
+        if len(tokens) < 2:
+            await combat_cmd.finish(
+                md_message(
+                    f"\n{data_loader.get_text('adventure.need_item_id', default='请输入物品ID。')}",
+                    bot,
+                    mention=user_id,
+                )
+            )
+        item_id = tokens[1]
         if item_id in ("505", "506"):
             # 消耗品：走战斗动作（回复 HP / 骨哨助战）
             result = battle.execute_action(f"使用{item_id}")
@@ -669,6 +705,20 @@ async def handle_combat_action(
             user_id,
             md_message(
                 f"\n{data_loader.get_text('adventure.no_active_battle')}",
+                bot,
+                mention=user_id,
+            ),
+            group_openid,
+        )
+        return
+    if not battle.investigator.is_survive:
+        # P0-1 防线：死亡角色不能通过按钮继续战斗，清理战场残留
+        battle_manager.remove_battle(user_id)
+        await _send_to_user(
+            bot,
+            user_id,
+            md_message(
+                f"\n{data_loader.get_text('adventure.player_dead')}",
                 bot,
                 mention=user_id,
             ),
@@ -860,6 +910,20 @@ async def handle_event_choice(
             group_openid,
         )
         return
+    if not battle.investigator.is_survive:
+        # P0-1 防线：死亡角色不能通过按钮继续事件流程，清理战场残留
+        battle_manager.remove_battle(user_id)
+        await _send_to_user(
+            bot,
+            user_id,
+            md_message(
+                f"\n{data_loader.get_text('adventure.player_dead')}",
+                bot,
+                mention=user_id,
+            ),
+            group_openid,
+        )
+        return
 
     event_data = ev_state["event"]
     matched = next((o for o in event_data["选项"] if o["输入"] == choice), None)
@@ -890,6 +954,9 @@ async def handle_event_choice(
         run_sanity_and_madness(battle.investigator, battle.monster)
     )
     if san_zero:
+        # 出口②：SAN 归零（永久疯狂）→ 登记 E06 + 清理战场残留（P0-1 防线）
+        check_san_zero(battle.investigator)
+        battle_manager.remove_battle(user_id)
         battle.investigator.is_survive = False
         battle.investigator.save()
         _mark_adventure_done(user_id)

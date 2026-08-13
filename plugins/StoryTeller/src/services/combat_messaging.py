@@ -5,7 +5,7 @@ from typing import Callable
 
 from nonebot.adapters import Bot, Message
 
-from ..models.player import Investigator
+from ..models.player import Investigator, ending_repo
 from ..utils.image_sender import render_pic, send_pic
 from ..utils.md_format import (
     build_keyboard,
@@ -226,6 +226,20 @@ async def send_sanity_zero(
                 mention=inv.qq,
             )
         )
+
+    # 出口②（E06）：永久疯狂（san_zero_hit + ended）→ 复活不可用，仅保留「创建调查员」
+    progress = ending_repo.get_progress(inv.qq)
+    resurrect_blocked = bool(progress and progress.san_zero_hit and progress.ended)
+    if resurrect_blocked:
+        await send(
+            md_message(
+                f"\n**{t('character.create_button')}**\n{cmd_tag('/创建调查员')}\n\n"
+                f"{t('adventure.sanity_zero_hint')}",
+                bot,
+                mention=inv.qq,
+            )
+        )
+        return
 
     await send(
         md_message(

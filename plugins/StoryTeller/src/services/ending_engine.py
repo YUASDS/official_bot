@@ -17,8 +17,10 @@ from typing import Any, Optional
 
 import ujson
 
+from util.DaylyRecord import register_daily_rollover
+
 from ..models.monster import monster_repo
-from ..models.player import Investigator, ending_repo
+from ..models.player import Investigator, InvestigatorModel, ending_repo
 from ..utils.md_format import report_quote, report_section
 from .data_loader import data_loader
 
@@ -80,7 +82,7 @@ def _in_range(value: int, spec: Any) -> bool:
     return value >= int(spec)
 
 
-# 首杀必掉信物表（第 5 章：独立于侦查检定的必掉登记）
+# 首杀必掉信物表兜底（第 5 章：独立于侦查检定的必掉登记；数据源 ending_data.json relics.first_kill）
 _FIRST_KILL_DEFAULT = {"30": "503", "33": "504", "34": "507", "37": "502"}
 
 
@@ -226,6 +228,60 @@ def check_san_zero(inv: Investigator) -> dict:
     }
 
 
+# --- 出口③：非 day40 死亡 → E07 ---
+def register_e07(inv: Investigator) -> Optional[str]:
+    """非 day40 死亡登记 E07 墓园拾骨。
+
+    仅未持有复活道具（501）时登记（持 501 者可走 /复活，设计上避免 E07）。
+    不写 ended：玩家事后购得 501 仍可复活继续（复活链见 resurrect.do_resurrect）。
+    返回 E07 结局文案供死亡战报追加展示；未登记返回 None。
+    """
+    equipments, _ = inv.get_equipments()
+    if _hold_item(equipments, "501"):
+        return None
+    progress = ending_repo.ensure_progress(inv.qq, inv.day)
+    ending_repo.add_ending(inv.qq, "E07", run=progress.run_id)
+    return _ending_result_text(
+        "E07",
+        note="庄园的阴影吞没了你的尸骨，墓碑上刻着无名的碑文。",
+    )
+
+
+def mark_mirror_defeated(inv: Investigator) -> None:
+    """击败镜中之人（37）置位：门扉 H_mirror（E04）隐藏分支前置条件。"""
+    progress = ending_repo.ensure_progress(inv.qq, inv.day)
+    if not progress.mirror_defeated:
+        progress.mirror_defeated = True
+        progress.save()
+
+
+# --- 出口④：每日轮转钩子（0 点）→ E10 ---
+def daily_rollover() -> list[str]:
+    """每日 0 点轮转钩子：对所有存活调查员调用 check_daily(reset=False)，
+    累加连续未冒险天数（inactive_days），连续 3 日未冒险登记 E10 黎明前的长眠。
+
+    返回 E10 结局消息（含玩家名），供运营侧广播/日志；既有冻结拦截不重复上报。
+    """
+    msgs: list[str] = []
+    for model in InvestigatorModel.select():
+        inv = Investigator(model)
+        if not inv.is_survive:
+            continue
+        before = ending_repo.get_progress(inv.qq)
+        _logs, block = check_daily(inv, reset=False)
+        if not block:
+            continue
+        after = ending_repo.get_progress(inv.qq)
+        # 仅当本次轮转新结算终局（E10）才上报；冻结拦截（frozen_ended/frozen_door）不提示
+        if after is not None and (before is None or not before.ended) and after.ended:
+            msgs.append(f"{inv.name}：{block}")
+    return msgs
+
+
+# 注册 E10 每日轮转钩子（0 点自动执行；幂等，重复导入不重复注册）
+register_daily_rollover(daily_rollover)
+
+
 # --- 出口④：每日推进检查 ---
 def check_daily(
     inv: Investigator, reset: bool = True
@@ -283,7 +339,7 @@ def check_daily(
     # ③ day==40 守卫（确保当日必出守门人 36）
     if inv.day == 40:
         pool = monster_repo._checkpoint_data.get("40") or []
-        if pool and pool != ["36"]:
+        if pool and set(pool) != {"36"}:
             logs.append(
                 _text(
                     "ending.day40_guard",
@@ -315,9 +371,17 @@ def register_relic_obtained(inv: Investigator, relic_id: str) -> None:
     register_relic(inv, progress, str(relic_id))
 
 
+def _first_kill_table() -> dict:
+    """首杀必掉信物表：数据驱动（ending_data.json relics.first_kill），缺省回退代码兜底。"""
+    return (
+        ((data_loader.ending_data or {}).get("relics") or {}).get("first_kill")
+        or _FIRST_KILL_DEFAULT
+    )
+
+
 def first_kill_drop(inv: Investigator, monster_id: str) -> Optional[str]:
     """首杀必掉信物（第 5 章，独立于侦查检定）：登记 items_first 并返回信物 ID。"""
-    relic_id = _FIRST_KILL_DEFAULT.get(str(monster_id))
+    relic_id = _first_kill_table().get(str(monster_id))
     if not relic_id:
         return None
     progress = ending_repo.ensure_progress(inv.qq, inv.day)
@@ -368,6 +432,9 @@ def on_battle_40_end(inv: Investigator, win: bool) -> dict:
 
     if win:
         progress.boss36_defeated = True
+        # 重赴次数门：任何 day40 胜利（含重赴再战）标记 refought，
+        # 已重赴者不再渲染 defeat_choices（防无限免费刷守门人）
+        progress.refought = True
         progress.day = inv.day
         inv.day = 40  # 冻结，不再推进
         inv.save()
@@ -519,7 +586,7 @@ def render_door_choice(inv: Investigator) -> dict:
     for key, cfg in (door.get("hidden_choices") or {}).items():
         if _door_cond_ok(cfg.get("condition"), inv, progress):
             choices.append(_choice_payload(key, cfg))
-    if progress.dead_once:
+    if progress.dead_once and not progress.refought:
         for key, cfg in (door.get("defeat_choices") or {}).items():
             choices.append(_choice_payload(key, cfg))
 
@@ -577,10 +644,10 @@ def judge_door_choice(inv: Investigator, key: str) -> dict:
     progress = ending_repo.ensure_progress(inv.qq, inv.day)
     door = _door_config()
 
-    # 战败分支（dead_once 后可见）
+    # 战败分支（dead_once 后可见；已重赴者回到三分支，不再可选）
     defeat_cfg = (door.get("defeat_choices") or {}).get(key)
     if defeat_cfg:
-        if not progress.dead_once:
+        if not progress.dead_once or progress.refought:
             return {
                 "error": True,
                 "message": _text("door.invalid_choice", "无效的门扉选择。"),

@@ -1,6 +1,6 @@
 """复活道具服务（命令/按钮共用）。"""
 
-from ..models.player import Investigator, investigator_repo
+from ..models.player import Investigator, ending_repo, investigator_repo
 from .data_loader import data_loader
 
 # 复活道具 ID（预留接口：在 goods_data.json 中加入该 ID 商品后自动生效）
@@ -12,11 +12,17 @@ def do_resurrect(user_id: str) -> str:
 
     预留接口：背包中拥有 RESURRECT_ITEM_ID 时消耗 1 个并复活；
     无道具或未死亡时返回对应提示。
+    出口②（E06）永久疯狂：san_zero_hit + ended 落库后拒绝复活（任何复活手段都无法唤回）。
     """
     t = data_loader.get_text
     inv = Investigator.load(user_id)
     if inv.is_survive:
         return t("adventure.resurrect_alive")
+
+    # E06 永久疯狂：SAN 归零已结算终局 → 复活拦截
+    progress = ending_repo.get_progress(user_id)
+    if progress is not None and progress.san_zero_hit and progress.ended:
+        return t("adventure.resurrect_blocked")
 
     equipments, _ = inv.get_equipments()
     if RESURRECT_ITEM_ID not in equipments:

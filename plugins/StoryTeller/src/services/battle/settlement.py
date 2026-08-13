@@ -16,6 +16,7 @@ from ..dice_roller import (
 )
 from ..ending_engine import (
     first_kill_drop,
+    mark_mirror_defeated,
     on_battle_40_end,
     register_relic_obtained,
     render_door_choice,
@@ -80,6 +81,10 @@ class BattleSettlementMixin:
                 if bonus_text
                 else self._quote(first_line)
             )
+
+        # E04 前置：击败镜中之人（37）→ 置位 mirror_defeated（门扉 H_mirror 隐藏分支条件）
+        if self.monster.id == "37":
+            mark_mirror_defeated(self.investigator)
 
         # 隐藏幸运检定：成功回复 1d3 SAN（检定过程不展示，失败无任何提示）
         luck_line = ""

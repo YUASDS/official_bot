@@ -7,7 +7,11 @@ from typing import Optional
 
 from ..data_loader import data_loader
 from ..dice_roller import roll_dice
-from ..ending_engine import on_battle_40_end, render_door_choice
+from ..ending_engine import (
+    on_battle_40_end,
+    register_e07,
+    render_door_choice,
+)
 
 # 失控自动结算的迭代上限（保险丝，正常每回合 2 步内必推进）
 _MAX_MADNESS_STEPS = 100
@@ -97,6 +101,7 @@ class BattleEngineMixin:
         if getattr(self, "bone_whistle", 0) > 0:
             self.bone_whistle -= 1
             _expr, val = roll_dice("1d4")
+            val = max(0, val - self.monster.armor)  # 装甲减伤与 calc_dmg 一致
             self._apply_damage_to_monster(val)
             parts.append(
                 data_loader.get_text(
@@ -182,6 +187,10 @@ class BattleEngineMixin:
                 f"> {self._t('battle.death_ending')}\n\n"
                 f"{self._t('battle.death_hint')}"
             )
+            # 出口③：非 day40 死亡登记 E07 墓园拾骨（未持 501 时）
+            e07_text = register_e07(self.investigator)
+            if e07_text:
+                detail = f"{e07_text}\n\n{detail}"
             self.end_parts = (header, detail)
             return f"{header}\n\n{detail}"
         if self.hp_record["mon"] <= 0:

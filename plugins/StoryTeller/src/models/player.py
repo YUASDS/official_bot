@@ -107,6 +107,7 @@ class EndingProgressModel(BaseModel):
     day = IntegerField(default=1, verbose_name="本局当前day")
     boss36_defeated = BooleanField(default=False, verbose_name="击败过守门人")
     dead_once = BooleanField(default=False, verbose_name="第40天战败复活过")
+    refought = BooleanField(default=False, verbose_name="第40天已重赴过守门人")
     mirror_defeated = BooleanField(default=False, verbose_name="击败过镜中之人")
     fled_day40 = BooleanField(default=False, verbose_name="第40天逃跑过")
     san_zero_hit = BooleanField(default=False, verbose_name="触发过SAN归零")
@@ -738,6 +739,9 @@ class CreateInvestigator:
         a = iter(match)
         match_dic = dict(zip(a, a))
         for key in match_dic:
+            # 数值 token 必须为纯数字（负数/小数等非法输入直接拒绝，避免 int() 崩溃）
+            if not str.isdigit(match_dic[key]):
+                return False, t("character.skill_set_error")
             match_dic[key] = int(match_dic[key])
         user_select_tmp = self.select.copy()
         # 先查技能合法性，再查单项上限，最后查总点数（避免错误文案互相遮蔽）

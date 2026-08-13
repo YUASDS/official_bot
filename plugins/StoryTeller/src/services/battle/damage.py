@@ -33,7 +33,8 @@ class BattleDamageMixin:
             return getattr(self.monster, "低伤害", self._t("battle.no_damage"))
 
         initial_hp = self.hp_record["mon"]
-        actual_damage = max(0, damage - getattr(self.monster, "armor", 0))
+        # 怪物装甲已在 calc_dmg 调用点按 armor=monster.armor 平扣，此处不再重复减伤
+        actual_damage = max(0, damage)
         self.hp_record["mon"] = max(0, self.hp_record["mon"] - actual_damage)
 
         if actual_damage > initial_hp / 2:

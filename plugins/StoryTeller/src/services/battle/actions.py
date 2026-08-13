@@ -88,7 +88,12 @@ class BattleActionsMixin:
 
     def _handle_player_melee_success(self, confrontation, weapon, monster_action, roll_desc):
         damage_formula = self._get_player_damage_formula(weapon)
-        expr, val = calc_dmg(damage_formula, confrontation.level1, weapon.has_penetration)
+        expr, val = calc_dmg(
+            damage_formula,
+            confrontation.level1,
+            weapon.is_extreme_double,
+            armor=self.monster.armor,
+        )
         reply_key = "格斗大成功" if confrontation.level1 > SuccessLevel.HARD_SUCCESS else "格斗成功"
         player_text = self._fill_damage(
             self._get_reply(reply_key), expr, val
@@ -245,7 +250,8 @@ class BattleActionsMixin:
             expr, val = calc_dmg(
                 self._get_player_damage_formula(weapon, include_db=False),
                 roll.level,
-                weapon.has_penetration,
+                weapon.is_extreme_double,
+                armor=self.monster.armor,
             )
             reply_template = self._get_reply("射击大成功") if roll.level > SuccessLevel.HARD_SUCCESS else self._get_reply("射击成功")
             player_text = self._fill_damage(reply_template, expr, val)
@@ -295,7 +301,8 @@ class BattleActionsMixin:
                 expr, val = calc_dmg(
                     self._get_player_damage_formula(weapon, include_db=False),
                     roll.level,
-                    weapon.has_penetration,
+                    weapon.is_extreme_double,
+                    armor=self.monster.armor,
                 )
                 player_texts.append(self._t("battle.multi_shot_damage", expr=expr, value=val))
                 total_damage += val
@@ -551,7 +558,7 @@ class BattleActionsMixin:
             return self._t("battle.counter_failed"), ""
 
         damage_formula = self._get_player_damage_formula(weapon)
-        expr, val = calc_dmg(damage_formula)
+        expr, val = calc_dmg(damage_formula, armor=self.monster.armor)
 
         player_text = self._fill_damage(
             self._get_reply("反击成功"), expr, val
