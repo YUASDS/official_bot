@@ -151,3 +151,5 @@ util/browser/data
 .omo/
 .qa
 task_plan.md
+*.db-shm
+*.db-wal
