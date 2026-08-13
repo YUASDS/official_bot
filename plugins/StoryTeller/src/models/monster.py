@@ -160,6 +160,12 @@ class Monster:
 
         return gold, dropped_item, message
 
+    def half_loot_gold(self) -> int:
+        """侦查失败保底：怪物基础乌帕的一半（向下取整）。"""
+        reward_data = self._data.get("奖励", {})
+        gold_max = reward_data.get("乌帕", 10)
+        return int(gold_max) // 2
+
     def take_damage(self, amount: int) -> int:
         """Apply damage to monster."""
         prev_hp = self.hp

@@ -65,7 +65,12 @@ class BattleSettlementMixin:
                     # 首次获得残卷：提示研读途径（胜利结算会自动研读）
                     bonus_text += f"\n> {self._t('spell.learn_hint')}"
         else:
-            bonus_text = self._quote(self._get_reply("侦查失败"))
+            loot_lines = [self._get_reply("侦查失败")]
+            half_gold = self.monster.half_loot_gold()
+            if half_gold > 0:
+                add_gold(self.investigator.qq, half_gold)
+                loot_lines.append(self._t("battle.loot_half", gold=half_gold))
+            bonus_text = report_quote(loot_lines)
 
         # 首杀必掉信物（第 5 章：独立于侦查检定，登记 items_first）
         first_relic = first_kill_drop(self.investigator, self.monster.id)

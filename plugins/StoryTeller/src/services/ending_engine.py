@@ -83,7 +83,7 @@ def _in_range(value: int, spec: Any) -> bool:
 
 
 # 首杀必掉信物表兜底（第 5 章：独立于侦查检定的必掉登记；数据源 ending_data.json relics.first_kill）
-_FIRST_KILL_DEFAULT = {"30": "503", "33": "504", "34": "507", "37": "502"}
+_FIRST_KILL_DEFAULT = {"30": "503", "33": "504", "34": "507", "35": "508", "37": "502"}
 
 
 # --- 信物 / 知识度 ---

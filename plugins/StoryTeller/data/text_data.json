@@ -98,6 +98,7 @@
         "consumable_only": "战斗中只能使用消耗品道具。",
         "no_item": "背包中没有该物品（{id}）。",
         "first_kill_relic": "🎖 首杀必掉信物：{name}（已计入收集）",
+        "loot_half": "残破的收获：你未能搜刮出完整的战利品，只找到 {gold} 乌帕。",
         "day40_revive_title": "🌌 灯焰摇曳",
         "day40_revive": "你倒下的一瞬，怀中古圣者的遗愿燃起微光，将你从门缝中拉了回来。门没有合拢——它仍在等你作出选择。"
     },
@@ -294,6 +295,24 @@
         "title": "🌙 结局·{name}",
         "unlocked_at": "解锁于 {date}",
         "run": "第 {run} 周目",
+        "footer": "信物收集",
+        "runs": "累计周目",
+        "ng_plus": "新周目加成：Lv.{level}",
+        "not_found": "没有这个结局编号。",
+        "hidden_hint": "隐藏结局，继续你的冒险以发现它。",
+        "trigger": "达成条件",
+        "body": "正文",
+        "hint": "隐藏线索",
+        "relic_owned": "✅ 已获得",
+        "relic_missing": "❌ 未获得",
+        "relic_title": "🔮 信物图鉴",
+        "relic_header": "| 信物 | 状态 | 来源 |",
+        "relic_sep": "| --- | --- | --- |",
+        "frozen_ended": "结局已结算，庄园不再回应你的呼唤。",
+        "frozen_door": "门扉抉择尚未完成，请先做出选择。",
+        "day40_guard": "⚠️ 第 40 天怪物池异常：应为守门人（36），请检查 check_point.json。",
+        "relic_first": "🎒 信物收集里程碑：首次获得 {names}。",
+        "e10_tick": "庄园已 3 日无人踏入，门窗缓缓合拢。",
         "E01": {
             "name": "门扉之邀·合流",
             "body": "你跨入石门。门后不是深渊，而是一片异色的星河——它是仪式的真相，而你，是这场四十年仪式最后的一枚组件。清醒者看见星河汇入自己的血脉，肉身与意志一同被门拥抱；崩溃者随波逐流，在星流中失去姓名。门对你低语：你不是被吞没，你是被邀请。",
@@ -354,6 +373,17 @@
             "variant_light": "",
             "variant_song": ""
         }
+    },
+    "collection": {
+        "title": "🔮 信物图鉴",
+        "header": "| 信物 | 状态 | 来源 |",
+        "sep": "| --- | --- | --- |",
+        "owned": "✅ 已获得",
+        "missing": "❌ 未获得",
+        "footer": "信物收集",
+        "runs": "累计周目",
+        "ng_plus": "新周目加成：Lv.{level}",
+        "count": "已收集 {count}/{total}"
     },
     "door": {
         "title": "🚪 门扉抉择",
