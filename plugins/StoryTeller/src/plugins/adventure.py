@@ -40,6 +40,7 @@ from ..services.event_service import (
 from ..services.resurrect import do_resurrect
 from ..services.sanity import run_sanity_and_madness
 from .qiren import qiren_pending, qiren_should_trigger, qiren_send_dialogue
+from .gm_room import gm_afterglow, gm_room_enter, gm_room_should_trigger
 from ..utils.active_battles import battle_manager
 from ..utils.buttons import (
     _send_to_user,
@@ -258,6 +259,11 @@ async def _run_adventure(
         )
         day_event = data_loader.get_event(inv.day)
 
+        # GM 房间彩蛋（梦之碎片）：1% 概率 + day>=10 触发；day40/启挑战不参与
+        if gm_room_should_trigger(inv) and not qiren_forced:
+            await gm_room_enter(user_id, inv, bot, send)
+            gm_afterglow[user_id] = True
+
         # --- Environment ---
         env = {}
         env_desc = ""
@@ -278,6 +284,9 @@ async def _run_adventure(
         service = BattleService(inv, monster)
         if env:
             service.set_environment(env)
+        # 梦醒前的余韵：GM 房间彩蛋当日自动注入战斗强化（全技能+30/伤害翻倍/+25临时生命）
+        if gm_afterglow.pop(user_id, False):
+            service.apply_dream_buff()
 
         inv.is_adventure = True
         inv.save()

@@ -41,6 +41,9 @@ class BattleDamageMixin:
             return getattr(self.monster, "低伤害", self._t("battle.no_damage"))
 
         initial_hp = self.hp_record["mon"]
+        # 梦之碎片余韵：玩家伤害翻倍（含骨哨助战等玩家侧伤害）
+        if getattr(self, "dream_buff", False):
+            damage *= 2
         # 怪物装甲已在 calc_dmg 调用点按 armor=monster.armor 平扣，此处不再重复减伤
         actual_damage = max(0, damage)
         # 怪物临时生命（护盾）优先抵扣

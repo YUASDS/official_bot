@@ -720,3 +720,41 @@ def judge_door_choice(inv: Investigator, key: str) -> dict:
         equipments, _ = inv.get_equipments()
         variant = "星光变体" if _hold_item(equipments, "508") else None
     return _finish_door(inv, progress, cfg.get("fail_end"), variant, progress.run_id)
+
+
+def reroll_door_choice(inv: Investigator) -> Optional[str]:
+    """门扉重掷（梦之碎片·用途 B）：撤销已结算的门扉判定，恢复为待抉择状态。
+
+    仅撤销「门扉抉择」登记的结局（progress.door_choice 非空，即 E01/E02/E03/
+    E04/E08/E09 及其变体）；E05 战败 / E06 / E10 等非门扉终局不可重掷。
+    判定规则本身不变——玩家获得一次重新选择的机会（重新渲染门扉并再次判定）。
+
+    返回成功提示文本；不可重掷返回 None（调用方不得消耗梦之碎片）。
+    """
+    progress = ending_repo.get_progress(inv.qq)
+    if progress is None or not progress.ended or not progress.door_choice:
+        return None
+    # 撤销结局登记：从表 B endings 移除本局门扉判定登记的记录（同周目同结局）
+    collection = ending_repo.ensure_collection(inv.qq)
+    try:
+        records = list(ujson.loads(collection.endings or "[]"))
+    except (ValueError, TypeError):
+        records = []
+    target = progress.door_choice
+    run = progress.run_id
+    removed = False
+    for i in range(len(records) - 1, -1, -1):
+        rec = records[i]
+        if rec.get("id") == target and rec.get("run") == run:
+            records.pop(i)
+            removed = True
+            break
+    if removed:
+        collection.endings = ujson.dumps(records, ensure_ascii=False)
+        collection.ng_plus = len({r.get("id") for r in records if r.get("id")})
+        collection.save()
+    # 恢复进度表为待抉择状态
+    progress.ended = False
+    progress.door_choice = ""
+    progress.save()
+    return _text("dream_fragment.reroll_ok", "门扉在你身后重新合拢，你再次站在那扇门之前。")

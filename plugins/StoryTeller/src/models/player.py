@@ -137,6 +137,8 @@ class EndingCollectionModel(BaseModel):
     endings = TextField(default="[]", verbose_name="已解锁结局(JSON)")
     ng_plus = IntegerField(default=0, verbose_name="新周目加成等级")
     collection = TextField(default="{}", verbose_name="账号级图鉴收集标记(JSON)")
+    # GM 房间彩蛋：梦之碎片（账号级纪念道具，跨周目/重建保留，不进背包）
+    dream_fragments = IntegerField(default=0, verbose_name="梦之碎片")
 
     class Meta:
         table_name = "ending_collection"
@@ -315,7 +317,17 @@ class EndingRepository:
         db.create_tables(
             [EndingCollectionModel, EndingProgressModel], safe=True
         )
+        self._migrate(db)
         self.db = db
+
+    @staticmethod
+    def _migrate(db: Any) -> None:
+        """旧库补充新增列（梦之碎片）。"""
+        with contextlib.suppress(Exception):
+            db.execute_sql(
+                "ALTER TABLE ending_collection ADD COLUMN dream_fragments "
+                "INTEGER DEFAULT 0"
+            )
 
     # --- 表 B（账号级）---
     def get_collection(self, qq: str) -> Optional[EndingCollectionModel]:
@@ -329,6 +341,28 @@ class EndingRepository:
         if model is None:
             model = EndingCollectionModel.create(qq=qq)
         return model
+
+    # --- 梦之碎片（账号级纪念道具：跨周目保留、一次性）---
+    def get_dream_fragments(self, qq: str) -> int:
+        collection = self.get_collection(qq)
+        if collection is None:
+            return 0
+        return int(collection.dream_fragments or 0)
+
+    def add_dream_fragment(self, qq: str, n: int = 1) -> int:
+        collection = self.ensure_collection(qq)
+        collection.dream_fragments = int(collection.dream_fragments or 0) + n
+        collection.save()
+        return int(collection.dream_fragments)
+
+    def remove_dream_fragment(self, qq: str) -> bool:
+        """消耗一枚梦之碎片（一次性）：无碎片返回 False。"""
+        collection = self.get_collection(qq)
+        if collection is None or int(collection.dream_fragments or 0) <= 0:
+            return False
+        collection.dream_fragments = int(collection.dream_fragments) - 1
+        collection.save()
+        return True
 
     # --- 表 A（本局进度）---
     def get_progress(self, qq: str) -> Optional[EndingProgressModel]:

@@ -49,6 +49,9 @@ class BattleBaseMixin:
         # 骨哨助战剩余回合（506 消耗品，怪物行动前额外 1d4 伤害）
         self.bone_whistle = 0
 
+        # 梦之碎片 / GM 房间余韵：全技能 +30、伤害翻倍、临时生命（本场战斗临时状态）
+        self.dream_buff = False
+
         # 统计二期：战斗流水采集（只读累加，零行为影响）
         self._battle_logged = False
         self._stat_dmg_dealt = 0
@@ -73,6 +76,20 @@ class BattleBaseMixin:
         self.madness_duration = duration
         self.madness_total = duration if is_madness else 0
 
+    def apply_dream_buff(self) -> str:
+        """梦醒前的余韵 / 梦之碎片·战斗强化：全技能 +30、伤害翻倍、+25 临时生命。
+
+        临时战斗状态，战斗结束随 BattleService 销毁自动还原；不影响角色存档。
+        """
+        from ..data_loader import data_loader
+
+        self.dream_buff = True
+        self.temp_hp += 25
+        return data_loader.get_text(
+            "dream_fragment.battle_buff",
+            default="🌙 幽蓝的光淌进四肢——全技能 +30、伤害翻倍、25 点临时生命护住周身。",
+        )
+
     def _get_player_modified_skill(self, skill_name: str, default: int = 0) -> int:
         base = self.investigator.get_skill(skill_name, default)
         player_mods = self.environment.get("玩家", {})
@@ -81,6 +98,9 @@ class BattleBaseMixin:
         # 「射击」为枪械通用修正，作用于手枪/步枪两类鉴定技能
         elif skill_name in ("手枪", "步枪") and "射击" in player_mods:
             base += player_mods["射击"]
+        # 梦之碎片余韵：全技能 +30（含格斗/射击/闪避/反击/逃跑/法术对抗）
+        if getattr(self, "dream_buff", False):
+            base += 30
         return max(0, base)
 
     def _get_monster_attack_skill(self, monster_action: dict) -> int:
