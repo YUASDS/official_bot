@@ -234,7 +234,8 @@
         "resurrect_button": "🌟 使用复活道具",
         "skill_title": " 技能",
         "create_done_title": "调查员创建完成",
-        "create_done_hint": "冒险已准备就绪，点击下方按钮开启今日冒险！"
+        "create_done_hint": "冒险已准备就绪，点击下方按钮开启今日冒险！",
+        "legacy_title": "📜 前尘往事"
     },
     "shop": {
         "input_hint": "请输入物品ID和数量（可选）。",

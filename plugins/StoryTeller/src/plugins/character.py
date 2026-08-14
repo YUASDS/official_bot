@@ -1,8 +1,10 @@
+import ujson
+
 from nonebot import on_command
 from nonebot.adapters import Bot, Event, Message
 from nonebot.params import CommandArg
 
-from ..models.player import InvestigatorFormatter, investigator_repo
+from ..models.player import InvestigatorFormatter, ending_repo, investigator_repo
 from ..services.character_cards import (
     candidate_card_html,
     choose_success_card_html,
@@ -15,6 +17,7 @@ from ..services.character_service import (
     user_states,
 )
 from ..services.data_loader import data_loader
+from ..services.ending_engine import relic_ids
 from ..services.equipment_service import equip_item_and_sync
 from ..utils.buttons import _send_to_user, register_button_handler
 from ..utils.image_sender import render_pic, send_pic
@@ -23,9 +26,61 @@ from ..utils.md_format import (
     cmd_tag,
     md_message,
     need_create_message,
+    report_section,
 )
 
 _t = data_loader.get_text
+
+
+def _build_legacy_summary(qq: str) -> str:
+    """前尘往事：账号历史结局图鉴摘要（创建成功时追加展示）。
+
+    轻量版：只列已解锁结局（✅ E0X 名称），不剧透未解锁/隐藏结局；
+    复用 ending._build_overview 的渲染逻辑，但用 get_collection（无历史不建行）
+    且只展示已解锁项，故不复用其完整文本。无历史记录返回空串。
+    """
+    collection = ending_repo.get_collection(qq)
+    if collection is None:
+        return ""
+    try:
+        records = ujson.loads(collection.endings or "[]")
+    except (ValueError, TypeError):
+        records = []
+    if not isinstance(records, list) or not records:
+        return ""
+
+    unlocked = {r.get("id") for r in records if r.get("id")}
+    endings = (data_loader.ending_data or {}).get("endings") or {}
+    order = (data_loader.ending_data or {}).get("order") or list(endings.keys())
+
+    lines = [
+        report_section(_t("character.legacy_title", default="📜 前尘往事"))
+    ]
+    for eid in order:
+        if eid not in unlocked:
+            continue
+        meta = endings.get(eid) or {}
+        tmeta = ((data_loader.text_data or {}).get("ending") or {}).get(eid) or {}
+        name = tmeta.get("name") or meta.get("name") or eid
+        lines.append(f"✅ {eid} {name}")
+
+    marks = {}
+    try:
+        marks = ujson.loads(collection.collection or "{}")
+    except (ValueError, TypeError):
+        marks = {}
+    if not isinstance(marks, dict):
+        marks = {}
+    ids = relic_ids()
+    owned = sum(1 for rid in ids if marks.get(rid))
+    footer = _t("ending.footer", default="信物收集")
+    runs = _t("ending.runs", default="累计周目")
+    lines.append("")
+    lines.append(
+        f"> {footer}：{owned}/{len(ids)} ｜ {runs}：{collection.total_runs}"
+    )
+    return "\n".join(lines)
+
 
 # --- Commands ---
 create_cmd = on_command(
@@ -165,6 +220,9 @@ async def handle_skill(event: Event, bot: Bot, msg: Message = CommandArg()):
     if not ok:
         await skill_cmd.finish(md_message(f"\n{reply_msg}", bot, mention=user_id))
 
+    # 历史结局图鉴（在 new_run 之前取，total_runs 为「已完成周目」，更贴合前尘往事）
+    legacy = _build_legacy_summary(user_id)
+
     inv = ci.create_investigator(user_id, name)
     attrs = InvestigatorFormatter.format_investigator_info(name, ci.select)
     del user_states[user_id]
@@ -172,22 +230,22 @@ async def handle_skill(event: Event, bot: Bot, msg: Message = CommandArg()):
     # 创建完成图片卡片 + 今日冒险按钮；图片失败回退 md
     img = await render_pic(create_done_card_html(ci, name))
     if img is not None and await send_pic(bot, img, skill_cmd.send):
+        tail = cmd_tag('/今日冒险', show=_t('adventure.adventure_button'))
+        if legacy:
+            tail = f"{legacy}\n\n{tail}"
         await skill_cmd.send(
             md_message(
-                f"\n{cmd_tag('/今日冒险', show=_t('adventure.adventure_button'))}",
+                f"\n{tail}",
                 bot,
                 mention=user_id,
             )
         )
         return
 
-    await skill_cmd.finish(
-        md_message(
-            f"\n{_t('character.create_done', name=inv.name)}\n\n{attrs}",
-            bot,
-            mention=user_id,
-        )
-    )
+    text = f"\n{_t('character.create_done', name=inv.name)}\n\n{attrs}"
+    if legacy:
+        text += f"\n\n{legacy}"
+    await skill_cmd.finish(md_message(text, bot, mention=user_id))
 
 
 # --- /调查员信息 ---
