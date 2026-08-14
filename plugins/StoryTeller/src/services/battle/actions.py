@@ -58,7 +58,7 @@ class BattleActionsMixin:
                 ),
                 self._check_row(
                     self.monster.名字,
-                    "反击",
+                    "闪避" if getattr(self.monster, "is_dodging", False) else "反击",
                     confrontation.dice2,
                     confrontation.skill2,
                     confrontation.level2,
