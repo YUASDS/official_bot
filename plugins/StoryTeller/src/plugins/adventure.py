@@ -57,6 +57,15 @@ from ..utils.md_format import (
 )
 from util.DaylyRecord import add_data, get_data, write_json
 
+# 启专属环境：仅 qiren_forced 强制路径使用，普通日随机池永远排除
+MANOR_BLACK_MOON = "庄园.黑色满月"
+
+
+def pick_random_environment() -> str | None:
+    """普通日随机环境：从排除「庄园.黑色满月」后的池中随机选取；池空返回 None。"""
+    pool = [k for k in data_loader.environment_data if k != MANOR_BLACK_MOON]
+    return random.choice(pool) if pool else None
+
 
 def _resurrect_price() -> int:
     """复活道具（501）售价：扫描 shop_data 价格档位（默认 200）。"""
@@ -258,10 +267,12 @@ async def _run_adventure(
             env["name"] = "庄园.黑色满月"
             env_desc = f"【庄园.黑色满月】{env.get('描述', '')}"
         elif data_loader.environment_data:
-            env_key = random.choice(list(data_loader.environment_data.keys()))
-            env = data_loader.environment_data[env_key].copy()
-            env["name"] = env_key
-            env_desc = f"【{env_key}】{env.get('描述', '')}"
+            env_key = pick_random_environment()
+            env = {}
+            if env_key:
+                env = data_loader.environment_data[env_key].copy()
+                env["name"] = env_key
+                env_desc = f"【{env_key}】{env.get('描述', '')}"
 
         # --- Battle service ---
         service = BattleService(inv, monster)
