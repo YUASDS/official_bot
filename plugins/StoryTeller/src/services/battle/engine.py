@@ -119,6 +119,11 @@ class BattleEngineMixin:
         # AI 怪物：回合前推进状态（一次性），若为施法回合则自动施法并结束回合
         if getattr(self.monster, "_ai_data", None) is not None:
             self.monster.advance_ai()
+            # 变身瞬间文案：首次进入受伤后阶段一次性展示（读后清空）
+            transform_text = getattr(self.monster, "_ai_transform_text", None)
+            if transform_text:
+                self.monster._ai_transform_text = None
+                parts.append(transform_text)
             ai_action = self.monster.get_ai_action("mon")
             if ai_action.get("type") == "spell":
                 parts.extend(self._execute_monster_spell(ai_action))

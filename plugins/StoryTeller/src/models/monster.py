@@ -80,6 +80,9 @@ class Monster:
         self._ai_pending_spell = None
         self._ai_dodging = False
         self._ai_dodge = 99
+        # 变身一次性状态：_ai_transformed 标记已变身（防反复触发）；_ai_transform_text 变身瞬间文案
+        self._ai_transformed = False
+        self._ai_transform_text = None
         if self._ai_data:
             self._ai_dodge = int(
                 (self._ai_data.get("受伤后") or {}).get("闪避", 99)
@@ -158,6 +161,11 @@ class Monster:
             }
         if self._ai_phase == "开火":
             return self._ai_ranged_action()
+        # 受伤后阶段可配置独立「反击型」行动（ai.受伤后.近战），缺省回退 近战（38 号行为不变）
+        if self._ai_phase == "受伤后":
+            injured_melee = (self._ai_data.get("受伤后") or {}).get("近战")
+            if injured_melee:
+                return self._ensure_ai_fields(dict(injured_melee))
         return self._ai_melee_action()
 
     def advance_ai(self) -> None:
@@ -165,15 +173,30 @@ class Monster:
 
         受伤优先（打断开火剩余喷子）→ 预取待施法术；开火按次数推进并切换近战。
         施法回合结束后由 complete_spell_turn 清除待施法术并进入闪避模式。
+
+        受伤触发阈值（可选）：`ai.受伤后.阈值`（0~1，缺省 = 任意受伤即触发，38 号行为不变）；
+        变身瞬间文案（可选）：`ai.受伤后.变身文本`，首次进入受伤后阶段写入 `_ai_transform_text`，
+        由战斗引擎读取后一次性展示（读后清空）。
         """
         if self._ai_data is None:
             return
         if self._ai_pending_spell is not None:
             return  # 本轮为施法回合，不推进攻击次数
-        if self.hp < self.max_hp and not self._ai_dodging:
-            spells = (self._ai_data.get("受伤后") or {}).get("法术", [])
+        injured = self._ai_data.get("受伤后") or {}
+        limit = self.max_hp
+        if injured.get("阈值"):
+            try:
+                limit = int(self.max_hp * float(injured["阈值"]))
+            except (TypeError, ValueError):
+                limit = self.max_hp
+        if self.hp < limit and not self._ai_dodging:
+            if self._ai_transformed:
+                return
+            self._ai_transformed = True
+            spells = injured.get("法术", [])
             self._ai_pending_spell = random.choice(spells) if spells else None
             self._ai_phase = "受伤后"
+            self._ai_transform_text = injured.get("变身文本")
             return
         if self._ai_phase == "开火":
             self._shots_fired += 1
