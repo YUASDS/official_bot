@@ -96,6 +96,5 @@ if exist "%PID_FILE%" (
     taskkill /PID %BOT_PID% /f >nul 2>nul
     del "%PID_FILE%" >nul 2>nul
 )
-taskkill /im python.exe /f >nul 2>nul
 timeout /t 2 /nobreak >nul
 goto :eof
