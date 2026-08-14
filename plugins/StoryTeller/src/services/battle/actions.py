@@ -466,6 +466,8 @@ class BattleActionsMixin:
         )
         self.bone_whistle = 3
         self._stat_consumables["506"] = self._stat_consumables.get("506", 0) + 1
+        # 周目联动：使用 506 骨哨召唤猎犬 → 记录跨周目行为（与猎犬建立联系）
+        self._record_run_choice("hound", "summoned")
         text = data_loader.get_text(
             "battle.bone_whistle_start",
             default="🦴 你吹响廷达洛斯的骨哨——脚下的阴影站了起来，猎犬将助战 {turns} 回合。",

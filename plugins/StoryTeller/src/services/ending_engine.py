@@ -627,6 +627,9 @@ def _finish_door(
         ending_repo.add_ending(inv.qq, end_id, variant=variant, run=run)
         # 统计二期：门扉结局周目快照（写后不理）
         snapshot_run(inv, end_id, variant, progress=progress)
+        # 周目联动：达成门扉 E01「清醒合流」→ 记录跨周目行为（下周目 D1 门后低语 + D40 只读提示）
+        if end_id == "E01":
+            ending_repo.record_run_choice(inv.qq, "door", "e01")
     notes = {
         ("E05", "星光变体"): "持格拉基之泪时，星云温柔地环绕你——你终于回家了。",
         ("E01", "清醒合流"): "知识度达标，肉身保留意志。",

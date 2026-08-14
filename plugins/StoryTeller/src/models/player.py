@@ -142,6 +142,8 @@ class EndingCollectionModel(BaseModel):
     collection = TextField(default="{}", verbose_name="账号级图鉴收集标记(JSON)")
     # GM 房间彩蛋：梦之碎片（账号级纪念道具，跨周目/重建保留，不进背包）
     dream_fragments = IntegerField(default=0, verbose_name="梦之碎片")
+    # 周目联动：上一周目关键行为记录（跨周目保留，幂等"首遇优先"；注入下周目 past.* flags）
+    last_run_choices = TextField(default="{}", verbose_name="上一周目关键行为记录(JSON)")
 
     class Meta:
         table_name = "ending_collection"
@@ -329,11 +331,16 @@ class EndingRepository:
 
     @staticmethod
     def _migrate(db: Any) -> None:
-        """旧库补充新增列（梦之碎片）。"""
+        """旧库补充新增列（梦之碎片 / 周目联动 last_run_choices）。"""
         with contextlib.suppress(Exception):
             db.execute_sql(
                 "ALTER TABLE ending_collection ADD COLUMN dream_fragments "
                 "INTEGER DEFAULT 0"
+            )
+        with contextlib.suppress(Exception):
+            db.execute_sql(
+                "ALTER TABLE ending_collection ADD COLUMN last_run_choices "
+                "TEXT DEFAULT '{}'"
             )
 
     # --- 表 B（账号级）---
@@ -464,6 +471,36 @@ class EndingRepository:
         marks = {**marks, **{rid: True for rid in relic_ids}}
         collection.collection = ujson.dumps(marks, ensure_ascii=False)
         collection.save()
+
+    # --- 周目联动（last_run_choices）---
+    def record_run_choice(self, qq: str, key: str, value: Any) -> None:
+        """记录跨周目关键行为（幂等：同 key 只记第一次——首遇语义最重要）。
+
+        写入点全是"即时行为"（击杀/被击杀/召唤/结局达成），与结局判定解耦；
+        表 B 跨周目保留，供下一周目注入 past.* flags。
+        """
+        collection = self.ensure_collection(qq)
+        try:
+            choices = ujson.loads(collection.last_run_choices or "{}")
+        except (ValueError, TypeError):
+            choices = {}
+        if not isinstance(choices, dict):
+            choices = {}
+        if key not in choices:
+            choices[key] = value
+            collection.last_run_choices = ujson.dumps(choices, ensure_ascii=False)
+            collection.save()
+
+    def get_run_choices(self, qq: str) -> dict:
+        """上一周目关键行为记录（损坏/缺失回退空 dict）。"""
+        collection = self.get_collection(qq)
+        if collection is None:
+            return {}
+        try:
+            choices = ujson.loads(collection.last_run_choices or "{}")
+        except (ValueError, TypeError):
+            return {}
+        return choices if isinstance(choices, dict) else {}
 
 
 ending_repo = EndingRepository()
@@ -875,4 +912,21 @@ class CreateInvestigator:
         new_model = investigator_repo.create_and_save(qq, name, self.select)
         for item_id, qty in inherited:
             investigator_repo.add_item_to_inventory(new_model, item_id, qty)
-        return Investigator(new_model)
+        inv = Investigator(new_model)
+        # 周目联动：读表 B last_run_choices → 写新调查员 flags（past.*，单局语义）
+        _inject_past_run_flags(qq, inv)
+        return inv
+
+
+def _inject_past_run_flags(qq: str, inv: Investigator) -> None:
+    """周目联动注入：表 B last_run_choices → investigators.flags（past.* 键）。
+
+    past.* 随角色重建清空（单局语义）；跨周目持久只存表 B。
+    被猎犬杀死过的调查员额外受噩梦侵袭（SAN 开局 -1，仅叙事层，不碰结局判定）。
+    """
+    choices = ending_repo.get_run_choices(qq)
+    for key, value in choices.items():
+        inv.set_flag(f"past.{key}", value)
+    if choices.get("hound") == "killed_by":
+        inv.set_skill("san", max(0, inv.get_skill("san", 0) - 1))
+    inv.save()

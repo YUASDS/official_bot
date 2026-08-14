@@ -26,8 +26,14 @@ class MonsterRepository:
         """Find raw monster data by ID."""
         return self._monster_data.get(monster_id)
 
-    def find_random_id_for_day(self, day: int | str) -> Optional[str]:
-        """Select a random monster ID based on the day (using check_point data)."""
+    def find_random_id_for_day(
+        self, day: int | str, weights: dict | None = None
+    ) -> Optional[str]:
+        """Select a random monster ID based on the day (using check_point data).
+
+        weights: {monster_id: 权重} 可选——按权重重复入池后随机（周目联动用，如
+        被猎犬杀死过的调查员猎犬权重 ×2）。缺省不传 = 现状均匀随机，零行为变化。
+        """
         day_str = str(day)
         available_monsters = self._checkpoint_data.get(day_str)
         if not available_monsters:
@@ -43,7 +49,13 @@ class MonsterRepository:
                         return selected
             return None
 
-        return random.choice(available_monsters)
+        if not weights:
+            return random.choice(available_monsters)
+        pool: list[str] = []
+        for mid in available_monsters:
+            count = int(weights.get(mid, 1))
+            pool.extend([mid] * max(1, count))
+        return random.choice(pool)
 
 monster_repo = MonsterRepository()
 

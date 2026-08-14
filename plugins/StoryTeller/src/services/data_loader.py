@@ -71,8 +71,31 @@ class DataLoader:
                         f"monster {mid} ({monster.get('名字')}) 攻击[{key}] 缺少 damage 字段"
                     )
 
-    def get_event(self, day: str | int) -> str:
-        return self.reply_data.get("event", {}).get(str(day), "")
+    def get_event(self, day: str | int, flags: dict | None = None) -> str:
+        """每日叙事文本；传入 flags 时追加命中 past.* 的「周目联动变体句」（引号块）。
+
+        变体数据在 reply_data.json 的 `story_variants` 段，按日组织：
+        [{"flag": "past.hound", "value": "killed", "text": "..."}]——原文一字不改。
+        """
+        text = self.reply_data.get("event", {}).get(str(day), "")
+        variant = self._get_story_variant(str(day), flags)
+        if not variant:
+            return text
+        return f"{text}\n\n{variant}"
+
+    def _get_story_variant(self, day: str, flags: dict | None) -> str:
+        """匹配 story_variants[day] 中 flags 命中的变体句（多条全追加，保序）。"""
+        if not flags:
+            return ""
+        variants = (self.reply_data.get("story_variants") or {}).get(day) or []
+        lines = []
+        for v in variants:
+            if not isinstance(v, dict):
+                continue
+            key = v.get("flag")
+            if key and flags.get(key) == v.get("value") and v.get("text"):
+                lines.append(f"> {v['text']}")
+        return "\n".join(lines) if lines else ""
 
     def get_text(self, key: str, default: str = "", **kwargs: Any) -> str:
         """从 text_data.json 按 key 取文本，支持 {placeholder} 格式化。

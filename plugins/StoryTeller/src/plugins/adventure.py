@@ -68,11 +68,43 @@ from util.DaylyRecord import add_data, get_data, write_json
 # 启专属环境：仅 qiren_forced 强制路径使用，普通日随机池永远排除
 MANOR_BLACK_MOON = "庄园.黑色满月"
 
+# 周目联动：击杀过廷达洛斯之猎犬 → D12/D20 遭遇强化版「猎犬·复仇」(44) 的概率（%）
+_HOUND_VENGEANCE_CHANCE = 50
+
 
 def pick_random_environment() -> str | None:
     """普通日随机环境：从排除「庄园.黑色满月」后的池中随机选取；池空返回 None。"""
     pool = [k for k in data_loader.environment_data if k != MANOR_BLACK_MOON]
     return random.choice(pool) if pool else None
+
+
+def _linkage_encounter(inv: Investigator) -> str | None:
+    """周目联动·特定天遭遇：击杀过廷达洛斯之猎犬 → D12/D20 概率替换为「猎犬·复仇」(44)。
+
+    纯遭遇层：只替换当日怪，不改结局判定；44 不掉 400~508 信物（奖励为消耗品 505）。
+    """
+    if inv.day not in (12, 20):
+        return None
+    if inv.get_flag("past.hound") != "killed":
+        return None
+    if random.randint(1, 100) <= _HOUND_VENGEANCE_CHANCE:
+        return "44"
+    return None
+
+
+def _apply_hound_hesitation(
+    service: BattleService, inv: Investigator, monster_id: str
+) -> None:
+    """周目联动：被猎犬杀死过的调查员，本局首次遭遇猎犬 32 时它迟疑一回合（不攻击）。
+
+    单局旗标 past.hound_hesitated 在迟疑真正发生时置位（engine 消费），确保每局仅首遇生效。
+    """
+    if (
+        monster_id == "32"
+        and inv.get_flag("past.hound") == "killed_by"
+        and not inv.get_flag("past.hound_hesitated")
+    ):
+        service.hound_hesitates = True
 
 
 def _resurrect_price() -> int:
@@ -253,7 +285,16 @@ async def _run_adventure(
             await npc_send_dialogue(user_id, bot, send, npc_id)
             return
         else:
-            monster_id = monster_repo.find_random_id_for_day(inv.day)
+            # 周目联动：被猎犬杀死过 → 猎犬在每日池权重 ×2（"它来找你了"）
+            weights = (
+                {"32": 2} if inv.get_flag("past.hound") == "killed_by" else None
+            )
+            monster_id = monster_repo.find_random_id_for_day(inv.day, weights=weights)
+        # 周目联动：击杀过猎犬 → D12/D20 概率替换为强化版「猎犬·复仇」(44)
+        if not qiren_forced:
+            linked = _linkage_encounter(inv)
+            if linked:
+                monster_id = linked
         # 走到战斗/事件/GM 房间流程前清理残留 NPC 对话状态（防 /行动 误拦截）
         npc_states.pop(user_id, None)
         if not monster_id:
@@ -270,7 +311,7 @@ async def _run_adventure(
             "出场",
             data_loader.get_text("adventure.monster_intro_default", name=monster.name),
         )
-        day_event = data_loader.get_event(inv.day)
+        day_event = data_loader.get_event(inv.day, flags=inv.get_all_flags())
 
         # GM 房间彩蛋（梦之碎片）：1% 概率 + day>=10 触发；day40/启挑战不参与
         if gm_room_should_trigger(inv) and not qiren_forced:
@@ -297,6 +338,8 @@ async def _run_adventure(
         service = BattleService(inv, monster)
         if env:
             service.set_environment(env)
+        # 周目联动：被猎犬杀死过 → 首次遭遇猎犬它迟疑一回合（首回合跳过攻击）
+        _apply_hound_hesitation(service, inv, monster_id)
         # 伙伴助战：好感度满解锁的 NPC 伙伴注入（泛化 506 骨哨助战，纯战斗内状态）
         inject_companion(service, inv)
         # 梦醒前的余韵：GM 房间彩蛋当日自动注入战斗强化（全技能+30/伤害翻倍/+25临时生命）

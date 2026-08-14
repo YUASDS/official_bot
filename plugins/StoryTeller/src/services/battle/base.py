@@ -52,6 +52,9 @@ class BattleBaseMixin:
         # 伙伴助战（NPC 好感度满解锁后由 inject_companion 注入，格式同骨哨但更强数据驱动）
         self.companion: Optional[dict] = None
 
+        # 周目联动：被猎犬杀死过的调查员首次遭遇猎犬时它迟疑一回合（首回合不攻击）
+        self.hound_hesitates = False
+
         # 梦之碎片 / GM 房间余韵：全技能 +30、伤害翻倍、临时生命（本场战斗临时状态）
         self.dream_buff = False
 

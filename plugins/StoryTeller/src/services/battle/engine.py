@@ -12,6 +12,7 @@ from ..ending_engine import (
     register_e07,
     render_door_choice,
 )
+from ...models.player import ending_repo
 
 # 失控自动结算的迭代上限（保险丝，正常每回合 2 步内必推进）
 _MAX_MADNESS_STEPS = 100
@@ -97,6 +98,19 @@ class BattleEngineMixin:
 
     def _execute_monster_action(self, action: str) -> tuple:
         parts: list[str] = []
+        # 周目联动：被猎犬杀死过的调查员首次遭遇猎犬时，它迟疑一回合（不攻击，轮到玩家）
+        if getattr(self, "hound_hesitates", False):
+            self.hound_hesitates = False
+            self.investigator.set_flag("past.hound_hesitated", True)
+            self.investigator.save()
+            parts.append(
+                data_loader.get_text(
+                    "legacy.hound_hesitate",
+                    default="它看着你，像在确认某个旧账。獠牙悬在半空，没有落下。",
+                )
+            )
+            parts.append(self._end_turn())
+            return tuple(parts)
         # 助战（伙伴/骨哨二选一）：怪物行动前额外伤害（伙伴优先于 506 骨哨）
         if getattr(self, "companion", None):
             comp = self.companion
@@ -276,6 +290,9 @@ class BattleEngineMixin:
                             str(door.get("variant") or ""),
                         )
                 return msg
+            # 周目联动：被 32 廷达洛斯之猎犬杀死（非逃跑）→ 记录跨周目行为
+            if getattr(self.monster, "id", "") == "32":
+                self._record_run_choice("hound", "killed_by")
             self.investigator.is_survive = False
             self.investigator.save()
             header = self._t("battle.death_text", name=self.player_name)
@@ -301,10 +318,23 @@ class BattleEngineMixin:
                 self.end_parts = (header, "")
                 self._log_battle("win")
                 return header
+            # 周目联动：击杀 32 猎犬 / 击败 37 镜中之人 → 记录跨周目行为
+            mid = getattr(self.monster, "id", "")
+            if mid == "32":
+                self._record_run_choice("hound", "killed")
+            elif mid == "37":
+                self._record_run_choice("mirror", "defeated")
             msg = self._handle_victory()
             self._log_battle("win")
             return msg
         return None
+
+    def _record_run_choice(self, key: str, value) -> None:
+        """周目联动写入点：跨周目行为记录（幂等首遇优先，写后不理防破坏战斗）。"""
+        try:
+            ending_repo.record_run_choice(self.investigator.qq, key, value)
+        except Exception:  # noqa: BLE001 - 记录失败不影响战斗
+            pass
 
     def _handle_day40_defeat(self) -> str:
         """第 40 天战败（1.3）：持 501 自动复活并进入门扉抉择；无 501 直接 E05。"""
