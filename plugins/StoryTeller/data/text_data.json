@@ -496,6 +496,18 @@
         "challenge_pending": "你握紧了武器。他微微颔首，黑剑缓缓扬起——今夜，你不再回避。",
         "skip_done": "你收起了武器，转身离开那片月光。身后传来一声极轻的叹息——他没有追来。\n\n你活过了这一天。"
     },
+    "npc": {
+        "status_title": "🕯️ 伙伴与好感度",
+        "status_row": " · {name}：{status}",
+        "unknown": "尚未相遇",
+        "companion": "🛡️ 已结为伙伴",
+        "affinity_line": "好感度 {cur}/{max}",
+        "ally_unlocked": "🛡️ **{name} 成为你的伙伴！** 战斗中，{ally} 将出手助战。",
+        "affinity_change": "💗 {name} 好感度 {delta:+d}（{cur}/{max}）",
+        "unknown_npc": "没有这样的存在。",
+        "invalid_choice": "无法理解你的选择。",
+        "none": "庄园里还没有与你相识的伙伴。"
+    },
     "help": {
         "title": "# 🕯️ 庄园迷雾 · 冒险指南",
         "intro_title": "入门·流程",

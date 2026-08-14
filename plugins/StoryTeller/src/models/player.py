@@ -85,6 +85,9 @@ class InvestigatorModel(BaseModel):
     # Spells (JSON list of spell ids)
     spells = TextField(default="[]", verbose_name="已学会法术")
 
+    # Flags (JSON dict)：单局剧情旗标（好感度/伙伴解锁等，随角色重建清空）
+    flags = TextField(default="{}", verbose_name="剧情旗标(JSON)")
+
     class Meta:
         table_name = "investigators"
 
@@ -156,7 +159,7 @@ class InvestigatorRepository:
 
     @staticmethod
     def _migrate(db: Any) -> None:
-        """旧库补充新增列（spells / 克苏鲁神话）。"""
+        """旧库补充新增列（spells / 克苏鲁神话 / flags）。"""
         with contextlib.suppress(Exception):
             db.execute_sql(
                 "ALTER TABLE investigators ADD COLUMN spells TEXT DEFAULT '[]'"
@@ -164,6 +167,10 @@ class InvestigatorRepository:
         with contextlib.suppress(Exception):
             db.execute_sql(
                 "ALTER TABLE investigators ADD COLUMN 克苏鲁神话 INTEGER DEFAULT 0"
+            )
+        with contextlib.suppress(Exception):
+            db.execute_sql(
+                "ALTER TABLE investigators ADD COLUMN flags TEXT DEFAULT '{}'"
             )
 
     def find_by_qq(self, qq: str) -> Optional[InvestigatorModel]:
@@ -642,6 +649,28 @@ class Investigator:
 
     def has_spell(self, spell_id: str) -> bool:
         return spell_id in self.get_spells()
+
+    def get_all_flags(self) -> dict:
+        """单局剧情旗标全量（JSON 解析，损坏时回退空 dict）。"""
+        raw = None
+        if hasattr(self, "update_data") and "flags" in self.update_data:
+            raw = self.update_data["flags"]
+        if raw is None:
+            raw = getattr(self._model, "flags", "{}") or "{}"
+        try:
+            value = ujson.loads(raw)
+            return value if isinstance(value, dict) else {}
+        except (ValueError, TypeError):
+            return {}
+
+    def get_flag(self, name: str):
+        return self.get_all_flags().get(name)
+
+    def set_flag(self, name: str, value: Any = True) -> None:
+        """写入单局剧情旗标（走 update_data 缓存 + save() 落库模式，对齐 set_skill）。"""
+        flags = self.get_all_flags()
+        flags[name] = value
+        self.set_skill("flags", ujson.dumps(flags, ensure_ascii=False))
 
     def get_full_attributes_dict(self) -> dict[str, Any]:
         core = ["力量", "体质", "体型", "敏捷", "外貌", "智力", "意志", "教育", "幸运"]

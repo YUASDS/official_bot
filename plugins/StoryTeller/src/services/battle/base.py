@@ -49,6 +49,9 @@ class BattleBaseMixin:
         # 骨哨助战剩余回合（506 消耗品，怪物行动前额外 1d4 伤害）
         self.bone_whistle = 0
 
+        # 伙伴助战（NPC 好感度满解锁后由 inject_companion 注入，格式同骨哨但更强数据驱动）
+        self.companion: Optional[dict] = None
+
         # 梦之碎片 / GM 房间余韵：全技能 +30、伤害翻倍、临时生命（本场战斗临时状态）
         self.dream_buff = False
 

@@ -33,6 +33,7 @@ class DataLoader:
             self.spell_data = self._load_json(base_path / "spell_data.json")
             self.text_data = self._load_json(base_path / "text_data.json")
             self.ending_data = self._load_json(base_path / "ending_data.json")
+            self.npc_data = self._load_json(base_path / "npc_data.json")
             self._validate_monster_data()
             logger.info("Game data loaded successfully.")
         except Exception as e:
@@ -47,6 +48,7 @@ class DataLoader:
             self.spell_data = {}
             self.text_data = {}
             self.ending_data = {}
+            self.npc_data = {}
 
     def _load_json(self, path: Path) -> dict[str, Any]:
         if not path.exists():

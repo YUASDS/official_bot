@@ -97,8 +97,29 @@ class BattleEngineMixin:
 
     def _execute_monster_action(self, action: str) -> tuple:
         parts: list[str] = []
-        # 骨哨助战：怪物行动前额外 1d4 伤害（猎犬持续 3 回合）
-        if getattr(self, "bone_whistle", 0) > 0:
+        # 助战（伙伴/骨哨二选一）：怪物行动前额外伤害（伙伴优先于 506 骨哨）
+        if getattr(self, "companion", None):
+            comp = self.companion
+            comp["剩余"] = comp.get("剩余", int(comp["回合数"]))
+            _expr, val = roll_dice(comp["每回合"])
+            val = max(0, val - self.monster.armor)  # 装甲减伤与 calc_dmg 一致
+            self._apply_damage_to_monster(val)
+            comp["剩余"] -= 1
+            try:
+                comp_text = comp["文案"].format(
+                    damage=val, remaining=comp["剩余"]
+                )
+            except (KeyError, IndexError, ValueError):
+                comp_text = comp.get("文案", "")
+            parts.append(comp_text)
+            if comp["剩余"] <= 0:
+                self.companion = None
+            if self.hp_record["mon"] <= 0:
+                over = self._check_combat_over()
+                if over:
+                    parts.append(over)
+                return tuple(parts)
+        elif getattr(self, "bone_whistle", 0) > 0:
             self.bone_whistle -= 1
             _expr, val = roll_dice("1d4")
             val = max(0, val - self.monster.armor)  # 装甲减伤与 calc_dmg 一致

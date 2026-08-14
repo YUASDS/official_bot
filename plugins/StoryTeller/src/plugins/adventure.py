@@ -41,6 +41,13 @@ from ..services.resurrect import do_resurrect
 from ..services.sanity import run_sanity_and_madness
 from .qiren import qiren_pending, qiren_should_trigger, qiren_send_dialogue
 from .gm_room import gm_afterglow, gm_room_enter, gm_room_should_trigger
+from .npc import (
+    inject_companion,
+    npc_handle_command,
+    npc_should_trigger,
+    npc_send_dialogue,
+    npc_states,
+)
 from ..utils.active_battles import battle_manager
 from ..utils.buttons import (
     _send_to_user,
@@ -241,8 +248,14 @@ async def _run_adventure(
         elif qiren_should_trigger(inv):
             await qiren_send_dialogue(user_id, bot, send)
             return
+        elif (npc_id := npc_should_trigger(inv)) is not None:
+            # NPC 彩蛋：概率触发对话（好感度推进/结伴），当日互斥链 qiren → npc → gm_room
+            await npc_send_dialogue(user_id, bot, send, npc_id)
+            return
         else:
             monster_id = monster_repo.find_random_id_for_day(inv.day)
+        # 走到战斗/事件/GM 房间流程前清理残留 NPC 对话状态（防 /行动 误拦截）
+        npc_states.pop(user_id, None)
         if not monster_id:
             await finish(
                 md_message(
@@ -284,6 +297,8 @@ async def _run_adventure(
         service = BattleService(inv, monster)
         if env:
             service.set_environment(env)
+        # 伙伴助战：好感度满解锁的 NPC 伙伴注入（泛化 506 骨哨助战，纯战斗内状态）
+        inject_companion(service, inv)
         # 梦醒前的余韵：GM 房间彩蛋当日自动注入战斗强化（全技能+30/伤害翻倍/+25临时生命）
         if gm_afterglow.pop(user_id, False):
             service.apply_dream_buff()
@@ -574,6 +589,13 @@ async def handle_combat(event: Event, bot: Bot, msg: Message = CommandArg()):
         await combat_cmd.finish(
             md_message(f"\n{result['message']}", bot, mention=user_id)
         )
+
+    # NPC 对话命令通道（npc_states 未决时 `/行动 <选项输入>` 完成选择，对齐事件/门扉模式）
+    npc_state = npc_states.pop(user_id, None)
+    if npc_state:
+        choice = action.removeprefix("/行动 ").removeprefix("/行动").strip()
+        await npc_handle_command(user_id, npc_state["npc_id"], choice, bot, combat_cmd.send)
+        return
 
     # Check for pending event choice first
     ev_state = event_states.pop(user_id, None)
@@ -897,6 +919,7 @@ async def _start_day40_refight(
     inv.save()
     monster = Monster("36")
     service = BattleService(inv, monster)
+    inject_companion(service, inv)
     battle_manager.add_battle(user_id, service)
     service.roll_initiative()
 
