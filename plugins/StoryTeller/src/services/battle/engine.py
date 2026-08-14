@@ -229,6 +229,17 @@ class BattleEngineMixin:
 
     def _check_combat_over(self) -> Optional[str]:
         if self.hp_record["inv"] <= 0:
+            if getattr(self, "is_gm_room", False):
+                # GM 房间·战败隔离：不落 is_survive、不登记 E07、不碰 SAN/进度，
+                # 仅标记战败由 gm_room 接管（GM 复活 / 空手退出）。
+                self.gm_room_defeated = True
+                header = data_loader.get_text(
+                    "gm_room_v2.battle_defeat",
+                    default="守卫的最后一击将你击倒在地，眼前一阵发黑。",
+                )
+                self.end_parts = (header, "")
+                self._log_battle("death")
+                return header
             if self._battle_day == 40:
                 # 出口①：第 40 天战败走 1.3 分支（501 复活 → 门扉抉择 / 无 501 → E05）
                 msg = self._handle_day40_defeat()
@@ -260,6 +271,15 @@ class BattleEngineMixin:
             self._log_battle("death")
             return f"{header}\n\n{detail}"
         if self.hp_record["mon"] <= 0:
+            if getattr(self, "is_gm_room", False):
+                # GM 房间·胜利隔离：不走掉落/成长/day+1/门扉/SAN 回复，
+                # 奖励由 gm_room 状态机按分支发放。
+                self.gm_room_victory = True
+                ending = getattr(self.monster, "结局", self._t("battle.monster_dead"))
+                header = f"{self._t('battle.victory_title')}\n\n{ending}"
+                self.end_parts = (header, "")
+                self._log_battle("win")
+                return header
             msg = self._handle_victory()
             self._log_battle("win")
             return msg
