@@ -153,3 +153,4 @@ util/browser/data
 task_plan.md
 *.db-shm
 *.db-wal
+opencode.json

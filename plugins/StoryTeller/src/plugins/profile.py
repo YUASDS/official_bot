@@ -1,6 +1,7 @@
 from nonebot import on_command
 from nonebot.adapters import Bot, Event
 
+from ..services.stat_render import career_section
 from ..utils.md_format import md_message
 
 profile_cmd = on_command(
@@ -11,6 +12,10 @@ profile_cmd = on_command(
 @profile_cmd.handle()
 async def handle_profile(event: Event, bot: Bot) -> None:
     user_id = event.get_user_id()
+    parts = [f"你的个人ID：`{user_id}`"]
+    career = career_section(user_id)
+    if career:
+        parts.append(career)
     await profile_cmd.finish(
-        md_message(f"\n你的个人ID：`{user_id}`", bot, mention=user_id)
+        md_message("\n\n".join(parts), bot, mention=user_id)
     )
