@@ -124,6 +124,7 @@ class BattleActionsMixin:
             # 闪避模式：玩家攻击落空 → 怪物闪避，不反击伤害
             player_text = self._get_reply(f"{self.current_action}失败").replace("$装备", weapon.name)
             monster_text = self._monster_dodge_text()
+            monster_parts = [monster_text]  # 闪避模式只渲染闪避文案，不带反击文案
         elif confrontation.level1 < 1 and confrontation.level2 < 1:
             player_text = self._get_reply(f"{self.current_action}失败").replace("$装备", weapon.name)
             monster_text = (
@@ -131,10 +132,12 @@ class BattleActionsMixin:
                 if confrontation.level2 == SuccessLevel.CRITICAL_FAILURE
                 else monster_action.get("counter_false", "")
             )
+            monster_parts = [monster_text]
         else:
             monster_text, player_text = self._handle_monster_attack_success(monster_action, confrontation)
+            monster_parts = [monster_action["counterattack"], monster_text]
         exchange = self._exchange(
-            [monster_action["counterattack"], monster_text],
+            monster_parts,
             [self._get_weapon_reply(weapon), player_text],
         )
         return (roll_desc, exchange, self._end_turn())
