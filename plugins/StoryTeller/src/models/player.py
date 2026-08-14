@@ -359,6 +359,8 @@ class EndingRepository:
         collection.save()
         old = self.get_progress(qq)
         if old is not None:
+            # 统计二期：表 A 重建前对未结算局做兜底周目快照（写后不理）
+            self._snapshot_unsettled_run(qq, old)
             old.delete_instance()
         EndingProgressModel.create(
             qq=qq,
@@ -366,6 +368,19 @@ class EndingRepository:
             day=1,
         )
         return collection
+
+    @staticmethod
+    def _snapshot_unsettled_run(qq: str, progress: EndingProgressModel) -> None:
+        """统计二期：未结算局兜底快照（避免重建丢历史，异常一律吞掉）。"""
+        try:
+            from ..services.stats_service import snapshot_run
+
+            if investigator_repo.find_by_qq(qq) is None:
+                return
+            inv = Investigator.load(qq)
+            snapshot_run(inv, "", progress=progress)
+        except Exception:  # noqa: BLE001 - 统计写后不理
+            pass
 
     def add_ending(
         self,

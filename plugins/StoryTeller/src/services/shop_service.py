@@ -6,6 +6,7 @@ from database.db import add_gold, reduce_gold
 
 from ..models.item import Equipment
 from ..services.data_loader import data_loader
+from ..services.stats_service import gold_source
 
 # Import DaylyRecord for daily persistence
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent.parent))
@@ -55,14 +56,16 @@ class ShopService:
 
         from ..models.player import investigator_repo
 
-        if reduce_gold(user_qq, total_cost):
-            inv = investigator_repo.find_by_qq(user_qq)
-            if inv:
-                item = Equipment(item_id)
-                investigator_repo.add_item_to_inventory(inv, item_id, quantity)
-                return True, t("shop.buy_success", quantity=quantity, name=item.name, cost=total_cost)
-            add_gold(user_qq, total_cost)
-            return False, t("shop.no_investigator")
+        with gold_source("shop", ref_id=f"buy:{item_id}x{quantity}"):
+            if reduce_gold(user_qq, total_cost):
+                inv = investigator_repo.find_by_qq(user_qq)
+                if inv:
+                    item = Equipment(item_id)
+                    investigator_repo.add_item_to_inventory(inv, item_id, quantity)
+                    return True, t("shop.buy_success", quantity=quantity, name=item.name, cost=total_cost)
+                with gold_source("shop", ref_id=f"refund:{item_id}"):
+                    add_gold(user_qq, total_cost)
+                return False, t("shop.no_investigator")
         return False, t("shop.not_enough_gold")
 
 shop_service = ShopService()

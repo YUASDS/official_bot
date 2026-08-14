@@ -126,10 +126,39 @@ def get_info(user_id: str):
     return user
 
 
+def _record_gold_ledger(user_id: str, delta: int) -> None:
+    """统计二期：乌帕变更后写 gold_ledger（写后不理，绝不回抛影响主流程）。
+
+    余额唯一入口在此收口，balance_after 由 stats_service 从 userData.db 冗余快照。
+    优先复用已加载模块身份（插件在 bot 内以 plugins.StoryTeller 身份加载，
+    独立测试/脚本可能以 src.* 顶层身份加载），避免触发插件包 __init__。
+    """
+    import sys
+
+    try:
+        if "plugins.StoryTeller.src.services.stats_service" in sys.modules:
+            record_gold = sys.modules[
+                "plugins.StoryTeller.src.services.stats_service"
+            ].record_gold
+        elif "src.services.stats_service" in sys.modules:
+            record_gold = sys.modules["src.services.stats_service"].record_gold
+        else:
+            from plugins.StoryTeller.src.services.stats_service import record_gold
+
+        record_gold(user_id, delta)
+    except Exception as e:  # noqa: BLE001 - 统计写后不理
+        logger.warning(f"gold_ledger record skipped: {type(e).__name__} {e}")
+
+
 @add_Decorator
 def add_gold(user_id: str, num: int):
     logger.info(f"{user_id}的乌帕增加了{num}")
-    return User.update(gold=User.gold + num).where(User.user_id == user_id).execute()
+    result = (
+        User.update(gold=User.gold + num).where(User.user_id == user_id).execute()
+    )
+    if result:
+        _record_gold_ledger(user_id, num)
+    return result
 
 
 @Decorator
@@ -140,9 +169,14 @@ def reduce_gold(user_id: str, num: int, force: bool = False):
         if not force:
             return False
         p = User.update(gold=0).where(User.user_id == user_id)
+        delta = -gold_num
     else:
         p = User.update(gold=User.gold - num).where(User.user_id == user_id)
-    return p.execute()
+        delta = -num
+    result = p.execute()
+    if result:
+        _record_gold_ledger(user_id, delta)
+    return result
 
 
 async def trans_all_gold(from_user_id: str, to_user_id: str) -> int:

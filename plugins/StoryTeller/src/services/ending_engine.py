@@ -23,6 +23,7 @@ from ..models.monster import monster_repo
 from ..models.player import Investigator, InvestigatorModel, ending_repo
 from ..utils.md_format import report_quote, report_section
 from .data_loader import data_loader
+from .stats_service import snapshot_run
 
 # 知识度信物加成（ending_data.json door.knowledge.bonus_items 缺省时的兜底）
 _KNOWLEDGE_BONUS_DEFAULT = {"503": 15, "504": 5, "508": 10}
@@ -179,6 +180,8 @@ def register_ending(
     """登记结局到账号级收集（表 B），复用当前周目号。"""
     progress = ending_repo.ensure_progress(inv.qq, inv.day)
     ending_repo.add_ending(inv.qq, ending_id, variant=variant, run=progress.run_id)
+    # 统计二期：周目快照（写后不理）
+    snapshot_run(inv, ending_id, variant, progress=progress)
 
 
 def _ending_result_text(
@@ -217,6 +220,8 @@ def check_san_zero(inv: Investigator) -> dict:
     progress.save()
     if not already:
         ending_repo.add_ending(inv.qq, "E06", run=progress.run_id)
+    # 统计二期：E06 周目快照（写后不理）
+    snapshot_run(inv, "E06", progress=progress)
     return {
         "triggered": not already,
         "ending": "E06",
@@ -313,6 +318,8 @@ def check_daily(
             progress.ended = True
             progress.save()
             ending_repo.add_ending(inv.qq, "E10", run=progress.run_id)
+            # 统计二期：E10 周目快照（写后不理）
+            snapshot_run(inv, "E10", progress=progress)
             return (
                 [_text("ending.e10_tick", _ENDING_TEXT_DEFAULT["ending.e10_tick"])],
                 _ending_result_text(
@@ -618,6 +625,8 @@ def _finish_door(
     progress.save()
     if end_id:
         ending_repo.add_ending(inv.qq, end_id, variant=variant, run=run)
+        # 统计二期：门扉结局周目快照（写后不理）
+        snapshot_run(inv, end_id, variant, progress=progress)
     notes = {
         ("E05", "星光变体"): "持格拉基之泪时，星云温柔地环绕你——你终于回家了。",
         ("E01", "清醒合流"): "知识度达标，肉身保留意志。",

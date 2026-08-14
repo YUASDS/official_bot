@@ -49,6 +49,15 @@ class BattleBaseMixin:
         # 骨哨助战剩余回合（506 消耗品，怪物行动前额外 1d4 伤害）
         self.bone_whistle = 0
 
+        # 统计二期：战斗流水采集（只读累加，零行为影响）
+        self._battle_logged = False
+        self._stat_dmg_dealt = 0
+        self._stat_dmg_taken = 0
+        self._stat_armor_absorbed = 0
+        self._stat_consumables: dict = {"505": 0, "506": 0}
+        self._stat_spells: dict = {}
+        self._initial_san = investigator.get_skill("san", 0)
+
     def get_turn_token(self) -> int:
         """当前回合令牌（用于按钮防重复点击）。"""
         return self._turn_counter
@@ -118,3 +127,50 @@ class BattleBaseMixin:
                 self.gun = None
         else:
             self.gun = None
+
+    # --- 统计二期：战斗流水 / 周目快照（写后不理，绝不回抛） ---
+    def _log_battle(self, result: str) -> None:
+        """战斗结束写一行 battle_logs（每场战斗仅一次，幂等守卫）。"""
+        try:
+            if getattr(self, "_battle_logged", False):
+                return
+            self._battle_logged = True
+            from ...services.stats_service import record_battle
+
+            env = getattr(self, "environment", {}) or {}
+            env_name = env.get("name", "") if isinstance(env, dict) else ""
+            record_battle(
+                qq=self.investigator.qq,
+                day=getattr(self, "_battle_day", 0),
+                monster_id=str(getattr(self.monster, "id", "")),
+                environment=str(env_name),
+                result=result,
+                turns=getattr(self, "_turn_counter", 0),
+                dmg_dealt=getattr(self, "_stat_dmg_dealt", 0),
+                dmg_taken=getattr(self, "_stat_dmg_taken", 0),
+                armor_absorbed=getattr(self, "_stat_armor_absorbed", 0),
+                san_loss=max(
+                    0,
+                    getattr(self, "_initial_san", 0)
+                    - self.investigator.get_skill("san", 0),
+                ),
+                madness=(
+                    [getattr(self, "madness_duration", 0)]
+                    if getattr(self, "is_madness", False)
+                    else []
+                ),
+                consumables=getattr(self, "_stat_consumables", {}),
+                spells_cast=getattr(self, "_stat_spells", {}),
+                fled=bool(getattr(self, "fled", False)),
+            )
+        except Exception:  # noqa: BLE001 - 统计写后不理
+            pass
+
+    def _snapshot_run_ending(self, ending_id: str, variant: str = "") -> None:
+        """战斗内达成正式结局时写 run_stats 快照。"""
+        try:
+            from ...services.stats_service import snapshot_run
+
+            snapshot_run(self.investigator, ending_id, variant or None)
+        except Exception:  # noqa: BLE001 - 统计写后不理
+            pass

@@ -45,6 +45,8 @@ class BattleSpellsMixin:
         if san_cost:
             san = max(0, self.investigator.get_skill("san", 0) - san_cost)
             self.investigator.set_skill("san", san)
+        # 统计二期：法术施放计数（资源已消耗即记一次）
+        self._stat_spells[spell_id] = self._stat_spells.get(spell_id, 0) + 1
         cost_line = t("spell.mp_cost", mp=mp_cost) + (
             f"、{san_cost} 点理智" if san_cost else ""
         )

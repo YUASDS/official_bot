@@ -21,6 +21,7 @@ from ..ending_engine import (
     register_relic_obtained,
     render_door_choice,
 )
+from ..stats_service import gold_source, record_growth
 
 
 class BattleSettlementMixin:
@@ -58,7 +59,8 @@ class BattleSettlementMixin:
         if self.monster.id == "38":
             # 隐藏挑战「启」：固定 100 乌帕 + 双物品 501/508（独立于侦查检定）
             gold = 100
-            add_gold(self.investigator.qq, gold)
+            with gold_source("battle", ref_id="38_qiren_reward"):
+                add_gold(self.investigator.qq, gold)
             item_names: list[str] = []
             for item_id in ("501", "508"):
                 self.investigator.add_item_to_inventory(item_id, 1)
@@ -81,7 +83,8 @@ class BattleSettlementMixin:
                 bonus_text = f"{bonus_text}\n{trophy_line}"
         elif search_roll.level > SuccessLevel.FAILURE:
             gold, dropped_item, bonus_text = self.monster.generate_loot(self._battle_day)
-            add_gold(self.investigator.qq, gold)
+            with gold_source("battle", ref_id=f"monster:{self.monster.id}"):
+                add_gold(self.investigator.qq, gold)
             if dropped_item:
                 self.investigator.add_item_to_inventory(dropped_item.id, 1)
                 register_relic_obtained(self.investigator, dropped_item.id)
@@ -92,7 +95,8 @@ class BattleSettlementMixin:
             loot_lines = [self._get_reply("侦查失败")]
             half_gold = self.monster.half_loot_gold()
             if half_gold > 0:
-                add_gold(self.investigator.qq, half_gold)
+                with gold_source("battle", ref_id=f"monster:{self.monster.id}_half"):
+                    add_gold(self.investigator.qq, half_gold)
                 loot_lines.append(self._t("battle.loot_half", gold=half_gold))
             bonus_text = report_quote(loot_lines)
 
@@ -144,10 +148,20 @@ class BattleSettlementMixin:
                 " " + self._t("battle.growth_line", skill=skill_name, dice=dice.dice, target=skill, result=des)
             )
             if dice.level < 1:
+                before = skill
                 _expr, res = roll_dice("1d10")
                 growth_lines.append("  " + self._t("battle.growth_inc", value=res))
                 skill += res
                 self.investigator.set_skill(skill_name, skill)
+                # 统计二期：胜利成长检定流水（写后不理）
+                record_growth(
+                    self.investigator.qq,
+                    self._battle_day,
+                    skill_name,
+                    before,
+                    skill,
+                    source="battle",
+                )
 
         self.investigator.save()
 

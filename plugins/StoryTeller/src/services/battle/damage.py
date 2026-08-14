@@ -15,12 +15,20 @@ class BattleDamageMixin:
         if not armor_absorbed:
             armor = self.investigator.get_armor_value()
             actual_damage = max(0, damage - armor)
+            # 统计二期：护甲吸收（此处自行减甲的场景，如大失败自伤/逃跑失败）
+            self._stat_armor_absorbed = (
+                getattr(self, "_stat_armor_absorbed", 0) + min(damage, armor)
+            )
         # 临时生命（护盾）优先抵扣
         if self.temp_hp > 0:
             absorbed = min(self.temp_hp, actual_damage)
             self.temp_hp -= absorbed
             actual_damage -= absorbed
         self.hp_record["inv"] = max(0, self.hp_record["inv"] - actual_damage)
+        # 统计二期：实际承受伤害
+        self._stat_dmg_taken = (
+            getattr(self, "_stat_dmg_taken", 0) + actual_damage
+        )
 
         if actual_damage > initial_hp / 2:
             return self._get_reply("高伤害")
@@ -43,6 +51,10 @@ class BattleDamageMixin:
         self.hp_record["mon"] = max(0, self.hp_record["mon"] - actual_damage)
         # 同步怪物实例 HP（AI 受伤检测 / 怪物施法依赖）
         self.monster.hp = self.hp_record["mon"]
+        # 统计二期：造成伤害
+        self._stat_dmg_dealt = (
+            getattr(self, "_stat_dmg_dealt", 0) + actual_damage
+        )
 
         if actual_damage > initial_hp / 2:
             return getattr(self.monster, "高伤害", self._t("monster.high_damage"))

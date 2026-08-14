@@ -8,6 +8,7 @@ from database.db import add_gold
 from ..models.player import Investigator
 from .data_loader import data_loader
 from .dice_roller import get_success_icon, roll_dice
+from .stats_service import gold_source, record_event, record_growth
 
 # 奇遇随机出现概率
 _EVENT_CHANCE = 0.4
@@ -69,7 +70,8 @@ def apply_event_effects(inv: Investigator, user_id: str, effects: dict) -> str:
         delta = delta_value(effects["金币"])
         cur = get_info(user_id).gold
         actual = max(0, cur + delta) - cur
-        add_gold(user_id, actual)
+        with gold_source("event"):
+            add_gold(user_id, actual)
         if actual:
             changes.append(f"🪙 金币 {actual:+d}")
     if "物品" in effects:
@@ -82,8 +84,18 @@ def apply_event_effects(inv: Investigator, user_id: str, effects: dict) -> str:
         register_relic_obtained(inv, effects["物品"])
     if "技能" in effects:
         for sk_name, sk_delta in effects["技能"].items():
-            sk_val = inv.get_skill(sk_name, 0) + sk_delta
+            before = inv.get_skill(sk_name, 0)
+            sk_val = before + sk_delta
             inv.set_skill(sk_name, max(0, sk_val))
+            # 统计二期：事件技能成长流水（写后不理）
+            record_growth(
+                inv.qq,
+                getattr(inv, "day", 0),
+                sk_name,
+                before,
+                max(0, sk_val),
+                source="event",
+            )
             changes.append(f"💪 {sk_name} {sk_delta:+d}")
     inv.save()
     return " ｜ ".join(changes)
@@ -153,6 +165,9 @@ def apply_event_choice(
     if no_gold:
         return no_gold, False
     summary = apply_event_effects(inv, user_id, effects)
+    # 统计二期：事件流水（效果应用后，写后不理）
+    check = matched.get("检定") or {}
+    record_event(inv, matched, check_skill=check.get("技能", ""), passed=passed, effects=effects)
     reply = event_reply_with_effects(reply, summary)
     skip = bool(matched.get("跳过战斗")) and (passed is None or passed)
     return reply, skip

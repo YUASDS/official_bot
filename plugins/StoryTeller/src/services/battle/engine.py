@@ -226,7 +226,19 @@ class BattleEngineMixin:
         if self.hp_record["inv"] <= 0:
             if self._battle_day == 40:
                 # 出口①：第 40 天战败走 1.3 分支（501 复活 → 门扉抉择 / 无 501 → E05）
-                return self._handle_day40_defeat()
+                msg = self._handle_day40_defeat()
+                door = getattr(self, "door_choice", None) or {}
+                if door.get("revived_dead_once"):
+                    self._log_battle("revived")
+                else:
+                    self._log_battle("death")
+                    # 无 501 战败终局（E05）补周目快照（此时 battle_logs 已写）
+                    if door.get("ended"):
+                        self._snapshot_run_ending(
+                            str(door.get("ending", "E05")),
+                            str(door.get("variant") or ""),
+                        )
+                return msg
             self.investigator.is_survive = False
             self.investigator.save()
             header = self._t("battle.death_text", name=self.player_name)
@@ -240,9 +252,12 @@ class BattleEngineMixin:
             if e07_text:
                 detail = f"{e07_text}\n\n{detail}"
             self.end_parts = (header, detail)
+            self._log_battle("death")
             return f"{header}\n\n{detail}"
         if self.hp_record["mon"] <= 0:
-            return self._handle_victory()
+            msg = self._handle_victory()
+            self._log_battle("win")
+            return msg
         return None
 
     def _handle_day40_defeat(self) -> str:

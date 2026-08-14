@@ -169,6 +169,10 @@ class BattleActionsMixin:
         armor = self.investigator.get_armor_value()
         expr, val = self._monster_damage_roll(monster_action, level)
         final_val = max(0, val - armor)
+        # 统计二期：护甲吸收（怪物命中路径，减甲量在此已知）
+        self._stat_armor_absorbed = (
+            getattr(self, "_stat_armor_absorbed", 0) + (val - final_val)
+        )
         # 大成功（极难/大成功）用 attack_crit 独立文案，回退 attack_succ
         succ_template = (
             monster_action.get("attack_crit", monster_action.get("attack_succ", ""))
@@ -380,6 +384,7 @@ class BattleActionsMixin:
                 f"{flee_check}\n\n{self._t('battle.flee_success')}",
                 "",
             )
+            self._log_battle("flee")
             return (
                 f"{flee_check}\n\n"
                 f"{self._t('battle.flee_success')}",
@@ -448,6 +453,7 @@ class BattleActionsMixin:
         investigator_repo.remove_item_from_inventory(
             self.investigator.qq, "505", 1
         )
+        self._stat_consumables["505"] = self._stat_consumables.get("505", 0) + 1
         return (text, self._end_turn())
 
     def _use_bone_whistle(self) -> tuple:
@@ -456,6 +462,7 @@ class BattleActionsMixin:
             self.investigator.qq, "506", 1
         )
         self.bone_whistle = 3
+        self._stat_consumables["506"] = self._stat_consumables.get("506", 0) + 1
         text = data_loader.get_text(
             "battle.bone_whistle_start",
             default="🦴 你吹响廷达洛斯的骨哨——脚下的阴影站了起来，猎犬将助战 {turns} 回合。",
