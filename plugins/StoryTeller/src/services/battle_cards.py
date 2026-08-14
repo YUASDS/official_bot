@@ -67,14 +67,15 @@ def battle_round_html(service: BattleService, result: tuple) -> str:
         "battle.your_turn" if service.current_turn == "inv" else "battle.monster_turn"
     )
     hint = t("battle.turn_line", owner=t(owner_key)).replace("**", "")
-    return (
-        _ROUND_TEMPLATE.read_text(encoding="utf-8")
-        .replace("__ROUND__", str(service.get_turn_token()))
+    html = _ROUND_TEMPLATE.read_text(encoding="utf-8")
+    html = (
+        html.replace("__ROUND__", str(service.get_turn_token()))
         .replace("__TITLE__", t(owner_key))
         .replace("__BODY__", body)
         .replace("__STATUS__", round_status_html(service))
         .replace("__HINT__", hint)
     )
+    return _inject_theme(html, service)
 
 
 def battle_open_html(service: BattleService, body_md: str) -> str:
@@ -82,12 +83,13 @@ def battle_open_html(service: BattleService, body_md: str) -> str:
     parts = body_md.split("\n\n", 1)
     if parts[0].strip().startswith("# "):
         body_md = parts[1] if len(parts) > 1 else ""
-    return (
-        _OPEN_TEMPLATE.read_text(encoding="utf-8")
-        .replace("__TITLE__", battle_title(service))
+    html = _OPEN_TEMPLATE.read_text(encoding="utf-8")
+    html = (
+        html.replace("__TITLE__", battle_title(service))
         .replace("__DAY__", str(service.investigator.day))
         .replace("__BODY__", md_to_html(body_md))
     )
+    return _inject_theme(html, service)
 
 
 def fmt_bonus(v) -> str:
@@ -113,6 +115,51 @@ def env_effects_lines(env: dict) -> list[str]:
             "👾 " + " ｜ ".join(f"{k} {fmt_bonus(v)}" for k, v in monster.items())
         )
     return lines
+
+
+def _theme_style(service) -> str:
+    """主题 CSS 注入：怪物/环境「卡片」字段 → <style> 覆盖串；无字段返回空串。
+
+    优先级：怪物卡片字段 > 环境卡片字段 > 默认（无字段行为逐字节不变）。
+    字段：「滤镜」(CSS filter) /「主题色」(强调色) /「暗色」(暗色背景变体) /
+          「背景」(自定义 CSS background，如星之彩的彩虹渐变)。
+    """
+    env = getattr(service, "environment", None) or {}
+    monster = getattr(service, "monster", None)
+    card = getattr(monster, "卡片", None) if monster is not None else None
+    if not isinstance(card, dict):
+        card = {}
+    filt = card.get("滤镜") or env.get("滤镜")
+    accent = card.get("主题色") or env.get("主题色")
+    dark = bool(card.get("暗色") or env.get("暗色"))
+    bg = card.get("背景") or env.get("背景")
+    if not filt and not accent and not dark and not bg:
+        return ""
+    rules = []
+    if filt:
+        rules.append(f".card{{filter:{filt}!important}}")
+    if bg:
+        rules.append(f".card{{background:{bg}!important}}")
+    elif dark:
+        rules.append(
+            ".card{background:linear-gradient(165deg,#0a0806 0%,#120d0a 45%,#080504 100%)!important}"
+        )
+    if accent:
+        rules.append(f".card{{border-color:{accent}!important}}")
+        rules.append(
+            f".seal,.title,.round{{color:{accent}!important;"
+            f"text-shadow:0 0 18px {accent}55!important}}"
+        )
+        rules.append(
+            f".bar{{background:linear-gradient(90deg,transparent,{accent},transparent)!important}}"
+        )
+    return "<style>" + "".join(rules) + "</style>"
+
+
+def _inject_theme(html: str, service) -> str:
+    """在 HTML `</body>` 前注入主题 <style>；无字段时原样返回。"""
+    style = _theme_style(service)
+    return html.replace("</body>", f"{style}</body>") if style else html
 
 
 def battle_card_html(
@@ -155,12 +202,13 @@ def battle_card_html(
         )
 
     html = _CARD_TEMPLATE.read_text(encoding="utf-8")
-    return (
+    html = (
         html.replace("__TITLE__", title)
         .replace("__DAY__", str(inv.day))
         .replace("__ANOMALY__", "\n".join(anomaly_lines))
         .replace("__EFFECTS__", effects)
     )
+    return _inject_theme(html, service)
 
 
 def end_card_html(service: BattleService) -> str:
@@ -230,7 +278,7 @@ def end_card_html(service: BattleService) -> str:
         detail += "</div>"
 
     html = _END_CARD_TEMPLATE.read_text(encoding="utf-8")
-    return (
+    html = (
         html.replace("__ICON__", icon)
         .replace("__CLS__", cls)
         .replace("__TITLE__", title)
@@ -241,6 +289,7 @@ def end_card_html(service: BattleService) -> str:
         .replace("__DETAIL__", detail)
         .replace("__HINT__", hint)
     )
+    return _inject_theme(html, service)
 
 
 def sanity_zero_card_html(inv: Investigator, san_loss: int = 0) -> str:
