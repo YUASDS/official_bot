@@ -508,6 +508,20 @@
         "invalid_choice": "无法理解你的选择。",
         "none": "庄园里还没有与你相识的伙伴。"
     },
+    "guest": {
+        "enter_title": "🕳️ 空间裂缝 · 乱入遭遇",
+        "check_line": "> {icon} **{skill} 检定**：掷出 {roll}/{target} —— {level}",
+        "option_title": "你的抉择",
+        "battle_title": "⚔️ 遭遇战 · 裂缝的守卫",
+        "defeat_title": "被抛出裂缝",
+        "end_title": "归途 · 穿过裂缝",
+        "souvenir_gain": "> 获得：🎁 **{name}**（异界纪念品 · 收藏性质）",
+        "invalid_choice": "裂缝的彼端没有这样的回应。",
+        "no_active": "裂缝早已合拢——这里只有庄园的风。",
+        "no_exit": "裂缝的彼端没有退路——你只能向前。",
+        "exit": "世界如潮水般退去。你重新站在庄园的石板路上，晨雾尚未散尽。\n\n刚才的一切，都像做了一场梦。",
+        "day_passed": "你从裂缝里跌出来时，天色已过了一天。那场异世界的冒险，用掉了你整整一日的光阴。"
+    },
     "help": {
         "title": "# 🕯️ 庄园迷雾 · 冒险指南",
         "intro_title": "入门·流程",

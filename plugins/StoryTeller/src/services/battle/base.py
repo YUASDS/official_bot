@@ -58,6 +58,9 @@ class BattleBaseMixin:
         # 梦之碎片 / GM 房间余韵：全技能 +30、伤害翻倍、临时生命（本场战斗临时状态）
         self.dream_buff = False
 
+        # 乱入主题玩家文案覆盖：由 guest.py 注入（世界级主题文本，非乱入战斗为空，零影响）
+        self._guest_texts: dict = {}
+
         # 统计二期：战斗流水采集（只读累加，零行为影响）
         self._battle_logged = False
         self._stat_dmg_dealt = 0
@@ -73,6 +76,26 @@ class BattleBaseMixin:
 
     def _advance_turn(self) -> None:
         self._turn_counter += 1
+
+    def set_guest_texts(self, texts: dict) -> None:
+        """注入乱入主题玩家战斗文案（guest.py 调用，非乱入战斗不调用）。
+
+        键与 reply_data 玩家文案键一致（格斗成功/射击失败/反击成功/高伤害 等）；
+        命中时覆盖玩家进攻/失败/反击/闪避/承伤叙述，未命中回退通用文案。
+        """
+        self._guest_texts = texts if isinstance(texts, dict) else {}
+
+    def _get_reply(self, key: str) -> str:
+        """玩家战斗文案查询：优先乱入主题覆盖，否则通用 reply_data（行为不变）。
+
+        本方法在 MRO 中先于 BattleReporterMixin._get_reply 生效（BattleBaseMixin 在
+        BattleService 继承序首位），覆盖逻辑对非乱入战斗逐字节等价。
+        """
+        if self._guest_texts.get(key):
+            return self._guest_texts[key]
+        from ..data_loader import data_loader
+
+        return data_loader.reply_data.get(key, f"[{key}]")
 
     def set_environment(self, env_data: dict) -> None:
         self.environment = env_data

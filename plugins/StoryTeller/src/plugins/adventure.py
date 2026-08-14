@@ -40,6 +40,7 @@ from ..services.event_service import (
 from ..services.resurrect import do_resurrect
 from ..services.sanity import run_sanity_and_madness
 from .qiren import qiren_pending, qiren_should_trigger, qiren_send_dialogue
+from .guest import guest_enter, guest_should_trigger
 from .gm_room import gm_afterglow, gm_room_enter, gm_room_should_trigger
 from .npc import (
     inject_companion,
@@ -280,8 +281,13 @@ async def _run_adventure(
         elif qiren_should_trigger(inv):
             await qiren_send_dialogue(user_id, bot, send)
             return
+        elif (guest_id := guest_should_trigger(inv)) is not None:
+            # 乱入遭遇：空间裂缝 → 异世界小剧场（触发即替代当日冒险），
+            # 每日互斥链 qiren → guest → npc → gm_room，一天至多一个彩蛋
+            await guest_enter(user_id, inv, bot, send, guest_id)
+            return
         elif (npc_id := npc_should_trigger(inv)) is not None:
-            # NPC 彩蛋：概率触发对话（好感度推进/结伴），当日互斥链 qiren → npc → gm_room
+            # NPC 彩蛋：概率触发对话（好感度推进/结伴），当日互斥链 qiren → guest → npc → gm_room
             await npc_send_dialogue(user_id, bot, send, npc_id)
             return
         else:
