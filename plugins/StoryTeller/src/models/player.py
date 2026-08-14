@@ -256,7 +256,7 @@ class InvestigatorRepository:
             return False
 
     def collect_inherited_scrolls(self, qq: str) -> list[tuple[str, int]]:
-        """收集角色背包中的法术残卷（死亡重建时继承，与 501 复活道具同类处理）。"""
+        """收集角色背包中的法术残卷（死亡重建时继承，与 501 复活道具、509 纪念道具同类处理）。"""
         inv = self.find_by_qq(qq)
         if not inv:
             return []
@@ -265,7 +265,9 @@ class InvestigatorRepository:
             InventoryItemModel.investigator == inv
         ):
             item = Equipment(it.item_id)
-            if item.is_valid and (item.type == "spell_scroll" or it.item_id == "501"):
+            if item.is_valid and (
+                item.type == "spell_scroll" or it.item_id in ("501", "509")
+            ):
                 result.append((it.item_id, it.quantity))
         return result
 

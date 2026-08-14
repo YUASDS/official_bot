@@ -69,6 +69,16 @@ class BattleSettlementMixin:
                 items="、".join(item_names),
                 gold=gold,
             )
+            # 纪念道具「启的怀表」：首杀必掉，已持有不重复掉落（纯收藏，零数值）
+            trophy_id = "509"
+            equipments, _ = self.investigator.get_equipments()
+            if equipments.get(trophy_id, 0) <= 0:
+                self.investigator.add_item_to_inventory(trophy_id, 1)
+                trophy_line = self._t(
+                    "battle.qiren_trophy",
+                    name=Equipment(trophy_id).name,
+                )
+                bonus_text = f"{bonus_text}\n{trophy_line}"
         elif search_roll.level > SuccessLevel.FAILURE:
             gold, dropped_item, bonus_text = self.monster.generate_loot(self._battle_day)
             add_gold(self.investigator.qq, gold)
