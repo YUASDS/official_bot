@@ -5,6 +5,7 @@ from nonebot.params import CommandArg
 from loguru import logger
 import random
 import copy
+import ujson
 from pathlib import Path
 from typing import Any, Callable
 
@@ -14,6 +15,7 @@ from ..models.monster import Monster, monster_repo
 from ..services.battle_cards import (
     battle_card_html,
     battle_open_html,
+    ending_card_html,
     env_effects_lines,
 )
 from ..services.combat_messaging import (
@@ -26,6 +28,7 @@ from ..services.data_loader import data_loader
 from ..services.ending_engine import (
     check_daily,
     check_san_zero,
+    ending_card_payload,
     judge_door_choice,
     pending_door_choice,
     render_door_choice,
@@ -455,7 +458,7 @@ async def _run_adventure(
         )
         if san_zero:
             # 出口②：SAN 归零（永久疯狂）→ 登记 E06 + 清理战场残留（防 /行动 命中遗留 battle）
-            check_san_zero(inv)
+            e06_result = check_san_zero(inv)
             battle_manager.remove_battle(user_id)
             inv.is_survive = False
             inv.save()
@@ -463,6 +466,19 @@ async def _run_adventure(
             await send_sanity_zero(
                 service, inv, san_desc, san_loss, bot, send
             )
+            # E06 结局卡片（卡片优先，渲染失败回退 md 结局文案）
+            if not await _try_send_ending_card(
+                bot,
+                user_id,
+                "",
+                "E06",
+                note=str(e06_result.get("note") or ""),
+                inv=inv,
+                send=send,
+            ):
+                await send(
+                    md_message(f"\n{e06_result['message']}", bot, mention=user_id)
+                )
             return
         if is_mad:
             service.set_madness(True, madness_duration)
@@ -669,6 +685,18 @@ async def handle_combat(event: Event, bot: Bot, msg: Message = CommandArg()):
         if result.get("refight"):
             await _start_day40_refight(user_id, bot, combat_cmd.send)
             return
+        # 结局卡片优先；渲染失败回退 md 结局文案
+        if await _try_send_ending_card(
+            bot,
+            user_id,
+            "",
+            str(result["ending"]),
+            variant=str(result.get("variant") or ""),
+            note=str(result.get("note") or ""),
+            inv=inv,
+            send=combat_cmd.send,
+        ):
+            return
         await combat_cmd.finish(
             md_message(f"\n{result['message']}", bot, mention=user_id)
         )
@@ -741,7 +769,7 @@ async def handle_combat(event: Event, bot: Bot, msg: Message = CommandArg()):
         )
         if san_zero:
             # 出口②：SAN 归零（永久疯狂）→ 登记 E06 + 清理战场残留（P0-1 防线）
-            check_san_zero(battle.investigator)
+            e06_result = check_san_zero(battle.investigator)
             battle_manager.remove_battle(user_id)
             battle.investigator.is_survive = False
             battle.investigator.save()
@@ -755,6 +783,19 @@ async def handle_combat(event: Event, bot: Bot, msg: Message = CommandArg()):
                 combat_cmd.send,
                 show_cg=False,
             )
+            # E06 结局卡片（卡片优先，渲染失败回退 md 结局文案）
+            if not await _try_send_ending_card(
+                bot,
+                user_id,
+                "",
+                "E06",
+                note=str(e06_result.get("note") or ""),
+                inv=battle.investigator,
+                send=combat_cmd.send,
+            ):
+                await combat_cmd.send(
+                    md_message(f"\n{e06_result['message']}", bot, mention=user_id)
+                )
             return
         if is_mad:
             battle.set_madness(True, madness_duration)
@@ -826,9 +867,14 @@ async def handle_combat(event: Event, bot: Bot, msg: Message = CommandArg()):
         item_id = tokens[1]
         if item_id in ("505", "506"):
             # 消耗品：走战斗动作（回复 HP / 骨哨助战）
+            before = _ending_ids_snapshot(user_id)
             result = battle.execute_action(f"使用{item_id}")
             await send_combat_result(battle, bot, result, send=combat_cmd.send)
             if battle.fight_is_over():
+                await _send_new_battle_endings(
+                    bot, user_id, "", battle, before,
+                    _ending_ids_snapshot(user_id), combat_cmd.send,
+                )
                 await _cleanup_battle(user_id, battle)
                 await _present_door_choice(user_id, battle, bot, combat_cmd.send)
             return
@@ -843,10 +889,15 @@ async def handle_combat(event: Event, bot: Bot, msg: Message = CommandArg()):
             await combat_cmd.send(md_message(msg_text, bot, mention=user_id))
         return
 
+    before = _ending_ids_snapshot(user_id)
     result = battle.execute_action(action)
     await send_combat_result(battle, bot, result, send=combat_cmd.send)
 
     if battle.fight_is_over():
+        await _send_new_battle_endings(
+            bot, user_id, "", battle, before,
+            _ending_ids_snapshot(user_id), combat_cmd.send,
+        )
         await _cleanup_battle(user_id, battle)
         await _present_door_choice(user_id, battle, bot, combat_cmd.send)
 
@@ -894,6 +945,7 @@ async def handle_combat_action(
         )
         return
 
+    before = _ending_ids_snapshot(user_id)
     result = battle.execute_action(action)
 
     async def _send(msg):
@@ -902,6 +954,10 @@ async def handle_combat_action(
     await send_combat_result(battle, bot, result, send=_send)
 
     if battle.fight_is_over():
+        await _send_new_battle_endings(
+            bot, user_id, group_openid, battle, before,
+            _ending_ids_snapshot(user_id), _send,
+        )
         await _cleanup_battle(user_id, battle)
         await _present_door_choice(user_id, battle, bot, _send, group_openid)
 
@@ -953,6 +1009,81 @@ def _resolve_door_key(door_state: dict, text: str) -> str:
     return ""
 
 
+def _ending_ids_snapshot(user_id: str) -> dict[str, str]:
+    """表 B 结局快照（id → 最新变体）；用于战斗动作后检测新登记的结局（E05/E07）。"""
+    coll = ending_repo.get_collection(user_id)
+    if coll is None:
+        return {}
+    try:
+        recs = ujson.loads(coll.endings or "[]")
+    except (ValueError, TypeError):
+        return {}
+    out: dict[str, str] = {}
+    if isinstance(recs, list):
+        for r in recs:
+            if isinstance(r, dict) and r.get("id"):
+                out[r["id"]] = str(r.get("variant") or "")
+    return out
+
+
+async def _try_send_ending_card(
+    bot: Bot,
+    user_id: str,
+    group_openid: str,
+    end_id: str,
+    variant: str = "",
+    note: str = "",
+    inv: Any = None,
+    record: dict | None = None,
+    send: Callable | None = None,
+) -> bool:
+    """结局卡片优先发送（渲染+发送都成功返回 True；失败由调用方回退 md）。
+
+    参考 send_combat_result 模式：卡片优先、md 回退。
+    """
+    payload = ending_card_payload(
+        end_id, variant=variant or None, note=note, inv=inv, record=record
+    )
+    img = await render_pic(ending_card_html(**payload))
+    if img is None:
+        return False
+    _send = send or (lambda m: _send_to_user(bot, user_id, m, group_openid))
+    return await send_pic(bot, img, _send)
+
+
+async def _send_new_battle_endings(
+    bot: Bot,
+    user_id: str,
+    group_openid: str,
+    battle: Any,
+    before: dict,
+    after: dict,
+    send: Callable,
+) -> None:
+    """战斗动作后新登记的终局卡片（E05 day40 战败 / E07 非 day40 死亡）。
+
+    纯展示增强：卡片作为战报 md 之上的结局宣告；渲染失败不回退重复文本
+    （结局文案已含在战斗战报 md 内），避免重复刷屏。
+    """
+    new_ids = sorted({eid for eid in after if eid not in before})
+    door = getattr(battle, "door_choice", None) or {}
+    door_end = str(door.get("ending") or "") if door else ""
+    for eid in new_ids:
+        if eid not in ("E05", "E07"):
+            continue
+        note = str(door.get("note") or "") if door_end == eid else ""
+        await _try_send_ending_card(
+            bot,
+            user_id,
+            group_openid,
+            eid,
+            variant=after.get(eid, ""),
+            note=note,
+            inv=battle.investigator,
+            send=send,
+        )
+
+
 async def handle_door_choice(
     user_id: str,
     choice: str,
@@ -984,7 +1115,18 @@ async def handle_door_choice(
         await _start_day40_refight(user_id, bot, _send)
         return
     door_states.pop(user_id, None)
-    await _send(md_message(f"\n{result['message']}", bot, mention=user_id))
+    # 结局卡片优先（含结局编号/名称/正文/变体/达成信息）；渲染失败回退 md 结局文案
+    if not await _try_send_ending_card(
+        bot,
+        user_id,
+        group_openid,
+        str(result["ending"]),
+        variant=str(result.get("variant") or ""),
+        note=str(result.get("note") or ""),
+        inv=inv,
+        send=_send,
+    ):
+        await _send(md_message(f"\n{result['message']}", bot, mention=user_id))
 
 
 async def _start_day40_refight(
@@ -1117,7 +1259,7 @@ async def handle_event_choice(
     )
     if san_zero:
         # 出口②：SAN 归零（永久疯狂）→ 登记 E06 + 清理战场残留（P0-1 防线）
-        check_san_zero(battle.investigator)
+        e06_result = check_san_zero(battle.investigator)
         battle_manager.remove_battle(user_id)
         battle.investigator.is_survive = False
         battle.investigator.save()
@@ -1132,6 +1274,19 @@ async def handle_event_choice(
             _send,
             show_cg=False,
         )
+        # E06 结局卡片（卡片优先，渲染失败回退 md 结局文案）
+        if not await _try_send_ending_card(
+            bot,
+            user_id,
+            group_openid,
+            "E06",
+            note=str(e06_result.get("note") or ""),
+            inv=battle.investigator,
+            send=_send,
+        ):
+            await _send(
+                md_message(f"\n{e06_result['message']}", bot, mention=user_id)
+            )
         return
     if is_mad:
         battle.set_madness(True, madness_duration)

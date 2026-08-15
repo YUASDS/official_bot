@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<style>
+  :root {
+    --accent: #e8c97a;
+    --border: #8a743a;
+    --accent-soft: rgba(232,201,122,.08);
+    --accent-strong: rgba(232,201,122,.16);
+    --accent-glow: rgba(232,201,122,.4);
+    --bg-top: #1c1610;
+    --bg-mid: #241a12;
+    --bg-bottom: #181008;
+    --text: #e8d9b8;
+    --text-soft: #c4b494;
+    --text-dim: #8f8268;
+    --chip-bg: rgba(201,168,106,.06);
+    --chip-border: rgba(201,168,106,.18);
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { width:460px; background:#0e0c08; padding:14px; }
+  .card {
+    background:
+      radial-gradient(ellipse at 50% 0%, var(--accent-soft) 0%, transparent 58%),
+      linear-gradient(160deg,var(--bg-top) 0%,var(--bg-mid) 55%,var(--bg-bottom) 100%);
+    border:1px solid var(--border); border-radius:14px; padding:22px 20px;
+    color:var(--text); font-family:'Noto Serif SC','Microsoft YaHei',serif;
+    box-shadow:0 0 26px var(--accent-strong) inset, 0 0 40px rgba(0,0,0,.35);
+    text-align:center;
+  }
+  .badge {
+    display:inline-block; font-size:12.5px; letter-spacing:5px;
+    color:var(--accent); border:1px solid var(--accent); border-radius:20px;
+    padding:2px 16px; opacity:.92;
+  }
+  .icon { font-size:46px; margin-top:8px; }
+  .title { font-size:25px; font-weight:900; letter-spacing:4px; margin:6px 0 6px;
+    color:var(--accent); text-shadow:0 0 18px var(--accent-glow); }
+  .variant-tag {
+    display:inline-block; font-size:12px; letter-spacing:2px; color:var(--accent);
+    background:var(--chip-bg); border:1px solid var(--chip-border); border-radius:20px;
+    padding:1px 14px; margin-bottom:2px;
+  }
+  .bar { height:1px; background:linear-gradient(90deg,transparent,var(--accent),transparent); margin:12px 0; }
+  .ending {
+    font-size:15px; line-height:1.85; color:var(--text); text-align:left;
+    background:var(--chip-bg); border-left:3px solid var(--accent);
+    padding:10px 12px; margin:4px 0;
+  }
+  .ending.variant {
+    margin-top:8px; color:var(--text-soft); border-left-color:var(--border);
+    font-size:14px;
+  }
+  .meta { margin-top:2px; }
+  .rowline {
+    display:flex; justify-content:space-between; align-items:center;
+    background:var(--chip-bg); border:1px solid var(--chip-border); border-radius:6px;
+    padding:5px 10px; font-size:13.5px; margin-top:6px; text-align:left;
+  }
+  .rowline .k { color:var(--accent); letter-spacing:1px; }
+  .rowline .v { color:var(--text); font-weight:700; }
+  .note { font-size:13px; color:var(--text-dim); margin-top:12px; letter-spacing:.5px; }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="badge">__TYPE__</div>
+  <div class="icon">__ICON__</div>
+  <div class="title">__TITLE__</div>
+  __VARIANT_TAG__
+  <div class="bar"></div>
+  <div class="ending">__BODY__</div>
+  __VBODY__
+  __META__
+  __NOTE__
+</div>
+</body>
+</html>

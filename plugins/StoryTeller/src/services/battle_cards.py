@@ -14,6 +14,237 @@ _END_CARD_TEMPLATE = Path(__file__).parent.parent.parent / "data" / "end_card.ht
 _OPEN_TEMPLATE = Path(__file__).parent.parent.parent / "data" / "battle_open.html"
 _ROUND_TEMPLATE = Path(__file__).parent.parent.parent / "data" / "battle_round.html"
 _MAD_END_TEMPLATE = Path(__file__).parent.parent.parent / "data" / "mad_end.html"
+_ENDING_TEMPLATE = Path(__file__).parent.parent.parent / "data" / "ending_card.html"
+
+
+def _esc(text) -> str:
+    """HTML 实体转义（结局文案为纯文本，做基础转义防意外标签）。"""
+    return (
+        str(text)
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+    )
+
+
+def _hex_rgba(hex_color: str, alpha: float) -> str:
+    """#rrggbb → rgba(r,g,b,a)（主题色系生成半透明层次用）。"""
+    h = hex_color.lstrip("#")
+    try:
+        r, g, b = (int(h[i : i + 2], 16) for i in (0, 2, 4))
+    except (ValueError, IndexError):
+        r = g = b = 200
+    return f"rgba({r},{g},{b},{alpha})"
+
+
+# 结局主题表（纯展示层：图标 + 主题色/背景，按结局类型分视觉家族）。
+# E01/E02 门扉胜利系=圣金/极光；E05 战败系=暗红；E06 疯狂系=紫；
+# E07 死亡系=墓园暗；E04/E09 隐藏=异色；E10 长眠=雾白。
+_ENDING_THEMES = {
+    "E01": {
+        "icon": "🌌",
+        "accent": "#e8c97a",
+        "border": "#8a743a",
+        "bg_top": "#1c1610",
+        "bg_mid": "#241a12",
+        "bg_bottom": "#181008",
+        "text": "#e8d9b8",
+        "text_soft": "#c4b494",
+        "text_dim": "#8f8268",
+    },
+    "E02": {
+        "icon": "🏮",
+        "accent": "#e0b060",
+        "border": "#8a6a30",
+        "bg_top": "#1e1710",
+        "bg_mid": "#251d12",
+        "bg_bottom": "#191108",
+        "text": "#ead9b0",
+        "text_soft": "#c8b288",
+        "text_dim": "#8a7a58",
+    },
+    "E03": {
+        "icon": "🍃",
+        "accent": "#9fb4c8",
+        "border": "#5a6b7a",
+        "bg_top": "#14181c",
+        "bg_mid": "#1a2026",
+        "bg_bottom": "#101418",
+        "text": "#c8d8e0",
+        "text_soft": "#a0b0c0",
+        "text_dim": "#72808c",
+    },
+    "E04": {
+        "icon": "🪞",
+        "accent": "#b07ad0",
+        "border": "#6a4a8a",
+        "bg_top": "#1a1420",
+        "bg_mid": "#221832",
+        "bg_bottom": "#140e18",
+        "text": "#d8c8ec",
+        "text_soft": "#b090c8",
+        "text_dim": "#7a5c94",
+    },
+    "E05": {
+        "icon": "🌑",
+        "accent": "#c26060",
+        "border": "#8a3a3a",
+        "bg_top": "#201414",
+        "bg_mid": "#281818",
+        "bg_bottom": "#160e0e",
+        "text": "#e8c8c8",
+        "text_soft": "#c09090",
+        "text_dim": "#7a5050",
+    },
+    "E06": {
+        "icon": "🌀",
+        "accent": "#9a6ac8",
+        "border": "#6a3a8a",
+        "bg_top": "#1c1424",
+        "bg_mid": "#241a30",
+        "bg_bottom": "#120c18",
+        "text": "#d8c8e8",
+        "text_soft": "#a888b8",
+        "text_dim": "#70507e",
+    },
+    "E07": {
+        "icon": "🪦",
+        "accent": "#7a8a9a",
+        "border": "#4a5a6a",
+        "bg_top": "#14161a",
+        "bg_mid": "#1a1e24",
+        "bg_bottom": "#0e1014",
+        "text": "#c8d0d8",
+        "text_soft": "#a0a8b0",
+        "text_dim": "#6a7278",
+    },
+    "E08": {
+        "icon": "🚪",
+        "accent": "#b0a070",
+        "border": "#7a6a3a",
+        "bg_top": "#1e1a12",
+        "bg_mid": "#262216",
+        "bg_bottom": "#140e08",
+        "text": "#dcd0ae",
+        "text_soft": "#b0a078",
+        "text_dim": "#7a7048",
+    },
+    "E09": {
+        "icon": "📿",
+        "accent": "#6ec6c8",
+        "border": "#3a7a7a",
+        "bg_top": "#12201c",
+        "bg_mid": "#182a24",
+        "bg_bottom": "#0c1412",
+        "text": "#b8dcd8",
+        "text_soft": "#90b0ac",
+        "text_dim": "#5c7a78",
+    },
+    "E10": {
+        "icon": "🌫️",
+        "accent": "#b8b8c8",
+        "border": "#6a6a78",
+        "bg_top": "#16161a",
+        "bg_mid": "#1c1c22",
+        "bg_bottom": "#0e0e12",
+        "text": "#d0d0d8",
+        "text_soft": "#a0a0a8",
+        "text_dim": "#6e6e76",
+    },
+}
+
+# 变体级强调色微调（纯展示）：同一结局不同子分支在保留家族的前提下稍作区分。
+_ENDING_VARIANT_ACCENT = {
+    ("E01", "清醒合流"): "#f0dc9a",
+    ("E01", "崩溃合流"): "#b8a468",
+    ("E02", "圣灯"): "#e8b860",
+    ("E02", "歌谣暂封"): "#c8b070",
+    ("E05", "星光变体"): "#d0c0a0",
+}
+
+
+def _ending_theme_style(end_id: str, variant: str = "") -> str:
+    """结局主题 CSS 注入：按结局 id 覆写模板 CSS 变量（--accent 等）；未知结局返回空串。"""
+    theme = _ENDING_THEMES.get(end_id)
+    if not theme:
+        return ""
+    accent = theme["accent"]
+    variant_accent = _ENDING_VARIANT_ACCENT.get((end_id, variant))
+    if variant_accent:
+        accent = variant_accent
+    rules = [
+        ".card{"
+        f"--accent:{accent};"
+        f"--border:{theme['border']};"
+        f"--accent-soft:{_hex_rgba(accent, .08)};"
+        f"--accent-strong:{_hex_rgba(accent, .16)};"
+        f"--accent-glow:{_hex_rgba(accent, .45)};"
+        f"--bg-top:{theme['bg_top']};"
+        f"--bg-mid:{theme['bg_mid']};"
+        f"--bg-bottom:{theme['bg_bottom']};"
+        f"--text:{theme['text']};"
+        f"--text-soft:{theme['text_soft']};"
+        f"--text-dim:{theme['text_dim']};"
+        f"--chip-bg:{_hex_rgba(accent, .06)};"
+        f"--chip-border:{_hex_rgba(accent, .20)};"
+        "}"
+    ]
+    return "<style>" + "".join(rules) + "</style>"
+
+
+def ending_card_html(
+    end_id: str,
+    name: str = "",
+    etype: str = "",
+    variant: str = "",
+    body: str = "",
+    vbody: str = "",
+    note: str = "",
+    meta_rows: list[tuple] | None = None,
+) -> str:
+    """结局卡片 HTML（纯展示层，数据由调用方构造）。
+
+    结构：类型徽章 → 结局图标 → 结局编号+名称 → 变体标签 → 正文 →
+    变体正文 → 达成信息行（周目/知识度/信物/进度）→ 补充说明。
+    主题按结局 id（+变体微调）注入，无主题的未知结局用模板默认圣金。
+    """
+    theme = _ENDING_THEMES.get(end_id)
+    icon = theme["icon"] if theme else "🌌"
+    title = f"{end_id} · {name}" if name else end_id
+    variant_tag = (
+        f'<div class="variant-tag">{_esc(variant)}</div>' if variant else ""
+    )
+    vbody_html = (
+        f'<div class="ending variant">{_esc(vbody)}</div>' if vbody else ""
+    )
+    meta_html = ""
+    if meta_rows:
+        rows = "".join(
+            f'<div class="rowline"><span class="k">{_esc(k)}</span>'
+            f'<span class="v">{_esc(v)}</span></div>'
+            for k, v in meta_rows
+            if k and str(v)
+        )
+        if rows:
+            meta_html = f'<div class="meta">{rows}</div>'
+    note_html = f'<div class="note">{_esc(note)}</div>' if note else ""
+
+    html = _ENDING_TEMPLATE.read_text(encoding="utf-8")
+    html = (
+        html.replace("__TYPE__", _esc(etype))
+        .replace("__ICON__", icon)
+        .replace("__TITLE__", _esc(title))
+        .replace("__VARIANT_TAG__", variant_tag)
+        .replace("__BODY__", _esc(body))
+        .replace("__VBODY__", vbody_html)
+        .replace("__META__", meta_html)
+        .replace("__NOTE__", note_html)
+    )
+    style = _ending_theme_style(end_id, variant)
+    if style:
+        html = html.replace("</body>", f"{style}</body>")
+    return html
 
 
 def battle_title(service: BattleService) -> str:

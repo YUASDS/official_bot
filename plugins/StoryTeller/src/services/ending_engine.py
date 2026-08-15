@@ -225,6 +225,82 @@ def _ending_result_text(
     return "\n".join(parts)
 
 
+def ending_meta_rows(
+    inv: Optional[Investigator] = None,
+    record: Optional[dict] = None,
+) -> list[tuple[str, str]]:
+    """结局卡片达成信息行（纯展示）：周目/知识度/信物/进度旗标，有的展示无的不展示。
+
+    inv 传入时读本局进度（周目/知识度快照/信物计数/进度旗标）；
+    record 传入时（/结局 历史详情）优先展示达成时间与记录周目。
+    """
+    rows: list[tuple[str, str]] = []
+    progress = None
+    if inv is not None:
+        progress = ending_repo.get_progress(inv.qq)
+    run = None
+    if record is not None:
+        run = record.get("run")
+        if record.get("unlocked_at"):
+            rows.append(("达成时间", str(record["unlocked_at"])))
+    elif progress is not None:
+        run = progress.run_id
+    elif inv is not None:
+        p = ending_repo.ensure_progress(inv.qq, inv.day)
+        run = p.run_id
+    if run:
+        rows.append(("周目", f"第 {int(run)} 周目"))
+    if progress is not None and int(progress.knowledge or 0) > 0:
+        rows.append(("知识度", str(progress.knowledge)))
+    if inv is not None:
+        rows.append(("信物", f"{relics_count(inv)}/{len(relic_ids())}"))
+    if progress is not None:
+        flags = []
+        if progress.boss36_defeated:
+            flags.append("击败守门人")
+        if progress.mirror_defeated:
+            flags.append("击败镜中人")
+        if progress.dead_once:
+            flags.append("战败复活")
+        if progress.san_zero_hit:
+            flags.append("SAN归零")
+        if progress.refought:
+            flags.append("重赴门前")
+        if flags:
+            rows.append(("进度", " / ".join(flags)))
+    return rows
+
+
+def ending_card_payload(
+    end_id: str,
+    variant: Optional[str] = None,
+    note: str = "",
+    inv: Optional[Investigator] = None,
+    record: Optional[dict] = None,
+) -> dict:
+    """结局卡片数据载荷（纯展示，不动任何判定/登记逻辑）。
+
+    字段：end_id/name/etype/variant/body/vbody/note/meta_rows，
+    直接喂给 battle_cards.ending_card_html 渲染。
+    """
+    meta = _ending_data(end_id)
+    tmeta = _ending_text_meta(end_id)
+    name = tmeta.get("name") or meta.get("name") or end_id
+    etype = meta.get("type", "")
+    body = tmeta.get("body") or meta.get("outline") or ""
+    vbody = _variant_text(end_id, variant)
+    return {
+        "end_id": end_id,
+        "name": name,
+        "etype": etype,
+        "variant": variant or "",
+        "body": body,
+        "vbody": vbody,
+        "note": note,
+        "meta_rows": ending_meta_rows(inv=inv, record=record),
+    }
+
+
 # --- 出口②：SAN 归零 → E06 ---
 def check_san_zero(inv: Investigator) -> dict:
     """SAN 归零（永久疯狂）→ E06。
@@ -241,14 +317,13 @@ def check_san_zero(inv: Investigator) -> dict:
         ending_repo.add_ending(inv.qq, "E06", run=progress.run_id)
     # 统计二期：E06 周目快照（写后不理）
     snapshot_run(inv, "E06", progress=progress)
+    note = "你的意志已永久碎裂，成为门廊中低语的一具轮廓；任何复活手段都无法唤回。"
     return {
         "triggered": not already,
         "ending": "E06",
         "block_resurrect": True,
-        "message": _ending_result_text(
-            "E06",
-            note="你的意志已永久碎裂，成为门廊中低语的一具轮廓；任何复活手段都无法唤回。",
-        ),
+        "note": note,
+        "message": _ending_result_text("E06", note=note),
     }
 
 
@@ -503,15 +578,13 @@ def on_battle_40_end(inv: Investigator, win: bool) -> dict:
     progress.ended = True
     progress.save()
     ending_repo.add_ending(inv.qq, "E05", variant=variant, run=progress.run_id)
+    note = "门后的血肉星云接纳了你，你成为仪式的一部分。"
     return {
         "ended": True,
         "ending": "E05",
         "variant": variant,
-        "message": _ending_result_text(
-            "E05",
-            variant=variant,
-            note="门后的血肉星云接纳了你，你成为仪式的一部分。",
-        ),
+        "note": note,
+        "message": _ending_result_text("E05", variant=variant, note=note),
     }
 
 
@@ -660,6 +733,7 @@ def _finish_door(
         "ended": True,
         "ending": end_id,
         "variant": variant,
+        "note": note,
         "message": _ending_result_text(end_id, variant=variant, note=note),
     }
 

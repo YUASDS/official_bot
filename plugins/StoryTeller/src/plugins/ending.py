@@ -16,8 +16,15 @@ from nonebot.adapters import Bot, Event, Message
 from nonebot.params import CommandArg
 
 from ..models.player import ending_repo
+from ..services.battle_cards import ending_card_html
 from ..services.data_loader import data_loader
-from ..services.ending_engine import relic_ids, relic_name, relic_source
+from ..services.ending_engine import (
+    ending_card_payload,
+    relic_ids,
+    relic_name,
+    relic_source,
+)
+from ..utils.image_sender import render_pic, send_pic
 from ..utils.md_format import md_message, report_quote, report_section
 
 ending_cmd = on_command(
@@ -218,6 +225,12 @@ def _build_relics(qq: str) -> str:
     return "\n".join(lines)
 
 
+def _find_record(qq: str, eid: str) -> dict[str, Any] | None:
+    collection = ending_repo.ensure_collection(qq)
+    records = _load_records(collection.endings)
+    return next((r for r in records if r.get("id") == eid), None)
+
+
 @ending_cmd.handle()
 async def handle_ending(event: Event, bot: Bot, msg: Message = CommandArg()):
     user_id = event.get_user_id()
@@ -234,6 +247,16 @@ async def handle_ending(event: Event, bot: Bot, msg: Message = CommandArg()):
         await ending_cmd.finish(
             md_message(f"\n{_build_relics(user_id)}", bot, mention=user_id)
         )
+    eid = arg.upper()
+    # 已解锁结局详情：结局卡片优先；渲染失败回退 md 文本
+    record = _find_record(user_id, eid) if eid in _endings_map() else None
+    if record is not None:
+        payload = ending_card_payload(
+            eid, variant=record.get("variant") or "", record=record
+        )
+        img = await render_pic(ending_card_html(**payload))
+        if img is not None and await send_pic(bot, img, ending_cmd.send):
+            return
     await ending_cmd.finish(
-        md_message(f"\n{_build_detail(user_id, arg.upper())}", bot, mention=user_id)
+        md_message(f"\n{_build_detail(user_id, eid)}", bot, mention=user_id)
     )
