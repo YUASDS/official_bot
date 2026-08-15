@@ -126,7 +126,8 @@ def _theme_style(service) -> str:
 
     优先级：怪物卡片字段 > 环境卡片字段 > 默认（无字段行为逐字节不变）。
     字段：「滤镜」(CSS filter) /「主题色」(强调色) /「暗色」(暗色背景变体) /
-          「背景」(自定义 CSS background，如星之彩的彩虹渐变)。
+          「背景」(自定义 CSS background，如星之彩的彩虹渐变) /
+          「白色主题」(纯白圣洁变体：白底+深色文字全套覆盖，如 JK 的教堂圣洁感)。
     """
     env = getattr(service, "environment", None) or {}
     monster = getattr(service, "monster", None)
@@ -135,6 +136,9 @@ def _theme_style(service) -> str:
         card = {}
     filt = card.get("滤镜") or env.get("滤镜")
     accent = card.get("主题色") or env.get("主题色")
+    white = bool(card.get("白色主题") or env.get("白色主题"))
+    if white:
+        return _white_theme(accent, filt)
     dark = bool(card.get("暗色") or env.get("暗色"))
     bg = card.get("背景") or env.get("背景")
     if not filt and not accent and not dark and not bg:
@@ -157,6 +161,39 @@ def _theme_style(service) -> str:
         rules.append(
             f".bar{{background:linear-gradient(90deg,transparent,{accent},transparent)!important}}"
         )
+    return "<style>" + "".join(rules) + "</style>"
+
+
+def _white_theme(accent: str, filt: str) -> str:
+    """纯白圣洁主题（`白色主题: true`）：底色纯白，圣金点缀，深色文字保证可读。
+
+    灵感：教堂的七彩光晕实为镜面反射所致——于是回归纯白本身。
+    覆盖全套模板类（card/seal/title/round/meta/sec/表格/引用/代码/chip/结算块），
+    其余怪物/环境无「白色主题」字段时逐字节不变。
+    """
+    gold = accent or "#8a7a52"
+    rules = [
+        "body{background:#f4f1ea!important}",
+        ".card{background:#ffffff!important;border:1px solid #e8e2d4!important;"
+        "box-shadow:0 8px 32px rgba(185,175,150,.20)!important;color:#3f3f3f!important}",
+        f".seal,.title,.round{{color:{gold}!important;text-shadow:none!important}}",
+        ".title.win{color:#8a7a52!important}.title.dead{color:#b08080!important}",
+        ".meta,.hint{color:#8f8a7e!important}",
+        f".bar{{background:linear-gradient(90deg,transparent,{gold},transparent)!important}}",
+        f".sec{{color:{gold}!important}}",
+        "h2{color:#5c5342!important}h3{color:#5c5342!important}",
+        ".tbl th{color:#8a7a52!important;border-bottom:1px solid #ece6d8!important}",
+        ".tbl td{border-bottom:1px solid #f2eee4!important}",
+        ".quote,.ending{background:#faf8f2!important;border-left:3px solid #d9d0b8!important;color:#4a4a4a!important}",
+        "p{color:#4a4a4a!important}",
+        "code{background:#f4f1e9!important;color:#6b5b3c!important}",
+        ".rule{background:linear-gradient(90deg,transparent,#d9d0b8,transparent)!important}",
+        ".chip,.stat,.rowline{background:#faf8f2!important;border:1px solid #e2dccb!important}",
+        ".chip .k,.stat .k,.rowline .k{color:#8a7a52!important}",
+        ".chip .v,.stat .v,.rowline .v{color:#4a4a4a!important}",
+    ]
+    if filt and filt != "none":
+        rules.append(f".card{{filter:{filt}!important}}")
     return "<style>" + "".join(rules) + "</style>"
 
 
