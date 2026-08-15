@@ -353,7 +353,8 @@ class BattleActionsMixin:
         roll_description = self._check_section(weapon.identify_skill, rows)
         player_text = "\n".join(player_texts)
 
-        if not critical_failure and total_damage > 0:
+        # 已命中的子弹伤害照常结算；大失败只中断后续子弹，不清空已累计伤害
+        if total_damage > 0:
             player_text += f"\n{self._t('battle.total_damage', total=total_damage)}"
             monster_text = self._apply_damage_to_monster(total_damage)
         else:
