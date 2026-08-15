@@ -24,9 +24,9 @@ from ..services.dice_roller import calculate_damage_bonus, roll_dice
 from ..utils.game_utils import action2part
 from .item import Equipment
 
-# 可装备的部位白名单：仅武器/防具可进对应槽（近战/远程/防具）；
+# 可装备的部位白名单：仅武器/防具/饰品可进对应槽（近战/远程/防具/饰品）；
 # misc（信物/复活道具）与 法术（spell_scroll 残卷）不可装备（见 F-09/F-10）
-_EQUIPPABLE_PARTS = {"近战", "远程", "防具"}
+_EQUIPPABLE_PARTS = {"近战", "远程", "防具", "饰品"}
 
 
 # --- Database Model ---
@@ -643,7 +643,7 @@ class Investigator:
         self.is_survive = False
 
     def break_equipped_item(self, action: str) -> bool:
-        part = action2part(action)
+        part = action2part(action) or action
         if not part:
             return False
         item_id_to_break = self._equipped.get(part)
@@ -740,6 +740,8 @@ class Investigator:
 
         if "防具" not in self._equipped:
             res += f"{t('player.equip_row', slot='防具', name=t('player.armor_none'))}\n"
+        if "饰品" not in self._equipped:
+            res += f"{t('player.equip_row', slot='饰品', name=t('player.trinket_none'))}\n"
 
         res += f"\n{t('player.backpack')}\n"
         if equipments:

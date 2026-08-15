@@ -7,10 +7,12 @@ from .engine import BattleEngineMixin
 from .reporter import BattleReporterMixin
 from .settlement import BattleSettlementMixin
 from .spells import BattleSpellsMixin
+from .trinkets import BattleTrinketMixin
 
 
 class BattleService(
     BattleBaseMixin,
+    BattleTrinketMixin,
     BattleReporterMixin,
     BattleEngineMixin,
     BattleActionsMixin,

@@ -323,6 +323,7 @@
     "backpack": " 背包",
     "backpack_empty": "（空）",
     "armor_none": "无",
+    "trinket_none": "无",
     "equip_header": "| 部位 | 物品 |",
     "equip_sep": "| :--- | :--- |",
     "equip_row": "| {slot} | {name} |",
@@ -571,5 +572,8 @@
   },
   "legacy": {
     "hound_hesitate": "它看着你，像在确认某个旧账。獠牙悬在半空，没有落下。"
+  },
+  "trinket": {
+    "generic": "佩戴的饰品微微发亮，{数值} 点力量灌注到你身上。"
   }
 }

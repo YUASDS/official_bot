@@ -43,7 +43,14 @@ class BattleEngineMixin:
         """开场战报：状态表 + 濒危一刻 + 行动抉择。"""
         self.roll_initiative()
         parts = [self.get_status_table(), self.get_danger_section(), self.get_action_section()]
-        return "\n\n---\n\n".join(p for p in parts if p)
+        result = "\n\n---\n\n".join(p for p in parts if p)
+        # 饰品触发：进入战斗 / 回合开始（开场 buff 型饰品挂点）
+        trinket_lines = self._trigger_trinkets("进入战斗") + self._trigger_trinkets(
+            "回合开始"
+        )
+        if trinket_lines:
+            result = "\n\n".join(trinket_lines) + "\n\n" + result
+        return result
 
     def execute_action(self, action: str) -> tuple:
         self.current_action = action
@@ -260,12 +267,29 @@ class BattleEngineMixin:
         end_message = self._check_combat_over()
         if end_message:
             return end_message
+        # 饰品触发：回合结束（行动后、战斗继续时）
+        turn_end_lines = self._trigger_trinkets("回合结束")
         self._advance_turn()
         self.current_turn = "mon" if self.current_turn == "inv" else "inv"
-        return self._get_next_turn_prompt()
+        prompt = self._get_next_turn_prompt()
+        # 濒死免死等挂点暂存的触发文案并入本回合提示
+        pending = getattr(self, "_trinket_report", [])
+        if pending:
+            self._trinket_report = []
+        if pending or turn_end_lines:
+            prompt = "\n\n".join((pending or []) + turn_end_lines) + "\n\n" + prompt
+        return prompt
 
     def _check_combat_over(self) -> Optional[str]:
         if self.hp_record["inv"] <= 0:
+            # 饰品触发：濒死免死（挂点最顶、判定生效前；GM 房间/乱入隔离不触发）
+            if not getattr(self, "is_gm_room", False):
+                self.trinket_death_saved = False
+                trinket_lines = self._trigger_trinkets("濒死")
+                if getattr(self, "trinket_death_saved", False):
+                    # 免死成功：战斗继续，跳过 GM/day40/E07/E05 判定（进度/结局零改动）
+                    self._trinket_report = trinket_lines
+                    return None
             if getattr(self, "is_gm_room", False):
                 # GM 房间·战败隔离：不落 is_survive、不登记 E07、不碰 SAN/进度，
                 # 仅标记战败由 gm_room 接管（GM 复活 / 空手退出）。
