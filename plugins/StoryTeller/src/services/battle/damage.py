@@ -30,6 +30,18 @@ class BattleDamageMixin:
             absorbed = min(self.temp_hp, actual_damage)
             self.temp_hp -= absorbed
             actual_damage -= absorbed
+        # 饰品触发：致死预判（护甲减伤 + 临时生命抵扣后、扣血前——判断本次伤害是否即将致死）
+        # 与 602 古神断指（濒死已发生 → _check_combat_over 拦截死亡判定）不同：此挂点是伤害预判型，
+        # 即将致死（HP 将 ≤0）时掷概率，成功则本次伤害免疫（扣血值归 0）。效果只写战斗局部状态。
+        # GM 房间 / 乱入（is_gm_room=True）按濒死同款隔离不触发（沙盒内不跑终局类饰品）。
+        if self.hp_record["inv"] - actual_damage <= 0 and not getattr(
+            self, "is_gm_room", False
+        ):
+            lethal_ctx: dict = {"damage": actual_damage}
+            lethal_lines = self._trigger_trinkets("致死预判", lethal_ctx)
+            if lethal_ctx.get("block_lethal"):
+                actual_damage = 0
+            trinket_lines += lethal_lines
         self.hp_record["inv"] = max(0, self.hp_record["inv"] - actual_damage)
         # 统计二期：实际承受伤害
         self._stat_dmg_taken = (

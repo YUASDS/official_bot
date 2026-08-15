@@ -8,8 +8,11 @@
   （防骨哨 / 连射高频触发刷收益）。
 - 结算顺序由调用点保证：饰品减伤在护甲前（`_apply_damage_to_player` 入口）、
   伤害增幅在 dream_buff 后护盾前（`_apply_damage_to_monster` 内）。
-- GM 房间 / 乱入（is_gm_room=True）：濒死类不触发（engine.py 濒死挂点短路守卫）；
-  受击 / 造成伤害 / 回合类生效（期望行为）。
+- GM 房间 / 乱入（is_gm_room=True）：濒死类 / 致死预判不触发（engine.py 濒死挂点短路守卫
+  + damage.py 致死预判挂点守卫）；受击 / 造成伤害 / 回合类生效（期望行为）。
+- 致死预判（block_lethal，604 幸运徽章）：伤害预判型——护甲减伤 + 临时生命抵扣后、扣血前
+  判断本次伤害是否会将 HP 打到 ≤0，是则掷概率免疫（扣血归 0）。与 602 濒死拦截（死亡已发生
+  后免死）是两道独立防线；不消耗、无显式冷却 → 走默认每回合 1 次兜底。
 """
 
 from __future__ import annotations
@@ -130,23 +133,32 @@ class BattleTrinketMixin:
         if etype == "reduce":
             expr, val = self._trinket_fx_value(fx)
             ctx["damage"] = max(0, ctx.get("damage", 0) - val)
-            return [self._trinket_render(eff, expr, val, name=item.name)]
+            return [self._trinket_render(eff, expr, val, name=item.name, item_id=item.id)]
 
         if etype == "damage_bonus":
             expr, val = self._trinket_fx_value(fx)
             ctx["damage"] = ctx.get("damage", 0) + val
-            return [self._trinket_render(eff, expr, val, name=item.name)]
+            return [self._trinket_render(eff, expr, val, name=item.name, item_id=item.id)]
 
         if etype == "san":
             expr, val = self._trinket_fx_value(fx)
             san = max(0, self.investigator.get_skill("san", 0) + val)
             self.investigator.set_skill("san", san)
-            return [self._trinket_render(eff, expr, val, name=item.name)]
+            return [self._trinket_render(eff, expr, val, name=item.name, item_id=item.id)]
 
         if etype == "shield":
             expr, val = self._trinket_fx_value(fx)
             self.monster_temp_hp = getattr(self, "monster_temp_hp", 0) + val
-            return [self._trinket_render(eff, expr, val, name=item.name)]
+            return [self._trinket_render(eff, expr, val, name=item.name, item_id=item.id)]
+
+        if etype == "block_lethal":
+            # 致死预判·免疫：调用点（_apply_damage_to_player 扣血前）已确认本次伤害即将致死
+            # （HP 将 ≤0），此处概率已由 _trinket_matches 掷出并通过；置 ctx["block_lethal"]
+            # 令调用点把扣血值归 0（免疫 = 伤害变 0）。不消耗、无显式冷却 → 走默认每回合 1 次兜底。
+            prob = (eff.get("条件") or {}).get("概率", 0.0)
+            expr = f"{int(round(prob * 100))}%"
+            ctx["block_lethal"] = True
+            return [self._trinket_render(eff, expr, 0, name=item.name, item_id=item.id)]
 
         if etype == "immune_death":
             expr, val = self._trinket_fx_value(fx, "回血", "1d4")
@@ -156,7 +168,7 @@ class BattleTrinketMixin:
             healed = self.hp_record["inv"] - max(0, before)
             self.trinket_death_saved = True
             line = self._trinket_render(
-                eff, expr, val, {"数值": healed}, name=item.name
+                eff, expr, val, {"数值": healed}, name=item.name, item_id=item.id
             )
             if "数值" not in (eff.get("文案") or ""):
                 line = f"{line}\n> （HP +{healed}）"
@@ -168,7 +180,7 @@ class BattleTrinketMixin:
         if etype == "append_attack":
             expr, val = self._trinket_fx_value(fx, "dice", "1d3")
             dmg_text = self._apply_damage_to_monster(val)
-            line = self._trinket_render(eff, expr, val, name=item.name)
+            line = self._trinket_render(eff, expr, val, name=item.name, item_id=item.id)
             if dmg_text:
                 line = f"{line}\n{dmg_text}"
             return [line]
@@ -191,11 +203,11 @@ class BattleTrinketMixin:
             self.hp_record["inv"] = min(max_hp, before + val)
             healed = self.hp_record["inv"] - before
             return self._trinket_render(
-                eff, expr, val, {"数值": healed}, name=item.name
+                eff, expr, val, {"数值": healed}, name=item.name, item_id=item.id
             )
         expr, val = self._trinket_fx_value(fx, "dice", None)
         self.temp_hp = getattr(self, "temp_hp", 0) + val
-        return self._trinket_render(eff, expr, val, name=item.name)
+        return self._trinket_render(eff, expr, val, name=item.name, item_id=item.id)
 
     def _trinket_fx_value(
         self, fx: dict, key: str = "dice", default_dice: str | None = None
@@ -219,9 +231,14 @@ class BattleTrinketMixin:
         val: int,
         extra: dict | None = None,
         name: str = "饰品",
+        item_id: str | None = None,
     ) -> str:
-        """渲染触发文案：支持 $骰子/$数值/$饰品 占位；缺失时回退通用文案。"""
-        text = eff.get("文案") or self._t("trinket.generic")
+        """渲染触发文案：支持 $骰子/$数值/$饰品 占位；缺失时回退 text_data trinket.{item_id} / 通用文案。"""
+        text = (
+            eff.get("文案")
+            or (self._t(f"trinket.{item_id}") if item_id else "")
+            or self._t("trinket.generic")
+        )
         data = {"骰子": expr, "数值": val, "饰品": name}
         if extra:
             data.update(extra)
