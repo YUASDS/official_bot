@@ -476,6 +476,55 @@ class BattleActionsMixin:
         )
         return (text, self._end_turn())
 
+    # --- First Aid ---
+    def _first_aid(self) -> tuple:
+        """急救行动：急救技能检定。成功 +1HP、大成功 +1d3HP、大失败 -1d3HP、失败无效果。
+
+        大成功沿用战斗惯例「检定等级 > 困难成功」即极难/大成功（参考格斗/射击的大成功判定）；
+        成功/大成功回复上限为最大生命（get_max_hp）；大失败直接扣血，下限为 0，
+        若 HP 归零由 _end_turn → _check_combat_over 走既有死亡判定。
+        大失败为医疗事故，不经过护甲/临时生命（非攻击伤害）。
+        """
+        skill = self.investigator.get_skill("急救", 0)
+        roll = DiceRoll(skill)
+        roll_desc = self._check_section(
+            "急救",
+            [
+                self._check_row(
+                    self.player_name,
+                    "急救",
+                    roll.dice,
+                    roll.skill,
+                    roll.level,
+                ),
+            ],
+        )
+        if roll.level == SuccessLevel.CRITICAL_FAILURE:
+            expr, val = roll_dice("1d3")
+            self.hp_record["inv"] = max(0, self.hp_record["inv"] - val)
+            self._stat_dmg_taken = getattr(self, "_stat_dmg_taken", 0) + val
+            text = self._t("battle.first_aid_crit_fail", expr=expr, val=val)
+            return (roll_desc, self._exchange([], [text]), self._end_turn())
+        if roll.level > SuccessLevel.HARD_SUCCESS:
+            max_hp = self.investigator.get_max_hp()
+            before = self.hp_record["inv"]
+            expr, val = roll_dice("1d3")
+            self.hp_record["inv"] = min(max_hp, before + val)
+            healed = self.hp_record["inv"] - before
+            text = self._t(
+                "battle.first_aid_crit_success", expr=expr, val=val, value=healed
+            )
+            return (roll_desc, self._exchange([], [text]), self._end_turn())
+        if roll.level > SuccessLevel.FAILURE:
+            max_hp = self.investigator.get_max_hp()
+            before = self.hp_record["inv"]
+            self.hp_record["inv"] = min(max_hp, before + 1)
+            healed = self.hp_record["inv"] - before
+            text = self._t("battle.first_aid_success", value=healed)
+            return (roll_desc, self._exchange([], [text]), self._end_turn())
+        text = self._t("battle.first_aid_fail")
+        return (roll_desc, self._exchange([], [text]), self._end_turn())
+
     # --- Defensive ---
     def _handle_defensive_action(self, player_action: str) -> tuple:
         """@description 防御行动入口：闪避/反击的检定展示与结果结算。"""

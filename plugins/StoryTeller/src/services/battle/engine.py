@@ -27,10 +27,10 @@ class BattleEngineMixin:
         self.current_turn = "inv" if player_dex >= monster_dex else "mon"
 
     def _player_actions(self) -> dict[str, list[str]]:
-        """@description 玩家可用行动：装备技能 + 已学法术（施法<ID> 供按钮/命令直达）。"""
+        """@description 玩家可用行动：装备技能 + 已学法术（施法<ID>）+ 急救（供按钮/命令直达）。"""
         actions = self.investigator.get_available_actions()
         spell_actions = {f"施法{sid}" for sid in self.investigator.get_spells()}
-        actions["inv"] = sorted(set(actions["inv"]) | spell_actions)
+        actions["inv"] = sorted(set(actions["inv"]) | spell_actions | {"急救"})
         return actions
 
     def get_available_actions_for_turn(self) -> list[str]:
@@ -84,6 +84,7 @@ class BattleEngineMixin:
             "三连射": lambda: self._ranged_attack(3),
             "换弹": self._reload_weapon,
             "逃跑": self._flee,
+            "急救": self._first_aid,
         }
         handler = action_handlers.get(action)
         if handler:
