@@ -136,7 +136,7 @@ class BattleEngineMixin:
                 return tuple(parts)
         elif getattr(self, "bone_whistle", 0) > 0:
             self.bone_whistle -= 1
-            _expr, val = roll_dice("1d4")
+            _expr, val = roll_dice("2d4")
             val = max(0, val - self.monster.armor)  # 装甲减伤与 calc_dmg 一致
             self._apply_damage_to_monster(val)
             parts.append(

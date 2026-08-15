@@ -402,7 +402,11 @@ async def _guest_start_battle(user_id: str, state: dict, bot: Bot, send) -> None
 async def _guest_battle_input(
     user_id: str, state: dict, choice: str, bot: Bot, send, token: int | None = None
 ) -> None:
-    """乱入战斗行动：执行动作 → 回合卡片（图片优先，md 回退）→ 战斗结束分支。"""
+    """乱入战斗行动：执行动作 → 回合卡片（图片优先，md 回退，附行动按钮）→ 战斗结束分支。
+
+    战斗结束时先补发最后一轮战报（result[:-1]，战报卡片优先/md 回退，不附行动按钮），
+    再走 _guest_battle_end 发送胜利/战败收尾（对齐 GM 房间 _gm_send_round 结构）。
+    """
     service = state.get("battle")
     if not service or service.fight_is_over():
         await send(
@@ -421,14 +425,35 @@ async def _guest_battle_input(
         )
         return
     result = service.execute_action(choice)
+    if service.fight_is_over():
+        # 1. 最后一轮检定/交锋战报（不含结束文本；逃跑等单段结果无战报则跳过）
+        if any(x for x in result[:-1]):
+            img = await render_pic(battle_round_html(service, result))
+            if img is None or not await send_pic(bot, img, send):
+                combat_text = "\n" + "\n\n".join(str(x) for x in result[:-1] if x)
+                await send(md_message(combat_text, bot, mention=user_id))
+        # 2. 结束分支（胜利回复/战败归途，不附行动按钮）
+        await _guest_battle_end(user_id, state, bot, send)
+        return
+    # 普通回合：单段信息结果（弹药不足/未知行动等）卡片无正文，直接发文本，避免空白战报
+    if not any(x for x in result[:-1]):
+        response = "\n" + "\n\n".join(str(x) for x in result if x)
+        msg = md_message(response, bot, mention=user_id)
+        kb = _guest_battle_keyboard(service)
+        if kb is not None and not isinstance(msg, str):
+            msg.append(kb)
+        await send(msg)
+        return
     img = await render_pic(battle_round_html(service, result))
     if img is not None and await send_pic(bot, img, send):
-        pass
+        text = service.get_action_section()
     else:
-        text = "\n\n".join(str(x) for x in result[:-1] if x)
-        await send(md_message(f"\n{text}", bot, mention=user_id))
-    if service.fight_is_over():
-        await _guest_battle_end(user_id, state, bot, send)
+        text = "\n" + "\n\n".join(str(x) for x in result if x)
+    msg = md_message(text, bot, mention=user_id)
+    kb = _guest_battle_keyboard(service)
+    if kb is not None and not isinstance(msg, str):
+        msg.append(kb)
+    await send(msg)
 
 
 async def _guest_battle_end(user_id: str, state: dict, bot: Bot, send) -> None:

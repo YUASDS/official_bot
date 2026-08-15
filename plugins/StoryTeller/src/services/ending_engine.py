@@ -656,6 +656,13 @@ def judge_door_choice(inv: Investigator, key: str) -> dict:
     progress = ending_repo.ensure_progress(inv.qq, inv.day)
     door = _door_config()
 
+    # 结局已完成守卫：ended 后禁止重复判定（防旧按钮/重复点击再次登记结局）
+    if progress.ended:
+        return {
+            "error": True,
+            "message": _text("door.already_ended", "这段旅程已经落幕。新周目，请重新创建调查员。"),
+        }
+
     # 战败分支（dead_once 后可见；已重赴者回到三分支，不再可选）
     defeat_cfg = (door.get("defeat_choices") or {}).get(key)
     if defeat_cfg:

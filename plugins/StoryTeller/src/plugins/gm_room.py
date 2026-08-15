@@ -7,7 +7,7 @@
 守卫战状态机（本轮战败 → GM 复活 + 临时助力 → 二轮再战同一守卫）：
 - 一轮胜   → 护甲 306「管理员风衣」+ 随机属性 +30 + 梦之碎片 → 正常收尾
 - 一轮败   → GM 复活（_gm_revive，不走 do_resurrect、不耗 501）
-             + 临时助力（全技能 +25 / 伤害 +1d6 / 临时生命 +10，仅当轮有效）→ 二轮
+             + 临时助力（全技能 +75 / 伤害 +3d6 / 临时生命 +40，仅当轮有效）→ 二轮
 - 二轮胜   → 三轮奖励选择（武器/道具/属性→120，各含「我不想要」）
              - 任一选择  → 正常结束 CG
              - 三次全拒  → 特殊结束 CG（GM 无奈 → 随机属性 +30 + 梦之碎片）
@@ -62,10 +62,12 @@ _GM_TRIGGER_VALUE = 1     # d100 ≤ 1 触发（1%）
 # 守卫池（GM 房间专属，三选一随机抽取）
 _GUARD_IDS = ["40", "41", "42"]
 
-# GM 助力（二轮）：按 80% 胜率目标实测校准（balance sim）
-_GM_BOOST_SKILL = 25      # 全技能 +25
-_GM_BOOST_DAMAGE = "1d6"  # 伤害 +1d6
-_GM_BOOST_TEMP_HP = 10    # 临时生命 +10
+# GM 助力（二轮）：按 80% 胜率目标实测校准（真实引擎逐场，守卫加强至超 38 启后）
+# 守卫 40/41/42 加强后（HP46/48/50、近战 2d8+4+1d4@114-118、闪避 99），原助力
+# （+25/+1d6/+10）真实引擎下二轮仅 ~7%；校准至 +75/+3d6/+40 后二轮 ~78-79%。
+_GM_BOOST_SKILL = 75      # 全技能 +75
+_GM_BOOST_DAMAGE = "3d6"  # 伤害 +3d6
+_GM_BOOST_TEMP_HP = 40    # 临时生命 +40
 
 # 随机 +30 属性池：排除 幸运/教育/智力（用户拍板）→ 排除 意志（SAN 上限连锁，
 # 污染 E02/E03/E06 判定）→ 排除 克苏鲁神话（E01 知识度成分）。保留 力量/体质/
@@ -260,9 +262,17 @@ async def _gm_send_round(
 ) -> None:
     """发送 GM 房间战斗回合结果（战报卡片优先，md 回退；附 gm 行动按钮）。
 
-    战斗结束时只发结束文本，分支叙事由 _gm_handle_battle_end 继续。
+    战斗结束时先补发最后一轮战报（result[:-1]，战报卡片优先/md 回退），
+    再发结束文本（result[-1]）；分支叙事由 _gm_handle_battle_end 继续。
     """
     if service.fight_is_over():
+        # 1. 最后一轮检定/交锋战报（不含结束文本；逃跑等单段结果无战报则跳过）
+        if any(x for x in result[:-1]):
+            img = await render_pic(battle_round_html(service, result))
+            if img is not None and not await send_pic(bot, img, send):
+                combat_text = "\n" + "\n\n".join(str(x) for x in result[:-1] if x)
+                await send(md_message(combat_text, bot, mention=user_id))
+        # 2. 结束文本（胜利/战败）
         if result and result[-1]:
             await send(md_message(f"\n{result[-1]}", bot, mention=user_id))
         return
