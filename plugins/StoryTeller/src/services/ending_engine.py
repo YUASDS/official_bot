@@ -116,6 +116,25 @@ def relics_count(inv: Investigator) -> int:
     return sum(1 for v in relics_held(inv).values() if v)
 
 
+def e09_relics_count(inv: Investigator) -> int:
+    """E09 门扉信物计数：8 件基础 + 替代组任一件持有时 +1（组内不重复计）。
+
+    替代组数据：`ending_data.json relics.substitutes`（如 `[["509","510"]]`），
+    509（启的怀表）与 510（主角的徽记）互认替代：缺 1 件基础信物时可由任一件顶替。
+    509/510 **不进** `relics.ids`（保持 8 件基数，避免 E09 变 9/9 + RNG 墙）。
+    """
+    equipments, _ = inv.get_equipments()
+    base = sum(1 for rid in relic_ids() if _hold_item(equipments, rid))
+    substitutes = (
+        ((data_loader.ending_data or {}).get("relics") or {}).get("substitutes") or []
+    )
+    boss_slot = 0
+    for group in substitutes:
+        if any(_hold_item(equipments, str(iid)) for iid in group):
+            boss_slot += 1
+    return base + boss_slot
+
+
 def knowledge(inv: Investigator) -> int:
     """知识度 = 克苏鲁神话 + 持有 503?15:0 + 504?5:0 + 508?10:0。"""
     cfg = ((data_loader.ending_data or {}).get("door") or {}).get("knowledge") or {}
@@ -518,7 +537,7 @@ def _door_rule_ok(rule: Any, inv: Investigator, progress: Any) -> bool:
             return False
         return bool(getattr(progress, str(rule.get("key")), False))
     if rtype == "relics_all":
-        return relics_count(inv) >= len(relic_ids())
+        return e09_relics_count(inv) >= len(relic_ids())
     return True
 
 

@@ -81,6 +81,24 @@ class BattleSettlementMixin:
                     name=Equipment(trophy_id).name,
                 )
                 bonus_text = f"{bonus_text}\n{trophy_line}"
+        elif self.monster.id == "48":
+            # 隐藏挑战「JK」：固定 50 乌帕 + 武器 511「圣剑发射器·Promax」+ 信物 510「主角的徽记」
+            # （独立于侦查检定；510 不进 relics.ids，E09 由背包直读；首杀不重复，持有时跳过）
+            gold = 50
+            with gold_source("battle", ref_id="48_jk_reward"):
+                add_gold(self.investigator.qq, gold)
+            item_names: list[str] = []
+            self.investigator.add_item_to_inventory("511", 1)
+            item_names.append(Equipment("511").name)
+            equipments, _ = self.investigator.get_equipments()
+            if equipments.get("510", 0) <= 0:
+                self.investigator.add_item_to_inventory("510", 1)
+                item_names.append(Equipment("510").name)
+            bonus_text = self._t(
+                "battle.jk_reward",
+                items="、".join(item_names),
+                gold=gold,
+            )
         elif search_roll.level > SuccessLevel.FAILURE:
             gold, dropped_item, bonus_text = self.monster.generate_loot(self._battle_day)
             with gold_source("battle", ref_id=f"monster:{self.monster.id}"):

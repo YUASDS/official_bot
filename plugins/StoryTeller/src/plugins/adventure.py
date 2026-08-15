@@ -5,6 +5,7 @@ from nonebot.params import CommandArg
 from loguru import logger
 import random
 import copy
+from pathlib import Path
 from typing import Any, Callable
 
 from ..services.battle import BattleService
@@ -39,7 +40,8 @@ from ..services.event_service import (
 )
 from ..services.resurrect import do_resurrect
 from ..services.sanity import run_sanity_and_madness
-from .qiren import qiren_pending, qiren_should_trigger, qiren_send_dialogue
+from .qiren import qiren_pending, qiren_send_dialogue
+from .jk import hidden_should_trigger, jk_pending, jk_send_dialogue
 from .guest import guest_enter, guest_should_trigger
 from .gm_room import gm_afterglow, gm_room_enter, gm_room_should_trigger
 from .npc import (
@@ -271,15 +273,22 @@ async def _run_adventure(
         for _log in _logs:
             await send(md_message(f"\n{_log}", bot, mention=user_id))
 
-        # 隐藏挑战「启」：挑战旗标 → 强制怪物 38；否则每日开局概率触发对话（挑战/不挑战）
+        # 隐藏挑战「启/JK」：挑战旗标 → 强制怪物 38/48；否则每日共享 5% 概率触发对话（挑战/不挑战）
         qiren_forced = qiren_pending.pop(user_id, False)
-        if qiren_forced and inv.day >= 40:
-            # day40 门扉归守门人，启不参与（防御：残留挑战旗标不覆盖守门人 36）
-            qiren_forced = False
+        jk_forced = jk_pending.pop(user_id, False)
+        if (qiren_forced or jk_forced) and inv.day >= 40:
+            # day40 门扉归守门人，隐藏挑战不参与（防御：残留挑战旗标不覆盖守门人 36）
+            qiren_forced = jk_forced = False
         if qiren_forced:
             monster_id = "38"
-        elif qiren_should_trigger(inv):
-            await qiren_send_dialogue(user_id, bot, send)
+        elif jk_forced:
+            monster_id = "48"
+        elif (hidden := hidden_should_trigger(inv)):
+            # 共享 d20 出 1：命中后按候选随机选一（jk/qiren 同一层，互斥）
+            if hidden == "jk":
+                await jk_send_dialogue(user_id, bot, send)
+            else:
+                await qiren_send_dialogue(user_id, bot, send)
             return
         elif (guest_id := guest_should_trigger(inv)) is not None:
             # 乱入遭遇：空间裂缝 → 异世界小剧场（触发即替代当日冒险），
@@ -297,7 +306,7 @@ async def _run_adventure(
             )
             monster_id = monster_repo.find_random_id_for_day(inv.day, weights=weights)
         # 周目联动：击杀过猎犬 → D12/D20 概率替换为强化版「猎犬·复仇」(44)
-        if not qiren_forced:
+        if not (qiren_forced or jk_forced):
             linked = _linkage_encounter(inv)
             if linked:
                 monster_id = linked
@@ -317,10 +326,15 @@ async def _run_adventure(
             "出场",
             data_loader.get_text("adventure.monster_intro_default", name=monster.name),
         )
+        # 开场大喝：每次 JK 战斗开始，怪物 intro 后大喝一声（与首次见面图片同位置不同条件）
+        if monster.id == "48":
+            battle_cry = data_loader.get_text("jk.battle_cry", default="这就是我的六脉神剑！")
+            if battle_cry:
+                monster_intro = f"{monster_intro}\n\n{battle_cry}"
         day_event = data_loader.get_event(inv.day, flags=inv.get_all_flags())
 
-        # GM 房间彩蛋（梦之碎片）：1% 概率 + day>=10 触发；day40/启挑战不参与
-        if gm_room_should_trigger(inv) and not qiren_forced:
+        # GM 房间彩蛋（梦之碎片）：1% 概率 + day>=10 触发；day40/隐藏挑战不参与
+        if gm_room_should_trigger(inv) and not (qiren_forced or jk_forced):
             await gm_room_enter(user_id, inv, bot, send)
             gm_afterglow[user_id] = True
 
@@ -332,6 +346,9 @@ async def _run_adventure(
             env = copy.deepcopy(data_loader.environment_data["庄园.黑色满月"])
             env["name"] = "庄园.黑色满月"
             env_desc = f"【庄园.黑色满月】{env.get('描述', '')}"
+        elif jk_forced:
+            # JK 无专属环境：不套随机环境（env 保持空）
+            env = {}
         elif data_loader.environment_data:
             env_key = pick_random_environment()
             env = {}
@@ -381,8 +398,8 @@ async def _run_adventure(
             header += f"\n{warning}"
 
         # --- 奇遇：固定日期事件当天必触发；否则 40% 随机（按条件过滤）---
-        # 隐藏挑战强制怪物 38 时跳过奇遇（替换今日遭遇）
-        event_data = None if qiren_forced else pick_random_event(inv)
+        # 隐藏挑战强制怪物 38/48 时跳过奇遇（替换今日遭遇）
+        event_data = None if (qiren_forced or jk_forced) else pick_random_event(inv)
         if event_data:
             battle_manager.add_battle(user_id, service)
             event_states[user_id] = {
@@ -452,6 +469,23 @@ async def _run_adventure(
 
         battle_manager.add_battle(user_id, service)
         service.roll_initiative()
+
+        # JK 首次见面：发送形象图（inv flag jk.img_shown 持久化防重发，失败静默）
+        if monster.id == "48" and not inv.get_flag("jk.img_shown"):
+            img_path = (
+                Path(__file__).resolve().parent.parent.parent
+                / "resources"
+                / "images"
+                / "jk.jpg"
+            )
+            try:
+                if img_path.exists():
+                    with img_path.open("rb") as f:
+                        if await send_pic(bot, f, send):
+                            inv.set_flag("jk.img_shown", True)
+                            inv.save()
+            except Exception:  # noqa: BLE001 - 图片发送失败静默（零影响战斗）
+                logger.debug(f"JK image send failed for {user_id}")
 
         # 环境修正小节
         env_effects = ""
