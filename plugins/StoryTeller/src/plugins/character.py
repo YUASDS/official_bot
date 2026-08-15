@@ -113,6 +113,68 @@ new_chapter_cmd = on_command(
     "迈向新篇", aliases={"new_chapter"}, priority=10, block=True
 )
 
+query_cmd = on_command(
+    "查询", aliases={"item_info", "物品查询"}, priority=10, block=True
+)
+
+_ITEM_TYPE_LABELS = {
+    "武器": "武器",
+    "防具": "防具",
+    "饰品": "饰品",
+    "spell_scroll": "法术残卷",
+    "misc": "道具",
+}
+
+_ITEM_PART_LABELS = {
+    "近战": "近战",
+    "远程": "远程",
+    "防具": "防具",
+    "饰品": "饰品",
+    "法术": "法术",
+    "misc": "道具",
+}
+
+
+def query_item_info(user_id: str, item_id: str) -> str:
+    """查询物品信息（MD 文本）。
+
+    visible=false 的物品（信物/管理员系列/JK 掉落/未实装等）对非 GM 返回
+    「未知物品」——不泄露其存在；GM（is_master）不受限。
+    """
+    from ..models.item import Equipment
+    from .gm import is_master
+
+    raw = (data_loader.goods_data or {}).get(item_id)
+    if raw is None or (not raw.get("visible", True) and not is_master(user_id)):
+        return _t("player.unknown_item")
+
+    item = Equipment(item_id)
+    fields = [
+        (_t("item.label_id"), item.id),
+        (_t("item.label_name"), item.name),
+        (_t("item.label_type"), _ITEM_TYPE_LABELS.get(item.type, item.type)),
+        (_t("item.label_part"), _ITEM_PART_LABELS.get(item.part, item.part or "—")),
+        (
+            _t("item.label_damage"),
+            item.damage_dice if item.damage_dice and item.damage_dice != "0" else "",
+        ),
+        (_t("item.label_armor"), str(item.armor_point) if item.armor_point else ""),
+        (
+            _t("item.label_skill"),
+            ", ".join(item.skill_bonus)
+            if isinstance(item.skill_bonus, list)
+            else str(item.skill_bonus or ""),
+        ),
+        (_t("item.label_price"), str(item.price) if item.price else ""),
+        (_t("item.label_desc"), item.description),
+    ]
+    lines = [_t("item.info_title")]
+    for label, value in fields:
+        if not value:
+            continue
+        lines.append(_t("item.row", label=label, value=value))
+    return "\n".join(lines)
+
 
 # --- /迈向新篇 ---
 @new_chapter_cmd.handle()
@@ -392,6 +454,20 @@ async def handle_use_item(event: Event, bot: Bot, msg: Message = CommandArg()):
 
     ok, res = equip_item_and_sync(user_id, item_id)
     await use_item_cmd.finish(md_message(f"\n{res}", bot, mention=user_id))
+
+
+# --- /查询 <物品ID> ---
+@query_cmd.handle()
+async def handle_query(event: Event, bot: Bot, msg: Message = CommandArg()):
+    user_id = event.get_user_id()
+    item_id = msg.extract_plain_text().strip()
+    if not item_id:
+        await query_cmd.finish(
+            md_message(f"\n{_t('item.need_id')}", bot, mention=user_id)
+        )
+    await query_cmd.finish(
+        md_message(f"\n{query_item_info(user_id, item_id)}", bot, mention=user_id)
+    )
 
 
 # --- 按钮回调处理器 ---

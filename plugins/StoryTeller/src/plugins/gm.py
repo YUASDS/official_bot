@@ -13,6 +13,7 @@ _t = data_loader.get_text
 
 gm_gift_cmd = on_command("GM赠礼", aliases={"gm_gift"}, priority=1, block=True)
 gm_scroll_cmd = on_command("GM赠卷", aliases={"gm_scroll"}, priority=1, block=True)
+gm_give_cmd = on_command("GM赠物", aliases={"gm_give"}, priority=1, block=True)
 
 
 def get_master_ids() -> set[str]:
@@ -54,6 +55,21 @@ def gift_all_scrolls(num: int = 1) -> int:
     return count
 
 
+def give_item(player_id: str, item_id: str, quantity: int = 1) -> tuple[bool, str]:
+    """向指定玩家发放物品，返回 (是否成功, 提示文案)。"""
+    from ..models.item import Equipment
+    from ..models.player import investigator_repo
+
+    inv_model = investigator_repo.find_by_qq(player_id)
+    if inv_model is None:
+        return False, _t("gm.give_player_missing", player=player_id)
+    item = Equipment(item_id)
+    if not item.is_valid:
+        return False, _t("gm.give_item_missing", item_id=item_id)
+    investigator_repo.add_item_to_inventory(inv_model, item_id, quantity)
+    return True, _t("gm.give_ok", player=player_id, name=item.name, num=quantity)
+
+
 @gm_gift_cmd.handle()
 async def handle_gm_gift(event: Event, bot: Bot, msg: Message = CommandArg()):
     user_id = event.get_user_id()
@@ -88,3 +104,27 @@ async def handle_gm_scroll(event: Event, bot: Bot, msg: Message = CommandArg()):
             f"\n{_t('gm.scroll_ok', num=num, count=count)}", bot, mention=user_id
         )
     )
+
+
+@gm_give_cmd.handle()
+async def handle_gm_give(event: Event, bot: Bot, msg: Message = CommandArg()):
+    user_id = event.get_user_id()
+    if not is_master(user_id):
+        await gm_give_cmd.finish(
+            md_message(f"\n{_t('gm.denied')}", bot, mention=user_id)
+        )
+    parts = msg.extract_plain_text().strip().split()
+    if len(parts) < 2:
+        await gm_give_cmd.finish(
+            md_message(f"\n{_t('gm.give_usage')}", bot, mention=user_id)
+        )
+    player_id, item_id = parts[0], parts[1]
+    quantity = 1
+    if len(parts) >= 3:
+        if not parts[2].isdigit() or int(parts[2]) <= 0:
+            await gm_give_cmd.finish(
+                md_message(f"\n{_t('gm.give_invalid_qty')}", bot, mention=user_id)
+            )
+        quantity = int(parts[2])
+    ok, text = give_item(player_id, item_id, quantity)
+    await gm_give_cmd.finish(md_message(f"\n{text}", bot, mention=user_id))

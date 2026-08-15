@@ -6,7 +6,7 @@ from nonebot.adapters import Bot
 
 from database.db import get_info
 
-from ..models.player import Investigator
+from ..models.player import Investigator, ending_repo
 from ..utils.md_format import (
     build_keyboard,
     cmd_tag,
@@ -34,7 +34,14 @@ async def card_msg(user_id: str):
         inv = Investigator.load(user_id)
         html = info_card_html(inv, get_info(user_id).gold)
         img = await html_to_pic(html, selector=".card", wait=0.8)
-        return QQMessage(MessageSegment.file_image(img))
+        msg = QQMessage(MessageSegment.file_image(img))
+        # 账号级资源（跨周目保留）不在卡片模板内，追加文本行展示
+        msg.append(
+            MessageSegment.text(
+                f"\n{_t('character.info_dream', count=ending_repo.get_dream_fragments(user_id))}"
+            )
+        )
+        return msg
     except Exception:
         return None
 
@@ -98,7 +105,8 @@ async def build_info_message(user_id: str, bot: Bot):
     ]
     res = (
         f"\n{_t('character.info_title')}\n\n"
-        f"{_t('character.info_status', status=survival, day=inv.day, gold=get_info(user_id).gold)}\n\n"
+        f"{_t('character.info_status', status=survival, day=inv.day, gold=get_info(user_id).gold)}\n"
+        f"{_t('character.info_dream', count=ending_repo.get_dream_fragments(user_id))}\n\n"
         f"{_t('character.info_attrs')}\n{chr(10).join(attr_rows)}\n\n"
         f"{_t('character.skill_title')}\n{chr(10).join(skill_rows)}\n\n"
         f"{inv.str_equipments()}\n\n"
