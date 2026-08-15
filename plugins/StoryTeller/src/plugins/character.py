@@ -4,7 +4,12 @@ from nonebot import on_command
 from nonebot.adapters import Bot, Event, Message
 from nonebot.params import CommandArg
 
-from ..models.player import InvestigatorFormatter, ending_repo, investigator_repo
+from ..models.player import (
+    Investigator,
+    InvestigatorFormatter,
+    ending_repo,
+    investigator_repo,
+)
 from ..services.character_cards import (
     candidate_card_html,
     choose_success_card_html,
@@ -19,6 +24,7 @@ from ..services.character_service import (
 from ..services.data_loader import data_loader
 from ..services.ending_engine import relic_ids
 from ..services.equipment_service import equip_item_and_sync
+from ..utils.active_battles import battle_manager
 from ..utils.buttons import _send_to_user, register_button_handler
 from ..utils.image_sender import render_pic, send_pic
 from ..utils.md_format import (
@@ -102,6 +108,116 @@ info_cmd = on_command(
 use_item_cmd = on_command(
     "使用物品", aliases={"equip_item", "装备"}, priority=10, block=True
 )
+
+new_chapter_cmd = on_command(
+    "迈向新篇", aliases={"new_chapter"}, priority=10, block=True
+)
+
+
+# --- /迈向新篇 ---
+@new_chapter_cmd.handle()
+async def handle_new_chapter(event: Event, bot: Bot):
+    """结局完成后开启新周目：解除存活拦截 + 清理残留状态 + 引导创建调查员。"""
+    user_id = event.get_user_id()
+    inv_model = investigator_repo.find_by_qq(user_id)
+    if inv_model is None:
+        await new_chapter_cmd.finish(
+            md_message(
+                f"\n{_t('character.need_create', default='请先创建调查员。')}\n\n"
+                f"{cmd_tag('/创建调查员', show=_t('character.create_button'))}",
+                bot,
+                mention=user_id,
+            )
+        )
+    inv = Investigator(inv_model)
+    progress = ending_repo.get_progress(user_id)
+
+    # 结局已完成 → 解除存活拦截 + 清理状态 + 引导创建
+    if progress is not None and progress.ended:
+        inv.is_survive = False
+        inv.save()
+        _cleanup_ended_state(user_id)
+        await new_chapter_cmd.finish(
+            md_message(
+                f"\n{_t('character.new_chapter_old_ended', default='旧章已合上，新的故事等你落笔。')}\n\n"
+                f"{cmd_tag('/创建调查员', show=_t('character.create_button'))}",
+                bot,
+                mention=user_id,
+            )
+        )
+
+    # 冒险未结束
+    if inv.is_survive:
+        await new_chapter_cmd.finish(
+            md_message(
+                f"\n{_t('character.new_chapter_alive', default='你的旅程仍在继续，不必急着开启新篇。')}\n\n"
+                f"{cmd_tag('/调查员信息', show=_t('character.info_button'))}\n"
+                f"{cmd_tag('/今日冒险', show=_t('adventure.adventure_button'))}",
+                bot,
+                mention=user_id,
+            )
+        )
+
+    # 已死亡（E07 等）→ 直接引导创建
+    await new_chapter_cmd.finish(
+        md_message(
+            f"\n{_t('character.new_chapter_dead', default='尘埃落定，是时候书写新的故事了。')}\n\n"
+            f"{cmd_tag('/创建调查员', show=_t('character.create_button'))}",
+            bot,
+            mention=user_id,
+        )
+    )
+
+
+def _cleanup_ended_state(user_id: str) -> None:
+    """结局后清理残留状态：战斗 / 门扉 / 事件 / NPC / 乱入 / GM / 启挑战。"""
+    # 延迟导入避免插件间循环依赖（adventure 等插件在运行期才加载完整）
+    stores = []
+    try:
+        battle_manager.remove_battle(user_id)
+    except Exception:
+        pass
+    try:
+        from .adventure import door_states
+
+        stores.append(door_states)
+    except Exception:
+        pass
+    try:
+        from ..services.event_service import event_states
+
+        stores.append(event_states)
+    except Exception:
+        pass
+    try:
+        from .guest import guest_active
+
+        stores.append(guest_active)
+    except Exception:
+        pass
+    try:
+        from .gm_room import gm_room_active
+
+        stores.append(gm_room_active)
+    except Exception:
+        pass
+    try:
+        from .qiren import qiren_pending
+
+        stores.append(qiren_pending)
+    except Exception:
+        pass
+    try:
+        from .npc import npc_states
+
+        stores.append(npc_states)
+    except Exception:
+        pass
+    for store in stores:
+        try:
+            store.pop(user_id, None)
+        except Exception:
+            pass
 
 
 # --- /创建调查员 ---

@@ -291,7 +291,10 @@
     "skill_title": " 技能",
     "create_done_title": "调查员创建完成",
     "create_done_hint": "冒险已准备就绪，点击下方按钮开启今日冒险！",
-    "legacy_title": "📜 前尘往事"
+    "legacy_title": "📜 前尘往事",
+    "new_chapter_old_ended": "旧章已合上，新的故事等你落笔。",
+    "new_chapter_alive": "你的旅程仍在继续，不必急着开启新篇。",
+    "new_chapter_dead": "尘埃落定，是时候书写新的故事了。"
   },
   "shop": {
     "input_hint": "请输入物品ID和数量（可选）。",
