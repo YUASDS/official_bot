@@ -47,6 +47,7 @@ class BattleEngineMixin:
 
     def execute_action(self, action: str) -> tuple:
         self.current_action = action
+        self.last_actor = self.current_turn  # 记录行动发起者（卡片标题用）
         if self.is_madness and self.madness_duration > 0:
             return self._resolve_madness()
         # 行动合法性校验（玩家回合）：仅允许当前可用行动，防命令直输越权

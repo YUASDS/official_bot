@@ -18,6 +18,9 @@ class BattleBaseMixin:
         self.player_name = investigator.name
         self.hp_record = {"inv": investigator.hp, "mon": monster.hp}
         self.current_turn: Literal["inv", "mon"] = "inv"
+        # 本次行动的发起者（execute_action 入口记录）：战报卡片标题用它，
+        # 表示「刚结算的是谁的行动」；current_turn 是行动后翻转的「下一行动者」。
+        self.last_actor: Literal["inv", "mon"] = "inv"
         self.current_action = "格斗"
         # 战斗发生时的天数（胜利结算 day+1 后仍显示本场战斗的天数）
         self._battle_day = investigator.day

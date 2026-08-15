@@ -60,11 +60,15 @@ def round_status_html(service: BattleService) -> str:
 
 
 def battle_round_html(service: BattleService, result: tuple) -> str:
-    """回合战报卡片 HTML（检定/交锋/疯狂等 md 渲染进卡片，末段回合提示作脚注）。"""
+    """回合战报卡片 HTML（检定/交锋/疯狂等 md 渲染进卡片，末段回合提示作脚注）。
+
+    标题用 last_actor（刚结算的行动发起者）：玩家主动攻击显示「你的回合」，
+    怪物行动显示「怪物回合」——与卡片正文结算的行动一致，而非下一行动者。
+    """
     t = data_loader.get_text
     body = md_to_html("\n\n".join(str(x) for x in result[:-1] if x))
     owner_key = (
-        "battle.your_turn" if service.current_turn == "inv" else "battle.monster_turn"
+        "battle.your_turn" if service.last_actor == "inv" else "battle.monster_turn"
     )
     hint = t("battle.turn_line", owner=t(owner_key)).replace("**", "")
     html = _ROUND_TEMPLATE.read_text(encoding="utf-8")
