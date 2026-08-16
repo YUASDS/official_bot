@@ -373,6 +373,7 @@ async def _gm_win1(user_id: str, state: dict, inv: Investigator, bot: Bot, send)
         t("gm_room_v2.reward_armor", name=armor.name),
         t("gm_room_v2.reward_stat_random", attr=attr),
         t("gm_room_v2.reward_fragment"),
+        t("dream_fragment.acquire_tip"),  # 获得碎片时给使用指引（配置化）
     ]
     await send(md_message("\n" + "\n\n".join(lines), bot, mention=user_id))
     await _finish_gm_room(user_id, inv, bot, send)
@@ -581,6 +582,7 @@ async def _gm_finalize_choices(user_id: str, state: dict, bot: Bot, send) -> Non
             f"**{t('gm_room_v2.choice_refuse_hint')}**",
             t("gm_room_v2.reward_stat_random", attr=attr),
             t("gm_room_v2.reward_fragment"),
+            t("dream_fragment.acquire_tip"),  # 获得碎片时给使用指引（配置化）
         ]
         await send(md_message("\n" + "\n\n".join(lines), bot, mention=user_id))
     await _finish_gm_room(user_id, inv, bot, send)

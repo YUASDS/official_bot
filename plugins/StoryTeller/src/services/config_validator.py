@@ -365,6 +365,10 @@ class ConfigValidator:
             gpart = g.get("part")
             if gpart is not None and gpart not in GOODS_PARTS:
                 self._err(file, f"{iid}.part", f"非法 part {gpart!r}（合法：{sorted(GOODS_PARTS)}）")
+            # cross_run：跨周目继承标记（bool）
+            cr = g.get("cross_run")
+            if cr is not None and not isinstance(cr, bool):
+                self._err(file, f"{iid}.cross_run", "cross_run 应为 bool（true=死亡重建时继承）")
             # ID 段位（config-id-naming §一）
             self._check_goods_segment(file, iid, g)
             # 法术残卷 → spell 引用

@@ -267,7 +267,11 @@ class InvestigatorRepository:
             return False
 
     def collect_inherited_scrolls(self, qq: str) -> list[tuple[str, int]]:
-        """收集角色背包中的法术残卷（死亡重建时继承，与 501 复活道具、509 纪念道具同类处理）。"""
+        """收集角色背包中跨周目继承的物品（死亡重建时保留）。
+
+        物品级 `cross_run: true` 配置驱动（goods_data.json）；
+        缺省回退现状（spell_scroll 类型 + 501/509），保证旧数据零行为变化。
+        """
         inv = self.find_by_qq(qq)
         if not inv:
             return []
@@ -276,9 +280,7 @@ class InvestigatorRepository:
             InventoryItemModel.investigator == inv
         ):
             item = Equipment(it.item_id)
-            if item.is_valid and (
-                item.type == "spell_scroll" or it.item_id in ("501", "509")
-            ):
+            if item.is_valid and item.cross_run():
                 result.append((it.item_id, it.quantity))
         return result
 

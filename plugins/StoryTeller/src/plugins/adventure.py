@@ -187,6 +187,20 @@ async def _send_frozen_door(
         if kb is not None and not isinstance(msg, str):
             msg.append(kb)
         await finish(msg)
+    # 已通关 day40（frozen_door）：追加「迈向新篇」指引（配置化文案）
+    guide = ""
+    try:
+        from ..services.ending_engine import ending_repo
+
+        progress = ending_repo.get_progress(user_id)
+        if inv.day >= 40 and progress is not None and (
+            progress.boss36_defeated or progress.ended
+        ):
+            guide = data_loader.get_text("adventure.day40_new_chapter")
+    except Exception:  # noqa: BLE001 - 指引缺失不影响主流程
+        guide = ""
+    if guide:
+        block = f"{block}\n\n{guide}"
     await finish(md_message(f"\n{block}", bot, mention=user_id))
 
 

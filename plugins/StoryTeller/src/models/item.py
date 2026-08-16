@@ -73,6 +73,16 @@ class Equipment:
     def is_valid(self) -> bool:
         return bool(self._data)
 
+    def cross_run(self) -> bool:
+        """跨周目继承标记（goods_data.json `cross_run` 配置驱动）。
+
+        缺省回退现状：spell_scroll 类型 + 501/509（死亡重建时继承），
+        保证旧数据零行为变化；新物品用 `cross_run: true` 显式声明。
+        """
+        if "cross_run" in self._data:
+            return bool(self._data.get("cross_run"))
+        return self.type == "spell_scroll" or self.id in ("501", "509")
+
     def __str__(self) -> str:
         return self.name
 
