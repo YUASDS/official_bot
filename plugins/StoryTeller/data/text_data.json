@@ -618,5 +618,13 @@
             "n4": "（奖励已结算）",
             "end": "你走出巷口，风把那句「莫回头」卷得老远。世界重归平静——今晚的庄园，依然只有你一个人醒着。"
         }
+    },
+    "boss": {
+        "test_champion.title": "🧪 试炼幻象",
+        "test_champion.appear": "一道由配置驱动的试炼幻象在你面前凝成实体，它既不攻击，也不后退，只静静等着你的选择。",
+        "test_champion.challenge": "⚔️ 应战",
+        "test_champion.decline": "🚪 回避",
+        "test_champion.challenge_pending": "你迎向那道幻象，四周的空间微微扭曲。",
+        "test_champion.skip_done": "幻象点了点头，无声地消散了。\n\n你活过了这一天。"
     }
 }

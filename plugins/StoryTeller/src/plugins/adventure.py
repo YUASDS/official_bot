@@ -4,7 +4,6 @@ from nonebot.exception import FinishedException
 from nonebot.params import CommandArg
 from loguru import logger
 import random
-import copy
 import ujson
 from pathlib import Path
 from typing import Any, Callable
@@ -41,10 +40,17 @@ from ..services.event_service import (
     event_states,
     pick_random_event,
 )
+from ..services.boss_framework import (
+    boss_battle_cry,
+    boss_image_for_monster,
+    boss_forced_environment,
+    boss_resolve_forced,
+    get_boss,
+    send_boss_dialogue,
+)
 from ..services.resurrect import do_resurrect
 from ..services.sanity import run_sanity_and_madness
-from .qiren import qiren_pending, qiren_send_dialogue
-from .jk import hidden_should_trigger, jk_pending, jk_send_dialogue
+from .jk import hidden_should_trigger
 from .guest import guest_enter, guest_should_trigger
 from .gm_room import gm_afterglow, gm_room_enter, gm_room_should_trigger
 from .npc import (
@@ -79,7 +85,7 @@ def _loop_linkage(key: str) -> dict:
 
 
 def _black_moon_environment() -> str:
-    """启专属环境名：仅 qiren_forced 强制路径使用，普通日随机池永远排除。"""
+    """启专属环境名：普通日随机池永远排除（挑战强制路径由 boss_data 战斗.强制环境承载）。"""
     return str(
         (data_loader.reply_data.get("loop_linkage") or {}).get("black_moon_environment")
         or "庄园.黑色满月"
@@ -296,12 +302,11 @@ async def _dispatch_daily_triggers(
         seen_groups.add(gid)
         kind = t.get("kind") or t.get("id")
         if kind == "hidden":
-            hidden = hidden_should_trigger(inv)
-            if hidden == "jk":
-                await jk_send_dialogue(user_id, bot, send)
-                return True
-            if hidden == "qiren":
-                await qiren_send_dialogue(user_id, bot, send)
+            # 隐藏挑战 BOSS：遍历 boss 配置表（boss_data.json），共享组一次掷骰，
+            # 命中后发送对应 BOSS 对话（新 BOSS 纯数据入链，无需改代码）
+            boss_id = hidden_should_trigger(inv)
+            if boss_id is not None:
+                await send_boss_dialogue(boss_id, user_id, bot, send)
                 return True
         elif kind == "guest":
             guest_id = guest_should_trigger(inv)
@@ -322,7 +327,13 @@ async def _dispatch_daily_triggers(
 
 
 def _jk_image() -> dict:
-    """JK 形象图配置（reply_data.json `boss_image.jk`，缺省现状路径/flag）。"""
+    """JK 形象图配置（boss_data「jk」图片段，缺省回退 reply_data boss_image，零行为）。
+
+    保留供旧调用方/测试读取配置；实际发送由 boss_framework.boss_image_for_monster 统一消费。
+    """
+    img = (get_boss("jk") or {}).get("图片") or {}
+    if img.get("路径"):
+        return {"path": img["路径"], "flag": img.get("flag") or "jk.img_shown"}
     return (data_loader.reply_data.get("boss_image") or {}).get("jk") or {}
 
 
@@ -401,27 +412,25 @@ async def _run_adventure(
         for _log in _logs:
             await send(md_message(f"\n{_log}", bot, mention=user_id))
 
-        # 隐藏挑战「启/JK」：挑战旗标 → 强制怪物 38/48；否则每日共享 5% 概率触发对话（挑战/不挑战）
-        qiren_forced = qiren_pending.pop(user_id, False)
-        jk_forced = jk_pending.pop(user_id, False)
-        if (qiren_forced or jk_forced) and inv.day >= 40:
-            # day40 门扉归守门人，隐藏挑战不参与（防御：残留挑战旗标不覆盖守门人 36）
-            qiren_forced = jk_forced = False
-        if qiren_forced:
-            monster_id = "38"
-        elif jk_forced:
-            monster_id = "48"
-        elif await _dispatch_daily_triggers(
-            user_id, inv, bot, send, after_monster=False
-        ):
-            # 每日彩蛋互斥链：按 triggers 配置 priority 排序，第一个命中即触发（一天至多一个）
-            return
+        # 隐藏挑战 BOSS（jk/qiren 及未来新 BOSS）：挑战旗标 → 强制绑定怪物（boss 配置表）；
+        # 否则每日共享概率触发对话（挑战/不挑战）。day40 守卫内置 boss_framework（门扉归守门人）。
+        forced_boss = boss_resolve_forced(user_id, inv)
+        forced = bool(forced_boss)
+        if forced:
+            monster_id = str((get_boss(forced_boss) or {}).get("怪物id") or forced_boss)
         else:
+            monster_id = None
+        if not monster_id:
+            if await _dispatch_daily_triggers(
+                user_id, inv, bot, send, after_monster=False
+            ):
+                # 每日彩蛋互斥链：按 triggers 配置 priority 排序，第一个命中即触发（一天至多一个）
+                return
             # 周目联动：被猎犬杀死过 → 猎犬在每日池权重 ×2（"它来找你了"）
             weights = _hound_weight(inv)
             monster_id = monster_repo.find_random_id_for_day(inv.day, weights=weights)
         # 周目联动：击杀过猎犬 → D12/D20 概率替换为强化版「猎犬·复仇」(44)
-        if not (qiren_forced or jk_forced):
+        if not forced:
             linked = _linkage_encounter(inv)
             if linked:
                 monster_id = linked
@@ -441,16 +450,15 @@ async def _run_adventure(
             "出场",
             data_loader.get_text("adventure.monster_intro_default", name=monster.name),
         )
-        # 开场大喝：每次 JK 战斗开始，怪物 intro 后大喝一声（与首次见面图片同位置不同条件）
-        if monster.id == "48":
-            battle_cry = data_loader.get_text("jk.battle_cry", default="这就是我的六脉神剑！")
-            if battle_cry:
-                monster_intro = f"{monster_intro}\n\n{battle_cry}"
+        # 开场大喝：BOSS 配置表驱动（战斗.开场大喝），怪物 intro 后大喝一声
+        battle_cry = boss_battle_cry(monster_id)
+        if battle_cry:
+            monster_intro = f"{monster_intro}\n\n{battle_cry}"
         day_event = data_loader.get_event(inv.day, flags=inv.get_all_flags())
 
         # GM 房间彩蛋（梦之碎片）：after_monster 触发器（选怪后判定，保持随机消费时序不变）；
         # day40/隐藏挑战不参与（互斥链优先级最低）
-        if not (qiren_forced or jk_forced) and await _dispatch_daily_triggers(
+        if not forced and await _dispatch_daily_triggers(
             user_id, inv, bot, send, after_monster=True
         ):
             return
@@ -458,15 +466,11 @@ async def _run_adventure(
         # --- Environment ---
         env = {}
         env_desc = ""
-        if qiren_forced:
-            # 隐藏挑战强制环境「庄园.黑色满月」（环境名读 loop_linkage 配置）
-            black_moon = _black_moon_environment()
-            env = copy.deepcopy(data_loader.environment_data[black_moon])
-            env["name"] = black_moon
-            env_desc = f"【{black_moon}】{env.get('描述', '')}"
-        elif jk_forced:
-            # JK 无专属环境：不套随机环境（env 保持空）
-            env = {}
+        if forced:
+            # 隐藏挑战强制环境（boss_data 战斗.强制环境；JK 无专属环境 → env 保持空）
+            env = boss_forced_environment(forced_boss)
+            if env:
+                env_desc = f"【{env.get('name')}】{env.get('描述', '')}"
         elif data_loader.environment_data:
             env_key = pick_random_environment()
             env = {}
@@ -516,8 +520,8 @@ async def _run_adventure(
             header += f"\n{warning}"
 
         # --- 奇遇：固定日期事件当天必触发；否则 40% 随机（按条件过滤）---
-        # 隐藏挑战强制怪物 38/48 时跳过奇遇（替换今日遭遇）
-        event_data = None if (qiren_forced or jk_forced) else pick_random_event(inv)
+        # 隐藏挑战强制怪物时跳过奇遇（替换今日遭遇）
+        event_data = None if forced else pick_random_event(inv)
         if event_data:
             battle_manager.add_battle(user_id, service)
             event_states[user_id] = {
@@ -601,17 +605,18 @@ async def _run_adventure(
         battle_manager.add_battle(user_id, service)
         service.roll_initiative()
 
-        # JK 首次见面：发送形象图（路径/flag 读 boss_image 配置，持久化防重发，失败静默）
-        if monster.id == "48" and not inv.get_flag(_jk_image_flag()):
-            img_path = Path(__file__).resolve().parent.parent.parent / _jk_image_path()
+        # BOSS 首次见面：发送形象图（boss_data 图片，持久化防重发，失败静默）
+        boss_img = boss_image_for_monster(monster_id)
+        if boss_img and not inv.get_flag(boss_img[1]):
+            img_path = Path(__file__).resolve().parent.parent.parent / boss_img[0]
             try:
                 if img_path.exists():
                     with img_path.open("rb") as f:
                         if await send_pic(bot, f, send):
-                            inv.set_flag(_jk_image_flag(), True)
+                            inv.set_flag(boss_img[1], True)
                             inv.save()
             except Exception:  # noqa: BLE001 - 图片发送失败静默（零影响战斗）
-                logger.debug(f"JK image send failed for {user_id}")
+                logger.debug(f"BOSS image send failed for {user_id}")
 
         # 环境修正小节
         env_effects = ""
