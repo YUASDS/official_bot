@@ -701,6 +701,9 @@ class ConfigValidator:
                     self._err(file, f"{fid}.收尾.skip_daily", "应为布尔值")
                 self._check_text_key(file, f"{fid}.收尾.exit_text_key", tail.get("exit_text_key"))
                 self._check_text_key(file, f"{fid}.收尾.day_text_key", tail.get("day_text_key"))
+        # 接力季标记（guest 同局接力：可选 bool，缺省 false=普通季，true=普通异界后可再 roll）
+        if f.get("接力") is not None and not isinstance(f["接力"], bool):
+            self._err(file, f"{fid}.接力", "应为布尔值（true=同局接力季）")
         nodes = f.get("节点")
         if not isinstance(nodes, dict) or not nodes:
             self._err(file, fid, "节点应为非空 dict")
@@ -780,7 +783,7 @@ class ConfigValidator:
                 continue
             if b.get("怪物id"):
                 self._check_monster_ref(file, f"{bid}.怪物id", b["怪物id"])
-            # 触发：前置物品 / 条件物品
+            # 触发：前置物品 / 条件物品 / 前置模式
             trig = b.get("触发") or {}
             if isinstance(trig, dict):
                 cond = trig.get("条件") or {}
@@ -789,6 +792,9 @@ class ConfigValidator:
                         self._check_items_ref(file, f"{bid}.触发.条件.物品", item)
                 for item in trig.get("前置物品") or []:
                     self._check_items_ref(file, f"{bid}.触发.前置物品", item)
+                mode = trig.get("前置模式")
+                if mode is not None and mode not in ("any", "all"):
+                    self._err(file, f"{bid}.触发.前置模式", f"非法前置模式 {mode!r}（合法：any/all）")
             # 对话：文案键
             dlg = b.get("对话") or {}
             if isinstance(dlg, dict):

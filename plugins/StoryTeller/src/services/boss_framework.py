@@ -219,9 +219,10 @@ for _bid in list(boss_registry().keys()):
 
 # --- 触发条件（boss_data 权威 + reply_data triggers 缺省回退，零行为） ---
 def boss_trigger_cfg(boss_id: str) -> dict:
-    """归一化触发配置：{日: {min, max}, 物品: [], 概率: {骰, 值}, 共享组}。
+    """归一化触发配置：{日: {min, max}, 物品: [], 概率: {骰, 值}, 共享组, 前置模式}。
 
     boss_data `触发` 优先；缺省字段回退 reply_data `triggers`（批次2 配置，零行为）。
+    前置模式：`触发.前置模式` 驱动前置物品判定（all=全部持有 / any=任一持有，缺省 any）。
     """
     trig = (get_boss(boss_id) or {}).get("触发") or {}
     rep = data_loader.get_trigger(boss_id)
@@ -244,11 +245,12 @@ def boss_trigger_cfg(boss_id: str) -> dict:
         "物品": items or [],
         "概率": prob,
         "共享组": trig.get("共享组") or rep.get("group") or "",
+        "前置模式": trig.get("前置模式") or "any",
     }
 
 
 def boss_unlocked(boss_id: str, inv: Investigator) -> bool:
-    """触发条件门：日范围 + 前置物品（任一持有即解锁）。day40 归守门人（日.max=39 天然排除）。"""
+    """触发条件门：日范围 + 前置物品（any 任一持有 / all 全部持有）。day40 归守门人（日.max=39 天然排除）。"""
     t = boss_trigger_cfg(boss_id)
     day = t["日"]
     if day:
@@ -259,8 +261,12 @@ def boss_unlocked(boss_id: str, inv: Investigator) -> bool:
     items = t["物品"]
     if items:
         equipments, _ = inv.get_equipments()
-        if not any(equipments.get(iid, 0) > 0 for iid in items):
-            return False
+        if t.get("前置模式") == "all":
+            if not all(equipments.get(iid, 0) > 0 for iid in items):
+                return False
+        else:
+            if not any(equipments.get(iid, 0) > 0 for iid in items):
+                return False
     return True
 
 

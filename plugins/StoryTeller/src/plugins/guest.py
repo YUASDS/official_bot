@@ -96,8 +96,26 @@ def _world_available(inv: Investigator, flow: dict, flow_id: str) -> bool:
     return eval_option_condition(cond, inv)
 
 
+def _guest_run_triggered(inv: Investigator) -> bool:
+    """本局已触发过普通异界：run_triggered 旗标优先，任一 flow.*.visited/done 兜底。
+
+    兜底兼容存量玩家（旧版本已触发过但无 run_triggered 旗标）：任一已进入/通关
+    世界的旗标为真即视为本局已触发过（双保险），普通异界不再二次出现。
+    """
+    if inv.get_flag("guest.run_triggered"):
+        return True
+    return any(
+        inv.get_flag(f"flow.{fid}.visited") or inv.get_flag(f"flow.{fid}.done")
+        for fid in guest_registry()
+    )
+
+
 def guest_should_trigger(inv: Investigator) -> Optional[str]:
-    """触发：解锁门 + 每日骰 ≤ value（缺省 3）+ met_day 守卫 → 随机一个已解锁世界 id。"""
+    """触发：解锁门 + 每日骰 ≤ value（缺省 3）+ met_day 守卫 → 随机一个已解锁世界 id。
+
+    每局一次：普通异界本局至多触发一次；触发过后（run_triggered 或任一 flow 旗标），
+    候选集只剩「接力季」（flow 配置 \"接力\" 为真且已解锁），无接力候选则不触发。
+    """
     if not guest_unlocked(inv):
         return None
     if _guest_met_day.get(inv.qq) == inv.day or _guest_met_flag(inv) == inv.day:
@@ -111,6 +129,13 @@ def guest_should_trigger(inv: Investigator) -> Optional[str]:
         for fid, f in guest_registry().items()
         if _world_available(inv, f, fid)
     ]
+    # 每局一次：本局已触发过普通异界 → 普通世界全部排除，只留接力季候选
+    if _guest_run_triggered(inv):
+        worlds = [
+            fid
+            for fid, f in guest_registry().items()
+            if f.get("接力") and _world_available(inv, f, fid)
+        ]
     if not worlds:
         return None
     # 季级触发概率优先（季文件「触发概率」字段），缺省回退全局 guest value
@@ -143,6 +168,7 @@ async def guest_enter(user_id: str, inv: Investigator, bot: Bot, send, world_id:
     if state is None:
         return
     inv.set_flag(f"flow.{flow_id}.visited", True)
+    inv.set_flag("guest.run_triggered", 1)  # 周目内旗标：每局至多一次普通异界（接力季豁免）
     inv.save()
     await send(md_message(f"\n**{data_loader.get_text('guest.enter_title')}**", bot, mention=user_id))
     await render_flow_node(user_id, state, bot, send)
