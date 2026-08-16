@@ -43,8 +43,20 @@ from ..utils.buttons import (
 )
 from ..utils.md_format import build_keyboard, md_message, need_create_message
 
-# 待挑战旗标：user_id -> boss_id（点「挑战」后置位，下一次 /今日冒险 强制绑定怪物）
+# 待挑战旗标：user_id -> boss_id（点「挑战」后置位，下一次 /今日冒险 强制绑定怪物）。
+# 内存 dict 为快路径；持久化镜像写 inv.flags `boss.pending`，重启后挑战意图不丢，
+# `boss_resolve_forced` 读时双读（内存优先 → flags 兜底 → 旧薄壳 jk_pending/qiren_pending）。
 boss_pending: dict[str, str] = {}
+
+
+def _boss_pending_set(user_id: str, boss_id: str) -> None:
+    """置位待挑战旗标：内存 dict + flags 持久化双写（挑战意图跨重启保留）。"""
+    boss_pending[user_id] = boss_id
+    inv_model = investigator_repo.find_by_qq(user_id)
+    if inv_model is not None:
+        inv = Investigator(inv_model)
+        inv.set_flag("boss.pending", boss_id)
+        inv.save()
 
 # --- 注册表：boss_data.json 纯数据 + register_boss 代码注册（代码优先覆盖，对齐 flow 注册表） ---
 _CODE_BOSSES: dict[str, dict] = {}
@@ -285,7 +297,7 @@ async def handle_boss_button(
     try:
         t = data_loader.get_text
         if choice == challenge_action:
-            boss_pending[user_id] = boss_id
+            _boss_pending_set(user_id, boss_id)
             await _send(
                 md_message(
                     f"\n{t(dlg.get('挑战后') or f'{boss_id}.challenge_pending')}",
@@ -324,9 +336,15 @@ async def handle_boss_button(
 def boss_resolve_forced(user_id: str, inv: Investigator) -> str | None:
     """挑战后重入：弹出待挑战旗标 → 返回 boss id；day40 守卫（门扉归守门人）。
 
-    兼容旧旗标 jk_pending/qiren_pending（测试/旧调用方直接写 dict，收编为薄壳后仍生效）。
+    读时双读：内存 boss_pending 优先 → flags `boss.pending` 兜底（重启后挑战意图恢复）
+    → 旧薄壳 jk_pending/qiren_pending（测试/旧调用方直接写 dict，收编为薄壳后仍生效）。
+    消费后清理 flags（内存已 pop），防重复消费；day40 归守门人时同样清旗标。
     """
     boss_id = boss_pending.pop(user_id, None)
+    if not boss_id:
+        flag_boss = inv.get_flag("boss.pending")
+        if flag_boss:
+            boss_id = str(flag_boss)
     if not boss_id:
         try:
             from ..plugins.jk import jk_pending
@@ -340,6 +358,9 @@ def boss_resolve_forced(user_id: str, inv: Investigator) -> str | None:
                 boss_id = "jk"
         except Exception:  # noqa: BLE001 - 薄壳未加载时忽略旧旗标
             pass
+    if boss_id and inv.get_flag("boss.pending"):
+        inv.clear_flag("boss.pending")
+        inv.save()
     if boss_id and inv.day >= 40:
         # day40 门扉归守门人，隐藏挑战不参与（防御：残留挑战旗标不覆盖守门人 36）
         return None

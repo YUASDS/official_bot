@@ -24,7 +24,7 @@ SAN 永不归零（不触发 E06）；胜利不走掉落/成长/day+1/门扉；�
 from __future__ import annotations
 
 import random
-from typing import Any
+from typing import Any, Optional
 
 from nonebot import on_command
 from nonebot.adapters import Bot, Event, Message
@@ -108,7 +108,20 @@ gm_afterglow: dict[str, bool] = {}
 #   "round": 1|2, "revive_used": bool, "guard_id": "40"|"41"|"42",
 #   "declined": list[str], "received": list[str], "battle": BattleService|None,
 # }
+# 活跃流程态（对话/战斗/复活助力/奖励选择）保持内存：重启后中断合理（同战斗），
+# 不持久化（flags 只记"当日已进入"守卫，防重启后同 game-day 二次进入）。
 gm_room_active: dict[str, dict] = {}
+# 当日守卫（game-day）：user_id -> 已进入 GM 房间的当日 day。
+# 内存 dict 为快路径；持久化镜像写 inv.flags `gm_room.met_day`，读时双读。
+_gm_met_day: dict[str, int] = {}
+
+
+def _gm_met_flag(inv: Investigator) -> Optional[int]:
+    """读当日守卫持久化镜像：flags `gm_room.met_day`（重启后仍生效）。"""
+    try:
+        return int(inv.get_flag("gm_room.met_day"))
+    except (TypeError, ValueError):
+        return None
 
 
 def gm_room_unlocked(inv: Investigator) -> bool:
@@ -120,8 +133,16 @@ def gm_room_unlocked(inv: Investigator) -> bool:
 
 
 def gm_room_should_trigger(inv: Investigator) -> bool:
-    """每日冒险开局概率触发：解锁后掷 d100 ≤ 1 则 True（骰/触发值读配置）。"""
+    """每日冒险开局概率触发：解锁后掷 d100 ≤ 1 则 True（骰/触发值读配置）。
+
+    当日守卫（game-day）：已进入过 GM 房间的同一天不再触发（内存 + flags 双读，
+    重启后 `gm_room.met_day` 仍生效，防同 game-day 二次进入）。
+    """
     if not gm_room_unlocked(inv):
+        return False
+    if _gm_met_day.get(inv.qq) == inv.day:
+        return False
+    if _gm_met_flag(inv) == inv.day:
         return False
     t = _gm_trigger()
     dice = t.get("dice", "d100")
@@ -178,6 +199,9 @@ async def gm_room_enter(user_id: str, inv: Investigator, bot: Bot, send) -> None
     if user_id in gm_room_active:
         return
     _gm_mark_done(user_id)
+    _gm_met_day[user_id] = inv.day
+    inv.set_flag("gm_room.met_day", inv.day)  # 当日守卫持久化：重启后同 game-day 不二次进入
+    inv.save()
     gm_room_active[user_id] = {
         "phase": "dlg1",
         "round": 1,

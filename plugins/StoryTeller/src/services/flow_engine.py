@@ -538,15 +538,26 @@ async def _flow_battle_end(user_id: str, state: dict, bot: Bot, send) -> None:
 
 
 async def _finish_flow(user_id: str, state: dict, bot: Bot, send) -> None:
-    """flow 统一收尾：结束文案 + 清状态（不推进 day / 不占当日冒险——独立探索通道）。"""
+    """flow 统一收尾：结束文案 + 清状态（不推进 day / 不占当日冒险——独立探索通道）。
+
+    flow_states（活跃流程态：node_id/entered/buff/battle）保持内存——重启后中断合理
+    （同战斗）；完成标记 `flow.<flow_id>.done` 持久化到 flags，供后续条件/展示读取。
+    """
     t = data_loader.get_text
-    text = _node_text(state.get("flow_id", ""), state.get("node_id", "end"))
+    flow_id = state.get("flow_id", "")
+    node_id = state.get("node_id", "end")
+    text = _node_text(flow_id, node_id)
     lines: list[str] = []
     if text:
         lines.append(text)
     lines.append(t("flow.exit"))
     battle_manager.remove_battle(user_id)
     flow_states.pop(user_id, None)
+    inv_model = investigator_repo.find_by_qq(user_id)
+    if inv_model is not None and flow_id:
+        inv = Investigator(inv_model)
+        inv.set_flag(f"flow.{flow_id}.done", 1)
+        inv.save()
     await send(
         md_message(
             f"\n**{t('flow.end_title')}**\n\n" + "\n\n".join(lines),

@@ -709,6 +709,13 @@ class Investigator:
         flags[name] = value
         self.set_skill("flags", ujson.dumps(flags, ensure_ascii=False))
 
+    def clear_flag(self, name: str) -> None:
+        """删除单局剧情旗标（不存在时静默；走 update_data 缓存 + save() 落库模式）。"""
+        flags = self.get_all_flags()
+        if name in flags:
+            del flags[name]
+            self.set_skill("flags", ujson.dumps(flags, ensure_ascii=False))
+
     def get_full_attributes_dict(self) -> dict[str, Any]:
         core = ["力量", "体质", "体型", "敏捷", "外貌", "智力", "意志", "教育", "幸运"]
         data = {k: self.get_skill(k, 0) for k in core}

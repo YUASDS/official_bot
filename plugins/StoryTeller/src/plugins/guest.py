@@ -63,8 +63,12 @@ def _guest_trigger() -> dict:
 #   "entered": [已进入阶段 id], "buff": {临时技能修正}, "battle": BattleService|None,
 #   "completed": bool,
 # }
+# 活跃流程态（进行中阶段/战斗/临时 buff）保持内存：重启后中断合理（同战斗），
+# 不持久化（flags 只记"当日已触发"守卫与"完整通关"完成标记，见下）。
 guest_active: dict[str, dict] = {}
-# 每日互斥守卫：user_id -> 已触发乱入的当日 day（一天最多一次）
+# 每日互斥守卫（game-day）：user_id -> 已触发乱入的当日 day（一天最多一次）。
+# 内存 dict 为既有快路径 + 测试兼容；持久化镜像写 inv.flags `guest.met_day`，
+# 重启后仍可防「同日二次触发」（读时双读：内存优先，flags 兜底）。
 _guest_met_day: dict[str, int] = {}
 
 # 世界主题数据（data/guest_data.json）：与 data_loader 解耦独立加载（缓存）
@@ -114,11 +118,21 @@ def _world_available(inv: Investigator, world: dict) -> bool:
     return eval_option_condition(cond, inv)
 
 
+def _guest_met_flag(inv: Investigator) -> Optional[int]:
+    """读当日守卫持久化镜像：flags `guest.met_day`（游戏日触发标记，重启后仍生效）。"""
+    try:
+        return int(inv.get_flag("guest.met_day"))
+    except (TypeError, ValueError):
+        return None
+
+
 def guest_should_trigger(inv: Investigator) -> Optional[str]:
     """乱入触发：解锁 + 每日骰 ≤3 → 随机抽一个已解锁世界 id（无则 None）。"""
     if not guest_unlocked(inv):
         return None
     if _guest_met_day.get(inv.qq) == inv.day:
+        return None
+    if _guest_met_flag(inv) == inv.day:
         return None
     if guest_active.get(inv.qq):
         return None
@@ -237,6 +251,7 @@ async def guest_enter(user_id: str, inv: Investigator, bot: Bot, send, world_id:
         raise FinishedException()
     _guest_mark_done(user_id)
     _guest_met_day[user_id] = inv.day
+    inv.set_flag("guest.met_day", inv.day)  # 当日守卫持久化：重启后同 game-day 不二次触发
     world = _world(world_id)
     if not world:
         return
@@ -538,6 +553,11 @@ async def _guest_ending(
         souvenir = _guest_grant_souvenir(user_id)
         if souvenir:
             lines.append(t("guest.souvenir_gain", name=souvenir))
+        inv_model = investigator_repo.find_by_qq(user_id)
+        if inv_model is not None:
+            inv = Investigator(inv_model)
+            inv.set_flag(f"guest.done.{world_id}", 1)  # 完整通关完成标记（持久化）
+            inv.save()
     msg = md_message("\n\n".join(x for x in lines if x), bot, mention=user_id)
     await send(msg)
     if completed and ending.get("纪念品文案"):
