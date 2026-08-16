@@ -8,6 +8,16 @@ from loguru import logger
 
 Separator = "\n------------------\n"
 
+# 每日彩蛋互斥链缺省触发器（唯一数据定义：reply_data.json `triggers` 段缺失时的回退，
+# 顺序 = 现状链 hidden[jk/qiren] → guest → npc → gm_room；各插件只读，不各自定义）。
+_DEFAULT_TRIGGERS = [
+    {"id": "jk", "group": "hidden", "kind": "hidden", "priority": 1},
+    {"id": "qiren", "group": "hidden", "kind": "hidden", "priority": 1},
+    {"id": "guest", "kind": "guest", "priority": 2},
+    {"id": "npc", "kind": "npc", "priority": 3},
+    {"id": "gm_room", "kind": "gm_room", "priority": 4, "after_monster": True},
+]
+
 class DataLoader:
     """Game Data Manager (Singleton)"""
     _instance = None
@@ -104,13 +114,23 @@ class DataLoader:
                 lines.append(f"> {v['text']}")
         return "\n".join(lines) if lines else ""
 
+    def get_triggers(self) -> list[dict[str, Any]]:
+        """每日彩蛋互斥链触发器配置（reply_data.json `triggers` 段；缺失回退默认链）。
+
+        统一缺省回退入口：_DEFAULT_TRIGGERS 定义在 data_loader（单一数据定义），
+        各插件/adventure 只读不定义，保证无 triggers 段时行为与现状一致。
+        """
+        cfg = self.reply_data.get("triggers") or []
+        return cfg or list(_DEFAULT_TRIGGERS)
+
     def get_trigger(self, tid: str) -> dict[str, Any]:
         """按 id 读取每日彩蛋触发配置（reply_data.json `triggers` 段）。
 
         triggers 段为统一「触发」schema 列表（id/group/kind/priority/day_min/day_max/
-        dice/value/relation/items…）；缺省回退空 dict，调用方用 get(key, 缺省) 兜底。
+        dice/value/relation/items…）；缺省回退默认链，未命中回退空 dict，
+        调用方用 get(key, 缺省) 兜底。
         """
-        for t in self.reply_data.get("triggers") or []:
+        for t in self.get_triggers():
             if isinstance(t, dict) and t.get("id") == tid:
                 return t
         return {}

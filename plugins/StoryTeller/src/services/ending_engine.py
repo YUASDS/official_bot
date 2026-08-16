@@ -55,16 +55,37 @@ def _ending_text_meta(end_id: str) -> dict:
     return ((data_loader.text_data or {}).get("ending") or {}).get(end_id) or {}
 
 
+# 变体 → 文本键映射（唯一数据源 display_data.json `ending_variant_keys`，
+# 缺失键回退本默认表；ending.py 复用 _variant_keys，不再各自硬编码）。
+_ENDING_VARIANT_KEYS_DEFAULT = {
+    "E01": {"清醒合流": "variant_clear", "崩溃合流": "variant_collapse"},
+    "E02": {"圣灯": "variant_light", "歌谣暂封": "variant_song"},
+    "E05": {"星光变体": "variant_light"},
+}
+
+
+def _variant_keys() -> dict:
+    """变体 → 文本键映射（display_data.json `ending_variant_keys`，缺失键回退现状）。"""
+    # 局部导入：避免 battle→engine→cards 模块环
+    from .battle_cards import get_display_config
+
+    merged: dict = {}
+    for eid, variants in _ENDING_VARIANT_KEYS_DEFAULT.items():
+        merged[eid] = dict(variants)
+    cfg = get_display_config().get("ending_variant_keys") or {}
+    if isinstance(cfg, dict):
+        for eid, variants in cfg.items():
+            if isinstance(variants, dict):
+                base = merged.setdefault(eid, {})
+                base.update({k: v for k, v in variants.items() if v is not None})
+    return merged
+
+
 def _variant_text(end_id: str, variant: Optional[str]) -> str:
     """结局变体的专属正文（text_data ending.{id}.variant_*）。"""
     if not variant:
         return ""
-    keys = {
-        "E01": {"清醒合流": "variant_clear", "崩溃合流": "variant_collapse"},
-        "E02": {"圣灯": "variant_light", "歌谣暂封": "variant_song"},
-        "E05": {"星光变体": "variant_light"},
-    }
-    vk = keys.get(end_id, {}).get(variant)
+    vk = _variant_keys().get(end_id, {}).get(variant)
     return _ending_text_meta(end_id).get(vk, "") if vk else ""
 
 

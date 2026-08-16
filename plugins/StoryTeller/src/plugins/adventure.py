@@ -258,21 +258,11 @@ def _skip_daily(user_id: str, inv: Investigator) -> None:
 
 
 # --- 每日彩蛋互斥链调度器（triggers 配置驱动）---
-# 缺省触发器顺序 = 现状链（hidden[jk/qiren] → guest → npc → gm_room）；reply_data.json
-# `triggers` 段存在时以其 priority 排序驱动（新彩蛋纯数据入链，无需改代码）。
-_DEFAULT_TRIGGERS = [
-    {"id": "jk", "group": "hidden", "kind": "hidden", "priority": 1},
-    {"id": "qiren", "group": "hidden", "kind": "hidden", "priority": 1},
-    {"id": "guest", "kind": "guest", "priority": 2},
-    {"id": "npc", "kind": "npc", "priority": 3},
-    {"id": "gm_room", "kind": "gm_room", "priority": 4, "after_monster": True},
-]
-
-
+# 缺省触发器顺序 = 现状链（hidden[jk/qiren] → guest → npc → gm_room）；
+# 唯一数据定义在 data_loader._DEFAULT_TRIGGERS，本插件只读不定义。
 def _triggers_sorted() -> list[dict]:
-    """按 priority 升序的触发器配置（reply_data.json `triggers` 段；缺省回退现状顺序）。"""
-    cfg = data_loader.reply_data.get("triggers") or []
-    return sorted(cfg if cfg else _DEFAULT_TRIGGERS, key=lambda t: int(t.get("priority", 99)))
+    """按 priority 升序的触发器配置（reply_data `triggers` 段；缺省回退现状顺序）。"""
+    return sorted(data_loader.get_triggers(), key=lambda t: int(t.get("priority", 99)))
 
 
 def _trigger_by_id(tid: str) -> dict:
