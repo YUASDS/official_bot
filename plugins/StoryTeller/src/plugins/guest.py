@@ -6,7 +6,8 @@
   （adventure.py 每日互斥链 `kind=="guest"` 分支零改动）——触发门（day_min/day_max）、
   确定性每日骰（(qq, 周目, day) 播种 d100 ≤ value）、met_day 内存+flags 双守卫、
   三世界解锁过滤（flow.入口条件 = 原 guest 世界「解锁」）。
-- **委托（状态机侧）**：三世界内容已迁入 flow_data.json（flow_id = world_id），
+- **委托（状态机侧）**：三世界内容已迁入 data/worlds/*.json（内容目录化，一世界一文件含季；
+  单季世界 flow_id = world_id 兼容，多季世界 flow.<世界id>.<季>），
   阶段/检定/战斗/纪念品/归途全部由 flow_engine 接管，guest 自身状态机全部删除。
 - **按钮/命令**：按钮 kind 切换为 flow_stage/flow_battle；`/行动` 兜底由 flow_action_cmd
   接管（flow.py），本薄壳不再注册 guest 专属命令/按钮。
@@ -45,7 +46,8 @@ def _guest_trigger() -> dict:
 
 
 def guest_registry() -> dict:
-    """guest 世界注册表（= flow_data.json 中开启 guest 模式收尾的 flow；flow_id = world_id）。"""
+    """guest 世界注册表（= 开启 guest 模式收尾的 flow：data/worlds/*.json 季展开；
+    单季世界 flow_id = world_id，多季世界 flow.<世界id>.<季>）。"""
     from ..services.flow_engine import flow_registry
 
     return {

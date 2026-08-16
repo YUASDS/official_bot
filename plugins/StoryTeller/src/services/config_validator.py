@@ -28,6 +28,8 @@ from loguru import logger
 CONFIG_VALIDATE_MODE = os.environ.get("CONFIG_VALIDATE_MODE", "fail")
 
 # 需校验的数据文件（guest 迁移批次2：guest_data.json 已归档 test/archive，不再校验）
+# 目录化（第2+3期）：boss/ 与 worlds/ 为目录扫描条目（后缀 "/"），逐文件校验；
+# boss_data.json 已拆分为 data/boss/*.json（归档 test/archive）；flow_data.json 仅含 lane_tale。
 DATA_FILES: tuple[str, ...] = (
     "monster_data.json",
     "goods_data.json",
@@ -39,12 +41,13 @@ DATA_FILES: tuple[str, ...] = (
     "npc_data.json",
     "ending_data.json",
     "flow_data.json",
-    "boss_data.json",
     "display_data.json",
     "shop_data.json",
     "spell_data.json",
     "weights.json",
     "boss_weights.json",
+    "boss/",
+    "worlds/",
 )
 
 # 玩家可用技能集合（player.py InvestigatorModel 字段 + 标准 COC 技能）
@@ -81,7 +84,7 @@ STANDARD_EFFECT_KEYS: frozenset[str] = frozenset(
 )
 # 条件算子（ending_engine.eval_option_condition + event_service.event_condition_ok）
 CONDITION_KEYS: frozenset[str] = frozenset(
-    {"物品", "SAN", "HP", "克苏鲁神话", "日", "进度", "已死亡", "san_low"}
+    {"物品", "SAN", "HP", "克苏鲁神话", "日", "进度", "已死亡", "san_low", "旗标"}
 )
 # 门扉条件算子（ending_data.door.condition 专属 schema：type/rules/rule）
 DOOR_CONDITION_KEYS: frozenset[str] = frozenset(
@@ -112,8 +115,15 @@ class ConfigValidator:
 
     # --- 加载 ---
     def load(self) -> None:
-        """加载全部数据文件（缺失/损坏记错误并置空，不中断其余校验）。"""
+        """加载全部数据文件（缺失/损坏记错误并置空，不中断其余校验）。
+
+        目录化条目（DATA_FILES 中带 "/" 后缀）：递归扫描目录下 *.json 逐文件加载，
+        存为 `{目录}/{文件名}` 键（如 `boss/jk.json`、`worlds/sword_magic.json`）。
+        """
         for name in DATA_FILES:
+            if name.endswith("/"):
+                self._load_dir(name.rstrip("/"), self.data_dir / name)
+                continue
             path = self.data_dir / name
             if not path.exists():
                 self._err(name, "<文件>", f"文件不存在：{path.name}")
@@ -125,6 +135,20 @@ class ConfigValidator:
             except Exception as e:  # noqa: BLE001 - 加载失败需暴露
                 self._err(name, "<文件>", f"JSON 解析失败：{e}")
                 self.data[name] = {}
+
+    def _load_dir(self, dirname: str, path: Path) -> None:
+        """目录扫描：加载 dirname/*.json（缺失记目录错误，单个文件失败置空不中断）。"""
+        if not path.is_dir():
+            self._err(dirname, "<目录>", f"目录不存在：{dirname}/")
+            return
+        for f in sorted(path.glob("*.json")):
+            key = f"{dirname}/{f.name}"
+            try:
+                with open(f, encoding="utf-8-sig") as fh:
+                    self.data[key] = ujson.load(fh)
+            except Exception as e:  # noqa: BLE001 - 加载失败需暴露
+                self._err(key, "<文件>", f"JSON 解析失败：{e}")
+                self.data[key] = {}
 
     # --- 错误收集 ---
     def _err(self, file: str, key: str, msg: str) -> None:
@@ -583,97 +607,159 @@ class ConfigValidator:
                 self._check_items_ref(file, f"relics.items[{rid}]", rid)
 
     def validate_flow(self) -> None:
+        """flow 数据校验：flow_data.json（普通剧情流程）+ data/worlds/*.json（异界世界季）。"""
         file = "flow_data.json"
         flows = self.data.get(file, {})
         for fid, f in self._iter_items(flows):
             if not self._require_dict(file, fid, f):
                 continue
-            self._require_str(file, f"{fid}.名字", f.get("名字"))
-            if f.get("标题") is not None and not isinstance(f["标题"], str):
-                self._err(file, f"{fid}.标题", "应为字符串")
-            # flow 级新字段（guest 迁移批次2）：入口条件 / 玩家文案 / 纪念品 / 收尾
-            self._check_condition(file, f"{fid}.入口条件", f.get("入口条件"))
-            texts = f.get("玩家文案")
-            if texts is not None and not isinstance(texts, dict):
-                self._err(file, f"{fid}.玩家文案", "应为 dict（玩家战斗文案键值）")
-            if f.get("纪念品"):
-                self._check_items_ref(file, f"{fid}.纪念品", f["纪念品"])
-            tail = f.get("收尾") or {}
-            if tail:
-                if not self._require_dict(file, f"{fid}.收尾", tail):
-                    pass
-                else:
-                    if tail.get("skip_daily") is not None and not isinstance(
-                        tail["skip_daily"], bool
-                    ):
-                        self._err(file, f"{fid}.收尾.skip_daily", "应为布尔值")
-                    self._check_text_key(file, f"{fid}.收尾.exit_text_key", tail.get("exit_text_key"))
-                    self._check_text_key(file, f"{fid}.收尾.day_text_key", tail.get("day_text_key"))
-            nodes = f.get("节点")
-            if not isinstance(nodes, dict) or not nodes:
-                self._err(file, fid, "节点应为非空 dict")
+            self._validate_flow_entry(file, fid, f)
+        for key in sorted(self.data):
+            if not key.startswith("worlds/") or not key.endswith(".json"):
                 continue
-            entry = f.get("入口")
-            if entry and entry not in nodes:
-                self._err(file, f"{fid}.入口", f"入口节点 {entry!r} 不存在")
-            for nid, node in nodes.items():
-                if not isinstance(node, dict):
+            self._validate_world_file(key, self.data.get(key, {}))
+
+    def _validate_world_file(self, file: str, world: Any) -> None:
+        """世界文件校验（目录化第3期）：顶层 {id, 名字, 季:{s1:{...}}}，季 = 完整 flow 条目。
+
+        季 flow_id 规范与注册层一致：单季世界（仅 s1）规范键 = 世界 id（兼容既有
+        flow.<世界id>.done 旗标与调用点）；多季世界每季 flow.<世界id>.<季>。
+        """
+        if not isinstance(world, dict):
+            self._err(file, "<文件>", "应为 dict（顶层 {id, 名字, 季}）")
+            return
+        if not self._require_str(file, "id", world.get("id")):
+            return
+        wid = str(world["id"])
+        self._require_str(file, "名字", world.get("名字"))
+        seasons = world.get("季")
+        if not isinstance(seasons, dict) or not seasons:
+            self._err(file, "季", "应为非空 dict（季.s1...，每季一个完整 flow 条目）")
+            return
+        single = len(seasons) == 1 and "s1" in seasons
+        for skey, season in seasons.items():
+            if not isinstance(season, dict):
+                self._err(file, f"季.{skey}", "应为 dict（完整 flow 条目）")
+                continue
+            fid = wid if (single and skey == "s1") else f"flow.{wid}.{skey}"
+            # 季级触发概率（设计要点4）：可选 {dice/value/relation}；缺省回退全局 guest 概率
+            prob = season.get("触发概率")
+            if prob is not None:
+                if not isinstance(prob, dict):
+                    self._err(file, f"季.{skey}.触发概率", "应为 dict（dice/value/relation）")
+                else:
+                    for field in ("dice", "relation"):
+                        if field in prob and not isinstance(prob[field], str):
+                            self._err(file, f"季.{skey}.触发概率.{field}", "应为字符串")
+                    if "value" in prob and (
+                        isinstance(prob["value"], bool)
+                        or not isinstance(prob["value"], (int, float))
+                    ):
+                        self._err(file, f"季.{skey}.触发概率.value", "应为数字")
+            # 名字归属世界顶层：校验前注入世界名（对齐注册层 setdefault）
+            season_ctx = dict(season)
+            season_ctx.setdefault("名字", world.get("名字") or "")
+            self._validate_flow_entry(file, fid, season_ctx)
+
+    def _validate_flow_entry(self, file: str, fid: str, f: dict) -> None:
+        """单个 flow 条目校验（flow_data.json 条目 / 世界季条目共用）。"""
+        self._require_str(file, f"{fid}.名字", f.get("名字"))
+        if f.get("标题") is not None and not isinstance(f["标题"], str):
+            self._err(file, f"{fid}.标题", "应为字符串")
+        # flow 级新字段（guest 迁移批次2）：入口条件 / 玩家文案 / 纪念品 / 收尾
+        self._check_condition(file, f"{fid}.入口条件", f.get("入口条件"))
+        texts = f.get("玩家文案")
+        if texts is not None and not isinstance(texts, dict):
+            self._err(file, f"{fid}.玩家文案", "应为 dict（玩家战斗文案键值）")
+        if f.get("纪念品"):
+            self._check_items_ref(file, f"{fid}.纪念品", f["纪念品"])
+        tail = f.get("收尾") or {}
+        if tail:
+            if not self._require_dict(file, f"{fid}.收尾", tail):
+                pass
+            else:
+                if tail.get("skip_daily") is not None and not isinstance(
+                    tail["skip_daily"], bool
+                ):
+                    self._err(file, f"{fid}.收尾.skip_daily", "应为布尔值")
+                self._check_text_key(file, f"{fid}.收尾.exit_text_key", tail.get("exit_text_key"))
+                self._check_text_key(file, f"{fid}.收尾.day_text_key", tail.get("day_text_key"))
+        nodes = f.get("节点")
+        if not isinstance(nodes, dict) or not nodes:
+            self._err(file, fid, "节点应为非空 dict")
+            return
+        entry = f.get("入口")
+        if entry and entry not in nodes:
+            self._err(file, f"{fid}.入口", f"入口节点 {entry!r} 不存在")
+        for nid, node in nodes.items():
+            if not isinstance(node, dict):
+                continue
+            nkey = f"{fid}.节点.{nid}"
+            ntype = node.get("类型")
+            if ntype not in ("文本", "选项", "检定", "奖励", "战斗", "纪念品", "结束"):
+                self._err(file, nkey, f"非法节点类型 {ntype!r}")
+            if node.get("标题") is not None and not isinstance(node["标题"], str):
+                self._err(file, f"{nkey}.标题", "应为字符串")
+            if node.get("文案") is not None and not isinstance(node["文案"], str):
+                self._err(file, f"{nkey}.文案", "应为字符串")
+            if node.get("前置文案") is not None and not isinstance(node["前置文案"], str):
+                self._err(file, f"{nkey}.前置文案", "应为字符串")
+            self._check_text_key(file, f"{nkey}.文案键", node.get("文案键"))
+            self._check_effects(file, nkey, node.get("效果"))
+            self._check_check_block(file, f"{nkey}.检定", node.get("检定"))
+            self._check_check_block(file, f"{nkey}.前置检定", node.get("前置检定"))
+            self._check_condition(file, f"{nkey}.条件", node.get("条件"))
+            if node.get("玩家文案") is not None and not isinstance(
+                node["玩家文案"], dict
+            ):
+                self._err(file, f"{nkey}.玩家文案", "应为 dict")
+            if node.get("完成标记") is not None and not isinstance(
+                node["完成标记"], bool
+            ):
+                self._err(file, f"{nkey}.完成标记", "应为布尔值")
+            if node.get("物品"):
+                self._check_items_ref(file, f"{nkey}.物品", node["物品"])
+            for i, opt in enumerate(node.get("选项") or []):
+                if not isinstance(opt, dict):
                     continue
-                nkey = f"{fid}.节点.{nid}"
-                ntype = node.get("类型")
-                if ntype not in ("文本", "选项", "检定", "奖励", "战斗", "纪念品", "结束"):
-                    self._err(file, nkey, f"非法节点类型 {ntype!r}")
-                if node.get("标题") is not None and not isinstance(node["标题"], str):
-                    self._err(file, f"{nkey}.标题", "应为字符串")
-                if node.get("文案") is not None and not isinstance(node["文案"], str):
-                    self._err(file, f"{nkey}.文案", "应为字符串")
-                if node.get("前置文案") is not None and not isinstance(node["前置文案"], str):
-                    self._err(file, f"{nkey}.前置文案", "应为字符串")
-                self._check_text_key(file, f"{nkey}.文案键", node.get("文案键"))
-                self._check_effects(file, nkey, node.get("效果"))
-                self._check_check_block(file, f"{nkey}.检定", node.get("检定"))
-                self._check_check_block(file, f"{nkey}.前置检定", node.get("前置检定"))
-                self._check_condition(file, f"{nkey}.条件", node.get("条件"))
-                if node.get("玩家文案") is not None and not isinstance(
-                    node["玩家文案"], dict
-                ):
-                    self._err(file, f"{nkey}.玩家文案", "应为 dict")
-                if node.get("完成标记") is not None and not isinstance(
-                    node["完成标记"], bool
-                ):
-                    self._err(file, f"{nkey}.完成标记", "应为布尔值")
-                if node.get("物品"):
-                    self._check_items_ref(file, f"{nkey}.物品", node["物品"])
-                for i, opt in enumerate(node.get("选项") or []):
-                    if not isinstance(opt, dict):
-                        continue
-                    self._require_str(file, f"{nkey}.选项[{i}].输入", opt.get("输入"))
-                    self._check_effects(file, f"{nkey}.选项[{i}]", opt.get("效果"))
-                    self._check_check_block(file, f"{nkey}.选项[{i}].检定", opt.get("检定"))
-                    self._check_condition(file, f"{nkey}.选项[{i}].条件", opt.get("条件"))
-                    nxt = opt.get("下一步")
-                    if nxt and nxt not in nodes and nxt != "结束":
-                        self._err(file, f"{nkey}.选项[{i}].下一步", f"未知节点 {nxt!r}")
-                nxt = node.get("下一步")
+                self._require_str(file, f"{nkey}.选项[{i}].输入", opt.get("输入"))
+                self._check_effects(file, f"{nkey}.选项[{i}]", opt.get("效果"))
+                self._check_check_block(file, f"{nkey}.选项[{i}].检定", opt.get("检定"))
+                self._check_condition(file, f"{nkey}.选项[{i}].条件", opt.get("条件"))
+                nxt = opt.get("下一步")
                 if nxt and nxt not in nodes and nxt != "结束":
-                    self._err(file, f"{nkey}.下一步", f"未知节点 {nxt!r}")
-                battle = node.get("战斗") or {}
-                if isinstance(battle, dict):
-                    if battle.get("怪物"):
-                        self._check_monster_ref(file, f"{nkey}.战斗.怪物", battle["怪物"])
-                    for br in ("胜利", "战败"):
-                        branch = battle.get(br) or {}
-                        if isinstance(branch, dict):
-                            self._check_effects(file, f"{nkey}.战斗.{br}", branch.get("效果"))
-                            nxt = branch.get("下一步")
-                            if nxt and nxt not in nodes and nxt != "结束":
-                                self._err(file, f"{nkey}.战斗.{br}.下一步", f"未知节点 {nxt!r}")
+                    self._err(file, f"{nkey}.选项[{i}].下一步", f"未知节点 {nxt!r}")
+            nxt = node.get("下一步")
+            if nxt and nxt not in nodes and nxt != "结束":
+                self._err(file, f"{nkey}.下一步", f"未知节点 {nxt!r}")
+            battle = node.get("战斗") or {}
+            if isinstance(battle, dict):
+                if battle.get("怪物"):
+                    self._check_monster_ref(file, f"{nkey}.战斗.怪物", battle["怪物"])
+                for br in ("胜利", "战败"):
+                    branch = battle.get(br) or {}
+                    if isinstance(branch, dict):
+                        self._check_effects(file, f"{nkey}.战斗.{br}", branch.get("效果"))
+                        nxt = branch.get("下一步")
+                        if nxt and nxt not in nodes and nxt != "结束":
+                            self._err(file, f"{nkey}.战斗.{br}.下一步", f"未知节点 {nxt!r}")
 
     def validate_boss(self) -> None:
-        file = "boss_data.json"
-        bosses = self.data.get(file, {})
-        for bid, b in self._iter_items(bosses):
-            if not self._require_dict(file, bid, b):
+        """BOSS 目录校验（目录化第2期）：data/boss/*.json 每文件一个 BOSS 配置。
+
+        目录条目键形如 `boss/jk.json`；跳过误放的权重等非 BOSS 文件（缺 id 且缺 怪物id）。
+        """
+        for key in sorted(self.data):
+            if not key.startswith("boss/") or not key.endswith(".json"):
+                continue
+            file = key
+            b = self.data.get(key, {})
+            if not isinstance(b, dict):
+                self._err(file, "<文件>", "应为 dict（每文件一个 BOSS 配置）")
+                continue
+            bid = str(b.get("id") or Path(key).stem)
+            if not b.get("id") and not b.get("怪物id"):
+                self._err(file, "<文件>", "不是合法 BOSS 配置（缺 id/怪物id），请勿在 boss/ 放非 BOSS 文件")
                 continue
             if b.get("怪物id"):
                 self._check_monster_ref(file, f"{bid}.怪物id", b["怪物id"])

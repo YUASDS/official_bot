@@ -5,7 +5,8 @@
 
 - **节点模型**：`{id, 类型(文本/选项/检定/战斗/奖励/纪念品/结束), 文案键, 文案, 标题, 检定,
   选项列表, 条件, 效果, 下一步, 玩家文案, 前置文案, 前置检定, 完成标记, 物品}`；
-  数据承载在 `data/flow_data.json`，新剧情/遭遇只加配置即可运行，无需改代码。
+  数据承载在 `data/flow_data.json`（普通剧情流程）与 `data/worlds/<世界id>.json`
+  （异界奇遇，一世界一文件含多季），新剧情/遭遇只加配置即可运行，无需改代码。
 - **状态机**：`flow_states`（内存 dict，user_id -> {flow_id, node_id, phase, entered, buff, battle}）；
   提供 `start_flow` / `render_flow_node` / `handle_flow_input`（阶段选项 + 战斗行动统一入口）。
 - **复用既有地基（M10 收口勿重复造）**：
@@ -15,8 +16,8 @@
   - 按钮：`build_keyboard`（md_format）+ `register_button_handler`（buttons）；
   - 战斗：`BattleService` + `is_gm_room` 隔离（战败不落 is_survive/不登记 E07，胜利不走掉落/门扉）。
 - **文案**：从 text_data.json 读，键约定 `flow.<flow_id>.<node_id>`（节点可 `文案键` 覆盖）。
-- **注册机制**：纯数据加载（flow_data.json）为主 + `@flow_engine` 装饰器 / `register_flow`
-  代码注册为辅（对齐 trinket 注册表：查表分发，新 flow 无需改分发链）。
+- **注册机制**：纯数据加载（flow_data.json + data/worlds/*.json）为主 + `@flow_engine`
+  装饰器 / `register_flow` 代码注册为辅（对齐 trinket 注册表：查表分发，新 flow 无需改分发链）。
 
 本批次（guest 迁移·期1）为「地基扩展」：仅新增，不迁移 guest/npc/event；对齐
 `.qa/plans/guest-migration-design.md` §2 扩展设计——新增 `纪念品` 节点类型（首发放幂等）、
@@ -58,12 +59,85 @@ from ..utils.state_registry import register_state_store
 flow_states: dict[str, dict] = {}
 register_state_store(flow_states)
 
-# --- 注册机制：flow_data.json 纯数据 + @flow_engine/register_flow 代码注册（代码优先覆盖） ---
+# --- 注册机制：flow_data.json + data/worlds/*.json 纯数据 + @flow_engine/register_flow 代码注册 ---
+# （代码优先覆盖）内容目录化（第3期）：异界奇遇（世界）迁入 data/worlds/<世界id>.json
+# （一世界一文件，顶层 {id, 名字, 季:{s1:{...}}}），lane_tale 等普通剧情流程保留 flow_data.json。
 _CODE_FLOWS: dict[str, dict] = {}
 _FLOW_DATA_PATH = (
     Path(__file__).resolve().parent.parent.parent / "data" / "flow_data.json"
 )
+_WORLDS_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "worlds"
 _flow_cache: Optional[dict] = None
+_world_alias: dict[str, str] = {}
+
+
+def _expand_world_file(path: Path) -> tuple[dict[str, dict], dict[str, str]]:
+    """展开一个世界文件 → (注册 flow 表, 别名映射表)。
+
+    世界文件结构：顶层 `{id, 名字, 季:{s1:{...}, s2:{...}}}`，每季一个完整 flow 条目。
+
+    **季 flow_id 兼容方案（目录化第3期决策）**：
+    - 单季世界（仅 `s1`）：注册规范键 = **世界 id**（如 `sword_magic`）——保持现状
+      `flow.<世界id>.done/visited` 旗标命名与既有调用点（guest.py resolve_flow_ref/start_flow、
+      测试断言 flow.sword_magic.done 等）零破坏；另加别名 `flow.<世界id>.s1` 指向规范键，
+      满足设计 §四 flow_id 规范 `flow.<世界id>.<季>` 的可解析性。
+    - 多季世界（≥2 季）：每季注册 `flow.<世界id>.<季>`（如 flow.anime_academy.s1），
+      避免季间旗标冲突；另加别名 世界 id → 首季，裸世界引用（旧调用/旧按钮）仍可解析。
+    别名只在 resolve_flow_ref 层生效，不进注册表本体（guest_registry 过滤不受别名污染）。
+    """
+    try:
+        with open(path, encoding="utf-8-sig") as f:
+            world = ujson.load(f) or {}
+    except Exception:  # noqa: BLE001 - 单个文件损坏不影响其余
+        logger.warning(f"{path.name} 加载失败，跳过")
+        return {}, {}
+    if not isinstance(world, dict):
+        return {}, {}
+    wid = str(world.get("id") or path.stem)
+    name = str(world.get("名字") or "")
+    seasons = world.get("季")
+    if not isinstance(seasons, dict) or not seasons:
+        logger.warning(f"{path.name} 缺少季（季.s1...），跳过")
+        return {}, {}
+    flows: dict[str, dict] = {}
+    aliases: dict[str, str] = {}
+    single = len(seasons) == 1 and "s1" in seasons
+    for skey, season in seasons.items():
+        if not isinstance(season, dict):
+            continue
+        if single:
+            canonical = wid  # 单季兼容：规范键 = 世界 id
+        else:
+            canonical = f"flow.{wid}.{skey}"
+        cfg = dict(season)
+        cfg.setdefault("id", canonical)
+        cfg.setdefault("名字", name)
+        flows[canonical] = cfg
+    if single:
+        aliases[f"flow.{wid}.s1"] = wid
+    else:
+        aliases[wid] = f"flow.{wid}.s1"  # 裸世界 id → 首季（多季世界的入口季）
+    return flows, aliases
+
+
+def _load_flow_files() -> tuple[dict[str, dict], dict[str, str]]:
+    """加载 flow_data.json（普通剧情流程）+ data/worlds/*.json（异界世界季）→ 注册表 + 别名表。"""
+    flows: dict[str, dict] = {}
+    aliases: dict[str, str] = {}
+    try:
+        with open(_FLOW_DATA_PATH, encoding="utf-8-sig") as f:
+            legacy = ujson.load(f) or {}
+    except Exception:  # noqa: BLE001 - 数据缺失/损坏不影响主流程
+        logger.warning("flow_data.json 加载失败，回退空注册表")
+        legacy = {}
+    if isinstance(legacy, dict):
+        flows.update(legacy)
+    if _WORLDS_DIR.is_dir():
+        for path in sorted(_WORLDS_DIR.glob("*.json")):
+            wf, walias = _expand_world_file(path)
+            flows.update(wf)
+            aliases.update(walias)
+    return flows, aliases
 
 
 def flow_engine(flow_id: str):
@@ -82,15 +156,10 @@ def register_flow(flow_id: str, config: dict) -> None:
 
 
 def flow_registry() -> dict:
-    """flow 注册表：flow_data.json 加载 + 代码注册合并（代码优先覆盖）。"""
-    global _flow_cache
+    """flow 注册表：flow_data.json + data/worlds/*.json 加载 + 代码注册合并（代码优先覆盖）。"""
+    global _flow_cache, _world_alias
     if _flow_cache is None:
-        try:
-            with open(_FLOW_DATA_PATH, encoding="utf-8-sig") as f:
-                _flow_cache = ujson.load(f) or {}
-        except Exception:  # noqa: BLE001 - 数据缺失/损坏不影响主流程
-            logger.warning("flow_data.json 加载失败，回退空注册表")
-            _flow_cache = {}
+        _flow_cache, _world_alias = _load_flow_files()
     merged = dict(_flow_cache)
     merged.update(_CODE_FLOWS)
     return merged
@@ -102,13 +171,20 @@ def get_flow(flow_id: str) -> dict:
 
 
 def resolve_flow_ref(ref: str) -> Optional[str]:
-    """按 flow id 或「名字」解析 flow 引用（/探索 巷口异闻 亦可用）。"""
+    """按 flow id / 世界季 flow_id / 世界名字 解析 flow 引用（/探索 巷口异闻 亦可用）。
+
+    别名映射（单季世界 flow.<世界id>.s1 ↔ 世界 id；多季世界 世界 id → 首季）仅在此层生效，
+    注册表本体不含别名——guest_registry 等按注册表过滤的入口不受别名污染。
+    """
     ref = (ref or "").strip()
     if not ref:
         return None
     reg = flow_registry()
     if ref in reg:
         return ref
+    canon = _world_alias.get(ref)
+    if canon and canon in reg:
+        return canon
     for fid, f in reg.items():
         if f.get("名字") == ref:
             return fid

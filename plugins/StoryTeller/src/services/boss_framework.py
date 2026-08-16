@@ -3,16 +3,16 @@
 设计对齐 `.qa/plans/config-deep-eval.md`（TOP10 #3 BOSS 通用框架 / 2.1 架构 / 2.3 演进二期）
 与本批次 `.qa/plans/boss-framework-design.md`：
 
-- **配置 schema**：`data/boss_data.json`，每条 BOSS 配置含
+- **配置 schema**：`data/boss/<id>.json`（内容目录化，每 BOSS 一文件），每条 BOSS 配置含
   `{id, 怪物id, 触发(条件/前置物品/概率/共享组), 对话(标题/台词/按钮/挑战后/跳过/流程),
    战斗(开场大喝/强制环境/隔离), 奖励(胜利/战败), 特殊, 图片, 卡片}`。
-  新 BOSS = 添加一条配置 + 复用 monster_data AI 战斗，无需写新插件。
+  新 BOSS = 在 data/boss/ 添加一个文件 + 复用 monster_data AI 战斗，无需写新插件。
 - **统一调度**：`boss_pick_daily` 遍历 boss 配置表——同「共享组」一次掷骰（组内解锁候选随机选一），
   无共享组的独立 BOSS 各自掷骰；替代 jk.py/qiren.py 镜像逻辑（M1）。
 - **复用既有地基（M10 收口勿重复造）**：
   - 战斗：Monster AI（monster_data）原样复用；胜利/战败结算走 `battle/settlement.py`
     （38/48 专属奖励分支一字不改，本条 `奖励` 仅承载描述性元数据）；
-  - 触发概率/日范围：boss_data 权威，缺省回退 reply_data `triggers`（批次2，零行为）；
+  - 触发概率/日范围：boss 目录配置权威，缺省回退 reply_data `triggers`（批次2，零行为）；
   - 按钮：`register_button_handler`（kind = boss id，payload = 动作）；
    - 跳过今日：`daily_service._skip_daily` / `_mark_adventure_done` + `ending_engine.check_daily`；
    - 重入今日冒险：`adventure` 插件注册 `_run_adventure` 委托（register_adventure_runner，解循环①）。
@@ -126,28 +126,51 @@ def _legacy_pending_pop(user_id: str) -> Optional[str]:
         return "jk"
     return None
 
-# --- 注册表：boss_data.json 纯数据 + register_boss 代码注册（代码优先覆盖，对齐 flow 注册表） ---
+# --- 注册表：data/boss/*.json 目录纯数据 + register_boss 代码注册（代码优先覆盖，对齐 flow 注册表） ---
+# 内容目录化（第2期）：原单文件 boss_data.json 拆分为「每 BOSS 一文件」data/boss/<id>.json，
+# 目录 glob 统一加载合并；boss_weights.json 留在 data/ 根（触发权重，不进本注册表）。
 _CODE_BOSSES: dict[str, dict] = {}
-_BOSS_DATA_PATH = (
-    Path(__file__).resolve().parent.parent.parent / "data" / "boss_data.json"
-)
+_BOSS_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "boss"
 _boss_cache: Optional[dict] = None
 
 
+def _load_boss_files() -> dict:
+    """加载 data/boss/*.json 目录：每文件一个 BOSS 配置（顶层 id），合并为 {id: 配置}。
+
+    非 BOSS 形状的文件（无 `id` 且无 `怪物id`，如误放的权重文件）跳过；目录缺失/损坏
+    回退空注册表（数据缺失不影响主流程）。
+    """
+    merged: dict[str, dict] = {}
+    if not _BOSS_DIR.is_dir():
+        logger.warning(f"boss 目录不存在：{_BOSS_DIR}，回退空注册表")
+        return merged
+    for path in sorted(_BOSS_DIR.glob("*.json")):
+        try:
+            with open(path, encoding="utf-8-sig") as f:
+                cfg = ujson.load(f) or {}
+        except Exception:  # noqa: BLE001 - 单个文件损坏不影响其余
+            logger.warning(f"{path.name} 加载失败，跳过")
+            continue
+        if not isinstance(cfg, dict):
+            continue
+        bid = cfg.get("id") or path.stem
+        if not cfg.get("id") and not cfg.get("怪物id"):
+            logger.warning(f"{path.name} 不是 BOSS 配置（缺 id/怪物id），跳过")
+            continue
+        merged[str(bid)] = cfg
+    return merged
+
+
 def _load_boss_file() -> dict:
+    """BOSS 数据缓存（目录 glob 合并；兼容旧调用名）。"""
     global _boss_cache
     if _boss_cache is None:
-        try:
-            with open(_BOSS_DATA_PATH, encoding="utf-8-sig") as f:
-                _boss_cache = ujson.load(f) or {}
-        except Exception:  # noqa: BLE001 - 数据缺失/损坏不影响主流程
-            logger.warning("boss_data.json 加载失败，回退空注册表")
-            _boss_cache = {}
+        _boss_cache = _load_boss_files()
     return _boss_cache
 
 
 def boss_registry() -> dict:
-    """BOSS 注册表：boss_data.json 加载 + 代码注册合并（代码优先覆盖）。"""
+    """BOSS 注册表：data/boss/*.json 目录加载 + 代码注册合并（代码优先覆盖）。"""
     merged = dict(_load_boss_file())
     merged.update(_CODE_BOSSES)
     return merged
@@ -189,8 +212,8 @@ def _make_boss_button_handler(boss_id: str) -> Callable:
     return handler
 
 
-# 模块导入：为 boss_data.json 中全部 BOSS 预注册按钮回调（新 BOSS 纯数据即可点击）
-for _bid in list(_load_boss_file().keys()):
+# 模块导入：为 data/boss/*.json 中全部 BOSS 预注册按钮回调（新 BOSS 纯数据即可点击）
+for _bid in list(boss_registry().keys()):
     _ensure_boss_button_handler(_bid)
 
 
