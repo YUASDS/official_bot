@@ -22,31 +22,38 @@ from ..utils.buttons import _send_to_user, register_button_handler
 from ..utils.md_format import build_keyboard, md_message, need_create_message
 from .qiren import qiren_unlocked
 
-# 触发配置
-_JK_MIN_DAY = 13                    # day≥13 开放（用户需求）
-_JK_MAX_DAY = 40                    # day40 门扉归守门人，JK 不参与
-_HIDDEN_DICE = "d20"                # 共享概率骰
-_HIDDEN_TRIGGER_VALUE = 1           # 掷出触发值才触发（5%）
+# 触发配置：读 reply_data.json `triggers` 段（id "jk"），缺省回退现状 13/39/d20/1（零行为）。
+# 共享概率骰（hidden 组）也由本条目承载（hidden_should_trigger 读 dice/value）。
+def _jk_trigger() -> dict:
+    return data_loader.get_trigger("jk")
+
 
 # 待挑战旗标：user_id -> True（点「挑战」后置位，下一次 /今日冒险 强制怪物 48）
 jk_pending: dict[str, bool] = {}
 
 
 def jk_unlocked(inv: Investigator) -> bool:
-    """触发条件门：day>=13 且 day<40。
+    """触发条件门：day>=13 且 day<40（day_min/day_max 读 triggers 配置，含边界）。
 
     day40 门扉归守门人，JK 不参与（结局线由守门人战斗接管）。
     """
-    return _JK_MIN_DAY <= inv.day < _JK_MAX_DAY
+    t = _jk_trigger()
+    day_min = int(t.get("day_min", 13))
+    day_max = int(t.get("day_max", 39))
+    return day_min <= inv.day <= day_max
 
 
 def hidden_should_trigger(inv: Investigator) -> str | None:
     """共享隐藏挑战触发：每日一次 d20 出触发值后，从满足条件的候选随机选一。
 
     返回 "jk" / "qiren"；未掷出触发值或无候选返回 None。
+    概率骰/触发值读 jk 触发配置（hidden 共享组，缺省 d20/1）。
     """
-    _expr, val = roll_dice(_HIDDEN_DICE)
-    if val != _HIDDEN_TRIGGER_VALUE:
+    t = _jk_trigger()
+    dice = t.get("dice", "d20")
+    trigger_value = int(t.get("value", 1))
+    _expr, val = roll_dice(dice)
+    if val != trigger_value:
         return None
     candidates: list[str] = []
     if jk_unlocked(inv):
@@ -108,8 +115,8 @@ async def handle_jk_button(
 
             await _run_adventure(user_id, bot, _send, _finish)
         elif choice == "不挑战":
-            # 跳过今日冒险：day+1（day40 冻结）+ 日常结算管线（对齐事件跳过战斗）
-            from .adventure import _mark_adventure_done
+            # 跳过今日冒险：_skip_daily（day+1 day40 冻结）+ 日常结算管线（对齐事件跳过战斗）
+            from .adventure import _mark_adventure_done, _skip_daily
             from ..services.ending_engine import check_daily
 
             inv_model = investigator_repo.find_by_qq(user_id)
@@ -117,10 +124,7 @@ async def handle_jk_button(
                 await _send(need_create_message(bot, mention=user_id))
                 return
             inv = Investigator(inv_model)
-            if inv.day < 40:
-                inv.day += 1
-            inv.is_adventure = False
-            inv.save()
+            _skip_daily(user_id, inv)
             _mark_adventure_done(user_id)
             check_daily(inv)
             await _send(

@@ -53,11 +53,9 @@ from ..utils.md_format import (
     report_section,
 )
 
-# 触发配置（保留现状）
-_GM_MIN_DAY = 10          # day >= 10（新手期不触发）
-_GM_MAX_DAY = 40          # day40 门扉冻结，不参与
-_GM_DICE = "d100"         # 概率骰
-_GM_TRIGGER_VALUE = 1     # d100 ≤ 1 触发（1%）
+# 触发配置：读 reply_data.json `triggers` 段（id "gm_room"），缺省回退现状 10/39/d100/1（零行为）
+def _gm_trigger() -> dict:
+    return data_loader.get_trigger("gm_room")
 
 # 守卫池（GM 房间专属，三选一随机抽取）
 _GUARD_IDS = ["40", "41", "42"]
@@ -114,16 +112,22 @@ gm_room_active: dict[str, dict] = {}
 
 
 def gm_room_unlocked(inv: Investigator) -> bool:
-    """触发条件门：10 ≤ day < 40（新手期 / 门扉冻结不触发）。"""
-    return _GM_MIN_DAY <= inv.day < _GM_MAX_DAY
+    """触发条件门：10 ≤ day < 40（新手期 / 门扉冻结不触发；day_min/day_max 读配置）。"""
+    t = _gm_trigger()
+    day_min = int(t.get("day_min", 10))
+    day_max = int(t.get("day_max", 39))
+    return day_min <= inv.day <= day_max
 
 
 def gm_room_should_trigger(inv: Investigator) -> bool:
-    """每日冒险开局概率触发：解锁后掷 d100 ≤ 1 则 True。"""
+    """每日冒险开局概率触发：解锁后掷 d100 ≤ 1 则 True（骰/触发值读配置）。"""
     if not gm_room_unlocked(inv):
         return False
-    _expr, val = roll_dice(_GM_DICE)
-    return val <= _GM_TRIGGER_VALUE
+    t = _gm_trigger()
+    dice = t.get("dice", "d100")
+    trigger_value = int(t.get("value", 1))
+    _expr, val = roll_dice(dice)
+    return val <= trigger_value
 
 
 def _gm_mark_done(user_id: str) -> None:
@@ -557,14 +561,13 @@ async def _gm_finalize_choices(user_id: str, state: dict, bot: Bot, send) -> Non
 
 
 async def _finish_gm_room(user_id: str, inv: Investigator | None, bot: Bot, send) -> None:
-    """房间统一收尾：解除冒险态、HP 刷新、day+1（<40 冻结）、清状态、发送关闭文本。"""
+    """房间统一收尾：HP 刷新、_skip_daily（解除冒险态 + day+1 <40 冻结）、清状态、发送关闭文本。"""
+    from .adventure import _skip_daily
+
     t = data_loader.get_text
     if inv is not None:
-        inv.is_adventure = False
         inv.restore_hp()
-        if inv.day < 40:
-            inv.day += 1
-        inv.save()
+        _skip_daily(user_id, inv)
     battle_manager.remove_battle(user_id)
     gm_room_active.pop(user_id, None)
     lines = [f"**{t('gm_room_v2.title')}**", t("gm_room_v2.exit_text")]

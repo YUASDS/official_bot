@@ -53,11 +53,9 @@ from ..utils.md_format import (
     report_section,
 )
 
-# 触发配置
-_GUEST_MIN_DAY = 5           # day >= 5（新手期不触发）
-_GUEST_MAX_DAY = 40          # day40 门扉冻结，不参与
-_GUEST_TRIGGER_VALUE = 3     # 每日骰 d100 ≤ 3 触发（≈3%）
-_SOUVENIR_ID = "310"         # 异界纪念品（收藏性质，非信物）
+# 触发配置：读 reply_data.json `triggers` 段（id "guest"），缺省回退现状 5/39/3/310（零行为）
+def _guest_trigger() -> dict:
+    return data_loader.get_trigger("guest")
 
 # 乱入状态机：user_id -> 状态字典
 # {
@@ -87,8 +85,11 @@ def guest_registry() -> dict:
 
 
 def guest_unlocked(inv: Investigator) -> bool:
-    """触发条件门：5 ≤ day < 40（新手期 / 门扉冻结不触发）。"""
-    return _GUEST_MIN_DAY <= inv.day < _GUEST_MAX_DAY
+    """触发条件门：5 ≤ day < 40（新手期 / 门扉冻结不触发；day_min/day_max 读配置）。"""
+    t = _guest_trigger()
+    day_min = int(t.get("day_min", 5))
+    day_max = int(t.get("day_max", 39))
+    return day_min <= inv.day <= day_max
 
 
 def _guest_daily_roll(inv: Investigator) -> int:
@@ -121,7 +122,9 @@ def guest_should_trigger(inv: Investigator) -> Optional[str]:
         return None
     if guest_active.get(inv.qq):
         return None
-    if _guest_daily_roll(inv) > _GUEST_TRIGGER_VALUE:
+    t = _guest_trigger()
+    trigger_value = int(t.get("value", 3))
+    if _guest_daily_roll(inv) > trigger_value:
         return None
     worlds = [
         wid for wid, w in guest_registry().items() if _world_available(inv, w)
@@ -499,18 +502,24 @@ async def _guest_battle_end(user_id: str, state: dict, bot: Bot, send) -> None:
         await _guest_ending(user_id, state, bot, send, completed=False)
 
 
+def _guest_souvenir_id() -> str:
+    """异界纪念品 id（读 triggers 配置 souvenir_id，缺省 310；收藏性质，非信物）。"""
+    return str(_guest_trigger().get("souvenir_id", "310"))
+
+
 def _guest_grant_souvenir(user_id: str) -> str:
     """发放纪念品 310「异界纪念品」（仅未持有且完整通关时发放，防重复）。"""
     from ..models.item import Equipment
 
+    souvenir_id = _guest_souvenir_id()
     inv_model = investigator_repo.find_by_qq(user_id)
     if inv_model is None:
         return ""
     equipments, _ = Investigator(inv_model).get_equipments()
-    if equipments.get(_SOUVENIR_ID, 0) > 0:
+    if equipments.get(souvenir_id, 0) > 0:
         return ""
-    investigator_repo.add_item_to_inventory(inv_model, _SOUVENIR_ID, 1)
-    return Equipment(_SOUVENIR_ID).name
+    investigator_repo.add_item_to_inventory(inv_model, souvenir_id, 1)
+    return Equipment(souvenir_id).name
 
 
 async def _guest_ending(
@@ -539,15 +548,14 @@ async def _guest_ending(
 
 
 async def _finish_guest(user_id: str, bot: Bot, send) -> None:
-    """乱入统一收尾：解除冒险态、day+1（<40 冻结）、清状态、发送归途文本。"""
+    """乱入统一收尾：_skip_daily（解除冒险态 + day+1 <40 冻结）、清状态、发送归途文本。"""
+    from .adventure import _skip_daily
+
     t = data_loader.get_text
     inv_model = investigator_repo.find_by_qq(user_id)
     if inv_model is not None:
         inv = Investigator(inv_model)
-        inv.is_adventure = False
-        if inv.day < 40:
-            inv.day += 1
-        inv.save()
+        _skip_daily(user_id, inv)
     battle_manager.remove_battle(user_id)
     guest_active.pop(user_id, None)
     await send(

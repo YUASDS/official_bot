@@ -97,6 +97,17 @@ class DataLoader:
                 lines.append(f"> {v['text']}")
         return "\n".join(lines) if lines else ""
 
+    def get_trigger(self, tid: str) -> dict[str, Any]:
+        """按 id 读取每日彩蛋触发配置（reply_data.json `triggers` 段）。
+
+        triggers 段为统一「触发」schema 列表（id/group/kind/priority/day_min/day_max/
+        dice/value/relation/items…）；缺省回退空 dict，调用方用 get(key, 缺省) 兜底。
+        """
+        for t in self.reply_data.get("triggers") or []:
+            if isinstance(t, dict) and t.get("id") == tid:
+                return t
+        return {}
+
     def get_text(self, key: str, default: str = "", **kwargs: Any) -> str:
         """从 text_data.json 按 key 取文本，支持 {placeholder} 格式化。
 

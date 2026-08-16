@@ -71,16 +71,35 @@ from ..utils.md_format import (
 )
 from util.DaylyRecord import add_data, get_data, write_json
 
-# 启专属环境：仅 qiren_forced 强制路径使用，普通日随机池永远排除
-MANOR_BLACK_MOON = "庄园.黑色满月"
+# 周目联动配置段（reply_data.json `loop_linkage`）：天数/怪物 id/概率/权重/环境名全部数据驱动，
+# 缺省逐项回退现状魔法数字（零行为）。
+def _loop_linkage(key: str) -> dict:
+    """读取 loop_linkage 子段（缺省空 dict）。"""
+    return (data_loader.reply_data.get("loop_linkage") or {}).get(key) or {}
 
-# 周目联动：击杀过廷达洛斯之猎犬 → D12/D20 遭遇强化版「猎犬·复仇」(44) 的概率（%）
-_HOUND_VENGEANCE_CHANCE = 50
+
+def _black_moon_environment() -> str:
+    """启专属环境名：仅 qiren_forced 强制路径使用，普通日随机池永远排除。"""
+    return str(
+        (data_loader.reply_data.get("loop_linkage") or {}).get("black_moon_environment")
+        or "庄园.黑色满月"
+    )
+
+
+def _hound_weight(inv: Investigator) -> dict | None:
+    """周目联动权重：被猎犬杀死过 → 猎犬在每日池权重 ×2（"它来找你了"）。
+
+    权重值读 loop_linkage.hound_weight（缺省 {"32": 2}）。
+    """
+    cfg = _loop_linkage("hound_weight")
+    if inv.get_flag(cfg.get("flag", "past.hound")) != cfg.get("value", "killed_by"):
+        return None
+    return {str(cfg.get("monster_id", "32")): int(cfg.get("weight", 2))}
 
 
 def pick_random_environment() -> str | None:
     """普通日随机环境：从排除「庄园.黑色满月」后的池中随机选取；池空返回 None。"""
-    pool = [k for k in data_loader.environment_data if k != MANOR_BLACK_MOON]
+    pool = [k for k in data_loader.environment_data if k != _black_moon_environment()]
     return random.choice(pool) if pool else None
 
 
@@ -88,13 +107,20 @@ def _linkage_encounter(inv: Investigator) -> str | None:
     """周目联动·特定天遭遇：击杀过廷达洛斯之猎犬 → D12/D20 概率替换为「猎犬·复仇」(44)。
 
     纯遭遇层：只替换当日怪，不改结局判定；44 不掉 400~508 信物（奖励为消耗品 505）。
+    天数/怪物 id/概率/flag 均读 loop_linkage.hound_vengeance（缺省现状 12/20/44/50）。
     """
-    if inv.day not in (12, 20):
+    cfg = _loop_linkage("hound_vengeance")
+    days = cfg.get("days") or [12, 20]
+    monster_id = str(cfg.get("monster_id", "44"))
+    chance = int(cfg.get("chance", 50))
+    flag = cfg.get("flag", "past.hound")
+    value = cfg.get("value", "killed")
+    if inv.day not in days:
         return None
-    if inv.get_flag("past.hound") != "killed":
+    if inv.get_flag(flag) != value:
         return None
-    if random.randint(1, 100) <= _HOUND_VENGEANCE_CHANCE:
-        return "44"
+    if random.randint(1, 100) <= chance:
+        return monster_id
     return None
 
 
@@ -104,12 +130,14 @@ def _apply_hound_hesitation(
     """周目联动：被猎犬杀死过的调查员，本局首次遭遇猎犬 32 时它迟疑一回合（不攻击）。
 
     单局旗标 past.hound_hesitated 在迟疑真正发生时置位（engine 消费），确保每局仅首遇生效。
+    怪物 id/flag/守卫 flag 读 loop_linkage.hound_hesitate（缺省现状 32/killed_by）。
     """
-    if (
-        monster_id == "32"
-        and inv.get_flag("past.hound") == "killed_by"
-        and not inv.get_flag("past.hound_hesitated")
-    ):
+    cfg = _loop_linkage("hound_hesitate")
+    mid = str(cfg.get("monster_id", "32"))
+    flag = cfg.get("flag", "past.hound")
+    value = cfg.get("value", "killed_by")
+    guard_flag = cfg.get("guard_flag", "past.hound_hesitated")
+    if monster_id == mid and inv.get_flag(flag) == value and not inv.get_flag(guard_flag):
         service.hound_hesitates = True
 
 
@@ -209,6 +237,103 @@ def _advance_day_after_event(inv: Investigator) -> None:
     inv.save()
 
 
+def _skip_daily(user_id: str, inv: Investigator) -> None:
+    """统一「跳过今日」：解除冒险态 + day+1（day40 冻结）+ 落库。
+
+    jk/qiren「不挑战」、guest/gm_room 归途共用（四处各自 day+1 的收口）。
+    day40 冻结保留：终局由守门人战斗结算，不再额外 +1。
+    _mark_adventure_done / check_daily 由调用方按原语义自行调用（guest/gm_room 不调用，
+    它们在入场时已标记当日完成，结算时仅推进 day）。
+    """
+    inv.is_adventure = False
+    if inv.day < 40:
+        inv.day += 1
+    inv.save()
+
+
+# --- 每日彩蛋互斥链调度器（triggers 配置驱动）---
+# 缺省触发器顺序 = 现状链（hidden[jk/qiren] → guest → npc → gm_room）；reply_data.json
+# `triggers` 段存在时以其 priority 排序驱动（新彩蛋纯数据入链，无需改代码）。
+_DEFAULT_TRIGGERS = [
+    {"id": "jk", "group": "hidden", "kind": "hidden", "priority": 1},
+    {"id": "qiren", "group": "hidden", "kind": "hidden", "priority": 1},
+    {"id": "guest", "kind": "guest", "priority": 2},
+    {"id": "npc", "kind": "npc", "priority": 3},
+    {"id": "gm_room", "kind": "gm_room", "priority": 4, "after_monster": True},
+]
+
+
+def _triggers_sorted() -> list[dict]:
+    """按 priority 升序的触发器配置（reply_data.json `triggers` 段；缺省回退现状顺序）。"""
+    cfg = data_loader.reply_data.get("triggers") or []
+    return sorted(cfg if cfg else _DEFAULT_TRIGGERS, key=lambda t: int(t.get("priority", 99)))
+
+
+def _trigger_by_id(tid: str) -> dict:
+    """按 id 取触发器配置（缺省回退空 dict）。"""
+    for t in _triggers_sorted():
+        if t.get("id") == tid:
+            return t
+    return {}
+
+
+async def _dispatch_daily_triggers(
+    user_id: str, inv: Investigator, bot: Bot, send: Callable, after_monster: bool
+) -> bool:
+    """每日彩蛋互斥链调度：按 triggers 配置 priority 排序遍历，第一个命中即触发（一天至多一个）。
+
+    after_monster=False：hidden → guest → npc（命中即接管当日并返回 True）；
+    after_monster=True：gm_room（选怪后判定，保持随机消费时序不变，优先级最低）。
+    同 group 触发器共享一次判定：jk/qiren 同属 hidden 组，一次 d20 由 hidden_should_trigger 裁决。
+    """
+    seen_groups: set[str] = set()
+    for t in _triggers_sorted():
+        if bool(t.get("after_monster")) != after_monster:
+            continue
+        gid = str(t.get("group") or t.get("id") or "")
+        if gid in seen_groups:
+            continue
+        seen_groups.add(gid)
+        kind = t.get("kind") or t.get("id")
+        if kind == "hidden":
+            hidden = hidden_should_trigger(inv)
+            if hidden == "jk":
+                await jk_send_dialogue(user_id, bot, send)
+                return True
+            if hidden == "qiren":
+                await qiren_send_dialogue(user_id, bot, send)
+                return True
+        elif kind == "guest":
+            guest_id = guest_should_trigger(inv)
+            if guest_id is not None:
+                await guest_enter(user_id, inv, bot, send, guest_id)
+                return True
+        elif kind == "npc":
+            npc_id = npc_should_trigger(inv)
+            if npc_id is not None:
+                await npc_send_dialogue(user_id, bot, send, npc_id)
+                return True
+        elif kind == "gm_room":
+            if gm_room_should_trigger(inv):
+                await gm_room_enter(user_id, inv, bot, send)
+                gm_afterglow[user_id] = True
+                return True
+    return False
+
+
+def _jk_image() -> dict:
+    """JK 形象图配置（reply_data.json `boss_image.jk`，缺省现状路径/flag）。"""
+    return (data_loader.reply_data.get("boss_image") or {}).get("jk") or {}
+
+
+def _jk_image_path() -> str:
+    return str(_jk_image().get("path", "resources/images/jk.jpg"))
+
+
+def _jk_image_flag() -> str:
+    return str(_jk_image().get("flag", "jk.img_shown"))
+
+
 adventure_cmd = on_command(
     "今日冒险", aliases={"daily_adventure", "开始冒险"}, priority=10, block=True
 )
@@ -286,27 +411,14 @@ async def _run_adventure(
             monster_id = "38"
         elif jk_forced:
             monster_id = "48"
-        elif (hidden := hidden_should_trigger(inv)):
-            # 共享 d20 出 1：命中后按候选随机选一（jk/qiren 同一层，互斥）
-            if hidden == "jk":
-                await jk_send_dialogue(user_id, bot, send)
-            else:
-                await qiren_send_dialogue(user_id, bot, send)
-            return
-        elif (guest_id := guest_should_trigger(inv)) is not None:
-            # 乱入遭遇：空间裂缝 → 异世界小剧场（触发即替代当日冒险），
-            # 每日互斥链 qiren → guest → npc → gm_room，一天至多一个彩蛋
-            await guest_enter(user_id, inv, bot, send, guest_id)
-            return
-        elif (npc_id := npc_should_trigger(inv)) is not None:
-            # NPC 彩蛋：概率触发对话（好感度推进/结伴），当日互斥链 qiren → guest → npc → gm_room
-            await npc_send_dialogue(user_id, bot, send, npc_id)
+        elif await _dispatch_daily_triggers(
+            user_id, inv, bot, send, after_monster=False
+        ):
+            # 每日彩蛋互斥链：按 triggers 配置 priority 排序，第一个命中即触发（一天至多一个）
             return
         else:
             # 周目联动：被猎犬杀死过 → 猎犬在每日池权重 ×2（"它来找你了"）
-            weights = (
-                {"32": 2} if inv.get_flag("past.hound") == "killed_by" else None
-            )
+            weights = _hound_weight(inv)
             monster_id = monster_repo.find_random_id_for_day(inv.day, weights=weights)
         # 周目联动：击杀过猎犬 → D12/D20 概率替换为强化版「猎犬·复仇」(44)
         if not (qiren_forced or jk_forced):
@@ -336,19 +448,22 @@ async def _run_adventure(
                 monster_intro = f"{monster_intro}\n\n{battle_cry}"
         day_event = data_loader.get_event(inv.day, flags=inv.get_all_flags())
 
-        # GM 房间彩蛋（梦之碎片）：1% 概率 + day>=10 触发；day40/隐藏挑战不参与
-        if gm_room_should_trigger(inv) and not (qiren_forced or jk_forced):
-            await gm_room_enter(user_id, inv, bot, send)
-            gm_afterglow[user_id] = True
+        # GM 房间彩蛋（梦之碎片）：after_monster 触发器（选怪后判定，保持随机消费时序不变）；
+        # day40/隐藏挑战不参与（互斥链优先级最低）
+        if not (qiren_forced or jk_forced) and await _dispatch_daily_triggers(
+            user_id, inv, bot, send, after_monster=True
+        ):
+            return
 
         # --- Environment ---
         env = {}
         env_desc = ""
         if qiren_forced:
-            # 隐藏挑战强制环境「庄园.黑色满月」
-            env = copy.deepcopy(data_loader.environment_data["庄园.黑色满月"])
-            env["name"] = "庄园.黑色满月"
-            env_desc = f"【庄园.黑色满月】{env.get('描述', '')}"
+            # 隐藏挑战强制环境「庄园.黑色满月」（环境名读 loop_linkage 配置）
+            black_moon = _black_moon_environment()
+            env = copy.deepcopy(data_loader.environment_data[black_moon])
+            env["name"] = black_moon
+            env_desc = f"【{black_moon}】{env.get('描述', '')}"
         elif jk_forced:
             # JK 无专属环境：不套随机环境（env 保持空）
             env = {}
@@ -486,19 +601,14 @@ async def _run_adventure(
         battle_manager.add_battle(user_id, service)
         service.roll_initiative()
 
-        # JK 首次见面：发送形象图（inv flag jk.img_shown 持久化防重发，失败静默）
-        if monster.id == "48" and not inv.get_flag("jk.img_shown"):
-            img_path = (
-                Path(__file__).resolve().parent.parent.parent
-                / "resources"
-                / "images"
-                / "jk.jpg"
-            )
+        # JK 首次见面：发送形象图（路径/flag 读 boss_image 配置，持久化防重发，失败静默）
+        if monster.id == "48" and not inv.get_flag(_jk_image_flag()):
+            img_path = Path(__file__).resolve().parent.parent.parent / _jk_image_path()
             try:
                 if img_path.exists():
                     with img_path.open("rb") as f:
                         if await send_pic(bot, f, send):
-                            inv.set_flag("jk.img_shown", True)
+                            inv.set_flag(_jk_image_flag(), True)
                             inv.save()
             except Exception:  # noqa: BLE001 - 图片发送失败静默（零影响战斗）
                 logger.debug(f"JK image send failed for {user_id}")

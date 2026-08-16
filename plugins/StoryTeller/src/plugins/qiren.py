@@ -18,11 +18,11 @@ from ..services.dice_roller import roll_dice
 from ..utils.buttons import _send_to_user, register_button_handler
 from ..utils.md_format import build_keyboard, md_message, need_create_message
 
-# 触发配置
-_QIREN_TRIGGER_ITEMS = ("501", "508")  # 持有任一即可解锁（他掉落的信物会让他再度现身）
-_QIREN_MIN_DAY = 20                    # 中后期开放
-_QIREN_DICE = "d20"                    # 概率骰
-_QIREN_TRIGGER_VALUE = 1               # 掷出触发值才触发
+# 触发配置：读 reply_data.json `triggers` 段（id "qiren"），缺省回退现状
+# 20/39/d20/1/["501","508"]（零行为）。持有任一物品即可解锁（他掉落的信物会让他再度现身）。
+def _qiren_trigger() -> dict:
+    return data_loader.get_trigger("qiren")
+
 
 # 待挑战旗标：user_id -> True（点「挑战」后置位，下一次 /今日冒险 强制怪物 38）
 qiren_pending: dict[str, bool] = {}
@@ -32,19 +32,27 @@ def qiren_unlocked(inv: Investigator) -> bool:
     """触发条件门（独立函数）：day>=20 且 day<40 且持有 501/508 任一。
 
     day40 门扉归守门人，启不参与（结局线由守门人战斗接管）。
+    day_min/day_max/items 读 triggers 配置。
     """
-    if inv.day < _QIREN_MIN_DAY or inv.day >= 40:
+    t = _qiren_trigger()
+    day_min = int(t.get("day_min", 20))
+    day_max = int(t.get("day_max", 39))
+    items = t.get("items") or ("501", "508")
+    if inv.day < day_min or inv.day > day_max:
         return False
     equipments, _ = inv.get_equipments()
-    return any(equipments.get(iid, 0) > 0 for iid in _QIREN_TRIGGER_ITEMS)
+    return any(equipments.get(iid, 0) > 0 for iid in items)
 
 
 def qiren_should_trigger(inv: Investigator) -> bool:
     """每日冒险开局概率触发：解锁后掷 d20 出触发值则 True。"""
     if not qiren_unlocked(inv):
         return False
-    _expr, val = roll_dice(_QIREN_DICE)
-    return val == _QIREN_TRIGGER_VALUE
+    t = _qiren_trigger()
+    dice = t.get("dice", "d20")
+    trigger_value = int(t.get("value", 1))
+    _expr, val = roll_dice(dice)
+    return val == trigger_value
 
 
 async def qiren_send_dialogue(user_id: str, bot: Bot, send) -> None:
@@ -99,8 +107,8 @@ async def handle_qiren_button(
 
             await _run_adventure(user_id, bot, _send, _finish)
         elif choice == "不挑战":
-            # 跳过今日冒险：day+1（day40 冻结）+ 日常结算管线（对齐事件跳过战斗）
-            from .adventure import _mark_adventure_done
+            # 跳过今日冒险：_skip_daily（day+1 day40 冻结）+ 日常结算管线（对齐事件跳过战斗）
+            from .adventure import _mark_adventure_done, _skip_daily
             from ..services.ending_engine import check_daily
 
             inv_model = investigator_repo.find_by_qq(user_id)
@@ -108,10 +116,7 @@ async def handle_qiren_button(
                 await _send(need_create_message(bot, mention=user_id))
                 return
             inv = Investigator(inv_model)
-            if inv.day < 40:
-                inv.day += 1
-            inv.is_adventure = False
-            inv.save()
+            _skip_daily(user_id, inv)
             _mark_adventure_done(user_id)
             check_daily(inv)
             await _send(

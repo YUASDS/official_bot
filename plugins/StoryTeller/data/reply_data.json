@@ -108,5 +108,83 @@
                 "text": "炫目的异彩中，门后那声极轻的、属于你自己的叹息再次响起——它一路跟着你，只为见证这扇门真正打开。祂不催促，只安静地凝视。"
             }
         ]
-    }
+    },
+    "loop_linkage": {
+        "black_moon_environment": "庄园.黑色满月",
+        "hound_vengeance": {
+            "days": [12, 20],
+            "monster_id": "44",
+            "chance": 50,
+            "flag": "past.hound",
+            "value": "killed"
+        },
+        "hound_hesitate": {
+            "monster_id": "32",
+            "flag": "past.hound",
+            "value": "killed_by",
+            "guard_flag": "past.hound_hesitated"
+        },
+        "hound_weight": {
+            "monster_id": "32",
+            "weight": 2,
+            "flag": "past.hound",
+            "value": "killed_by"
+        }
+    },
+    "boss_image": {
+        "jk": {
+            "path": "resources/images/jk.jpg",
+            "flag": "jk.img_shown"
+        }
+    },
+    "triggers": [
+        {
+            "id": "jk",
+            "group": "hidden",
+            "kind": "hidden",
+            "priority": 1,
+            "day_min": 13,
+            "day_max": 39,
+            "dice": "d20",
+            "value": 1
+        },
+        {
+            "id": "qiren",
+            "group": "hidden",
+            "kind": "hidden",
+            "priority": 1,
+            "day_min": 20,
+            "day_max": 39,
+            "dice": "d20",
+            "value": 1,
+            "items": ["501", "508"]
+        },
+        {
+            "id": "guest",
+            "kind": "guest",
+            "priority": 2,
+            "day_min": 5,
+            "day_max": 39,
+            "dice": "d100",
+            "value": 3,
+            "relation": "lte",
+            "souvenir_id": "310"
+        },
+        {
+            "id": "npc",
+            "kind": "npc",
+            "priority": 3
+        },
+        {
+            "id": "gm_room",
+            "kind": "gm_room",
+            "priority": 4,
+            "day_min": 10,
+            "day_max": 39,
+            "dice": "d100",
+            "value": 1,
+            "relation": "lte",
+            "after_monster": true
+        }
+    ]
 }
