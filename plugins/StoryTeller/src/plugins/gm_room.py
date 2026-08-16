@@ -152,8 +152,8 @@ def gm_room_should_trigger(inv: Investigator) -> bool:
 
 
 def _gm_mark_done(user_id: str) -> None:
-    """懒加载冒险完成记录（避免循环导入）。"""
-    from .adventure import _mark_adventure_done
+    """记录冒险完成（今日状态标记，services 层，避免插件互相导入）。"""
+    from ..services.daily_service import _mark_adventure_done
 
     _mark_adventure_done(user_id)
 
@@ -586,7 +586,7 @@ async def _gm_finalize_choices(user_id: str, state: dict, bot: Bot, send) -> Non
 
 async def _finish_gm_room(user_id: str, inv: Investigator | None, bot: Bot, send) -> None:
     """房间统一收尾：HP 刷新、_skip_daily（解除冒险态 + day+1 <40 冻结）、清状态、发送关闭文本。"""
-    from .adventure import _skip_daily
+    from ..services.daily_service import _skip_daily
 
     t = data_loader.get_text
     if inv is not None:
@@ -690,7 +690,7 @@ async def _use_dream_fragment(user_id: str, bot: Bot, send, finish) -> None:
         return
 
     # 用途 B：第 40 天门扉抉择判定后重掷（撤销判定 → 重新展示门扉 → 再次判定）
-    from .adventure import door_states  # 懒加载避免循环导入
+    from ..services.daily_service import door_states
 
     reroll_text = reroll_door_choice(inv)
     if reroll_text:

@@ -14,7 +14,8 @@
     （38/48 专属奖励分支一字不改，本条 `奖励` 仅承载描述性元数据）；
   - 触发概率/日范围：boss_data 权威，缺省回退 reply_data `triggers`（批次2，零行为）；
   - 按钮：`register_button_handler`（kind = boss id，payload = 动作）；
-  - 跳过今日：`adventure._skip_daily` / `_mark_adventure_done` + `ending_engine.check_daily`。
+   - 跳过今日：`daily_service._skip_daily` / `_mark_adventure_done` + `ending_engine.check_daily`；
+   - 重入今日冒险：`adventure` 插件注册 `_run_adventure` 委托（register_adventure_runner，解循环①）。
 - **对话流程**：静态对话节点（标题+台词+挑战/不挑战按钮）为默认；`对话.流程` 可复用 flow_engine
   （flow_data.json / register_flow）承载复杂对话（自包含遭遇，由 flow 节点全权推进）。
 - **红线**：day40 归守门人（残留挑战旗标不覆盖守门人 36）；图片发送失败静默；
@@ -25,6 +26,7 @@ from __future__ import annotations
 
 import copy
 import random
+import sys
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -57,6 +59,72 @@ def _boss_pending_set(user_id: str, boss_id: str) -> None:
         inv = Investigator(inv_model)
         inv.set_flag("boss.pending", boss_id)
         inv.save()
+
+
+# --- 冒险流程回调注册（解循环①：services 不再 import plugins/adventure） ---
+# adventure 插件在模块加载时注册 `_run_adventure` 的委托；运行时经 _run_adventure_runner
+# 调用。注册委托在 adventure 模块全局解析 `_run_adventure`，故 mock.patch 的测试桩同样生效；
+# 未注册时回退 sys.modules 动态读取（兼容加载顺序/未注册场景，行为与旧惰性导入一致）。
+#
+# 插件前缀按本模块自身 __name__ 推导：测试以 `src.services.boss_framework` 导入、
+# test_fullflow 等另以 `plugins.StoryTeller.src.services.boss_framework` 导入（同一物理文件
+# 的第二个模块实例），旧相对惰性导入按实例自洽解析同前缀插件；此处用前缀推导保持自洽。
+_PLUGIN_PREFIX = __name__.rsplit(".services.boss_framework", 1)[0] + ".plugins."
+
+_adventure_runner: Optional[Callable] = None
+
+
+def register_adventure_runner(runner: Callable) -> None:
+    """注册「重入今日冒险」流程回调（adventure 插件模块加载时调用）。"""
+    global _adventure_runner
+    _adventure_runner = runner
+
+
+def _plugin_module(name: str):
+    """按本模块同前缀取已加载的插件模块（不触发 import，无 plugins 依赖）。"""
+    return sys.modules.get(_PLUGIN_PREFIX + name)
+
+
+def _adventure_from_modules() -> Optional[Callable]:
+    """sys.modules 动态读取 adventure._run_adventure（未注册/加载顺序兜底，不 import）。"""
+    mod = _plugin_module("adventure")
+    if mod is None:
+        return None
+    fn = getattr(mod, "_run_adventure", None)
+    return fn if callable(fn) else None
+
+
+async def _run_adventure_runner(
+    user_id: str, bot: Bot, send: Callable, finish: Callable
+) -> None:
+    """重入今日冒险：注册回调优先，未注册回退 sys.modules 动态读取。"""
+    runner = _adventure_runner
+    if runner is None:
+        runner = _adventure_from_modules()
+    if runner is None:
+        logger.warning("adventure 冒险流程回调未注册，无法重入今日冒险")
+        return
+    await runner(user_id, bot, send, finish)
+
+
+def _legacy_pending_pop(user_id: str) -> Optional[str]:
+    """旧薄壳 jk_pending/qiren_pending 兼容读取（sys.modules 动态取 dict，不 import plugins）。
+
+    测试/旧调用方直接写 `jk_pending` / `qiren_pending` dict 仍被调度器消费（行为逐字节不变）。
+    """
+    qiren_forced = False
+    jk_forced = False
+    qiren_mod = _plugin_module("qiren")
+    if qiren_mod is not None:
+        qiren_forced = bool(getattr(qiren_mod, "qiren_pending", {}).pop(user_id, False))
+    jk_mod = _plugin_module("jk")
+    if jk_mod is not None:
+        jk_forced = bool(getattr(jk_mod, "jk_pending", {}).pop(user_id, False))
+    if qiren_forced:
+        return "qiren"
+    if jk_forced:
+        return "jk"
+    return None
 
 # --- 注册表：boss_data.json 纯数据 + register_boss 代码注册（代码优先覆盖，对齐 flow 注册表） ---
 _CODE_BOSSES: dict[str, dict] = {}
@@ -305,13 +373,12 @@ async def handle_boss_button(
                     mention=user_id,
                 )
             )
-            # 重入今日冒险流程：boss_pending 旗标 → 强制绑定怪物（adventure 调度器消费）
-            from ..plugins.adventure import _run_adventure
-
-            await _run_adventure(user_id, bot, _send, _finish)
+            # 重入今日冒险流程：boss_pending 旗标 → 强制绑定怪物（adventure 调度器消费）。
+            # adventure 插件经 register_adventure_runner 注册委托（解耦 services→plugins）。
+            await _run_adventure_runner(user_id, bot, _send, _finish)
         elif choice == decline_action:
             # 跳过今日冒险：_skip_daily（day+1 day40 冻结）+ 日常结算管线（对齐事件跳过战斗）
-            from ..plugins.adventure import _mark_adventure_done, _skip_daily
+            from ..services.daily_service import _mark_adventure_done, _skip_daily
             from ..services.ending_engine import check_daily
 
             inv_model = investigator_repo.find_by_qq(user_id)
@@ -346,18 +413,7 @@ def boss_resolve_forced(user_id: str, inv: Investigator) -> str | None:
         if flag_boss:
             boss_id = str(flag_boss)
     if not boss_id:
-        try:
-            from ..plugins.jk import jk_pending
-            from ..plugins.qiren import qiren_pending
-
-            qiren_forced = qiren_pending.pop(user_id, False)
-            jk_forced = jk_pending.pop(user_id, False)
-            if qiren_forced:
-                boss_id = "qiren"
-            elif jk_forced:
-                boss_id = "jk"
-        except Exception:  # noqa: BLE001 - 薄壳未加载时忽略旧旗标
-            pass
+        boss_id = _legacy_pending_pop(user_id)
     if boss_id and inv.get_flag("boss.pending"):
         inv.clear_flag("boss.pending")
         inv.save()

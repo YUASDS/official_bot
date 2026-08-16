@@ -172,30 +172,34 @@ def _run_gold_net(qq: str, run_id: int) -> int:
 
 
 def _knowledge_of(inv: Any) -> int:
-    """知识度 = 克苏鲁神话 + 信物加成（对齐 ending_engine.knowledge）。"""
-    try:
-        from ..services.ending_engine import knowledge
+    """知识度 = 克苏鲁神话 + 信物加成（镜像 ending_engine.knowledge 的计算）。
 
-        return int(knowledge(inv))
+    架构修复 P0-批次B 循环③：stats_service 不再反向 import ending_engine；
+    此处自包含计算（读同一 ending_data 配置，缺省回退值一致），ending_engine 仍为权威定义。
+    """
+    try:
+        from ..services.data_loader import data_loader
+
+        eq, _ = inv.get_equipments()
+        cfg = ((data_loader.ending_data or {}).get("door") or {}).get("knowledge") or {}
+        bonus_items = cfg.get("bonus_items") or {"503": 15, "504": 5, "508": 10}
+        bonus = sum(int(b) for rid, b in bonus_items.items() if eq.get(str(rid), 0) > 0)
+        return int(inv.get_skill("克苏鲁神话", 0)) + bonus
     except Exception:  # noqa: BLE001
-        try:
-            mythos = int(inv.get_skill("克苏鲁神话", 0))
-            eq, _ = inv.get_equipments()
-            bonus = 0
-            for rid, b in ({"503": 15, "504": 5, "508": 10}).items():
-                if eq.get(rid, 0) > 0:
-                    bonus += b
-            return mythos + bonus
-        except Exception:  # noqa: BLE001
-            return 0
+        return 0
 
 
 def _relics_of(inv: Any) -> int:
-    """当前持有信物数（对齐 ending_engine.relics_count）。"""
+    """当前持有信物数（镜像 ending_engine.relics_count 的计算，避免服务间循环依赖）。"""
     try:
-        from ..services.ending_engine import relics_count
+        from ..services.data_loader import data_loader
 
-        return int(relics_count(inv))
+        eq, _ = inv.get_equipments()
+        ids = (
+            ((data_loader.ending_data or {}).get("relics") or {}).get("ids")
+            or ["400", "501", "502", "503", "504", "506", "507", "508"]
+        )
+        return sum(1 for rid in ids if eq.get(str(rid), 0) > 0)
     except Exception:  # noqa: BLE001
         return 0
 

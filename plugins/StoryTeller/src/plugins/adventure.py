@@ -46,6 +46,7 @@ from ..services.boss_framework import (
     boss_forced_environment,
     boss_resolve_forced,
     get_boss,
+    register_adventure_runner,
     send_boss_dialogue,
 )
 from ..services.resurrect import do_resurrect
@@ -75,7 +76,12 @@ from ..utils.md_format import (
     report_quote,
     report_section,
 )
-from util.DaylyRecord import add_data, get_data, write_json
+from ..services.daily_service import (
+    _adventure_done_today,
+    _mark_adventure_done,
+    _skip_daily,
+    door_states,
+)
 
 # 周目联动配置段（reply_data.json `loop_linkage`）：天数/怪物 id/概率/权重/环境名全部数据驱动，
 # 缺省逐项回退现状魔法数字（零行为）。
@@ -155,10 +161,6 @@ def _resurrect_price() -> int:
     return 200
 
 
-# 门扉抉择状态（类比 event_states）：user_id -> {"choices": [...]}
-door_states: dict[str, dict] = {}
-
-
 async def _send_frozen_door(
     user_id: str,
     inv: Investigator,
@@ -221,37 +223,12 @@ def _daily_done_msg(user_id: str, bot: Bot):
     return msg
 
 
-def _adventure_done_today(user_id: str) -> bool:
-    """今日冒险是否已完成（按自然日记录，0 点自动重置）。"""
-    return bool(get_data(user_id, "adventure_done"))
-
-
-def _mark_adventure_done(user_id: str) -> None:
-    """记录今日冒险已完成。"""
-    add_data(user_id, "adventure_done", True)
-    write_json()
-
-
 def _advance_day_after_event(inv: Investigator) -> None:
     """事件检定成功跳过战斗后推进 day：与胜利结算一致（settlement.py，day40 冻结不推进）。
 
     圣泉洗礼等「跳过战斗」事件此前不推进 day，导致 day5 反复触发/主线卡死（B1）。
     day40 保持冻结（终局由守门人战斗结算），不再额外 +1。
     """
-    if inv.day < 40:
-        inv.day += 1
-    inv.save()
-
-
-def _skip_daily(user_id: str, inv: Investigator) -> None:
-    """统一「跳过今日」：解除冒险态 + day+1（day40 冻结）+ 落库。
-
-    jk/qiren「不挑战」、guest/gm_room 归途共用（四处各自 day+1 的收口）。
-    day40 冻结保留：终局由守门人战斗结算，不再额外 +1。
-    _mark_adventure_done / check_daily 由调用方按原语义自行调用（guest/gm_room 不调用，
-    它们在入场时已标记当日完成，结算时仅推进 day）。
-    """
-    inv.is_adventure = False
     if inv.day < 40:
         inv.day += 1
     inv.save()
@@ -672,6 +649,18 @@ async def _run_adventure(
                 mention=user_id,
             )
         )
+
+
+# BOSS 挑战「重入今日冒险」回调注册：boss_framework 依赖注入（解循环①——services 不再
+# import plugins/adventure）。委托在调用时经模块全局解析 `_run_adventure`，故对
+# `mock.patch("src.plugins.adventure._run_adventure")` 的测试桩同样生效。
+async def _reenter_adventure_runner(
+    user_id: str, bot: Bot, send: Callable, finish: Callable
+) -> None:
+    await _run_adventure(user_id, bot, send, finish)
+
+
+register_adventure_runner(_reenter_adventure_runner)
 
 
 @adventure_cmd.handle()

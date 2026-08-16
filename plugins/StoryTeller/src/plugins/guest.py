@@ -160,8 +160,8 @@ def _stage(world_id: str, stage_id: str) -> dict:
 
 
 def _guest_mark_done(user_id: str) -> None:
-    """懒加载冒险完成记录（避免循环导入）。"""
-    from .adventure import _mark_adventure_done
+    """记录冒险完成（今日状态标记，services 层，避免插件互相导入）。"""
+    from ..services.daily_service import _mark_adventure_done
 
     _mark_adventure_done(user_id)
 
@@ -569,7 +569,7 @@ async def _guest_ending(
 
 async def _finish_guest(user_id: str, bot: Bot, send) -> None:
     """乱入统一收尾：_skip_daily（解除冒险态 + day+1 <40 冻结）、清状态、发送归途文本。"""
-    from .adventure import _skip_daily
+    from ..services.daily_service import _skip_daily
 
     t = data_loader.get_text
     inv_model = investigator_repo.find_by_qq(user_id)
