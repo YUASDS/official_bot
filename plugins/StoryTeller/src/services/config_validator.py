@@ -429,6 +429,10 @@ class ConfigValidator:
                 self._err(file, f"{key}.玩家", "玩家修正应为 dict")
             if not isinstance(env.get("怪物"), dict):
                 self._err(file, f"{key}.怪物", "怪物修正应为 dict")
+            # 入池标记：bool（缺省视为 true=进普通日随机池；false=专属环境如启的黑色满月）
+            pool_flag = env.get("入池")
+            if pool_flag is not None and not isinstance(pool_flag, bool):
+                self._err(file, f"{key}.入池", "入池应为 bool（true=进普通池 / false=专属排除）")
 
     def validate_checkpoint(self) -> None:
         file = "check_point.json"
@@ -474,12 +478,9 @@ class ConfigValidator:
             souvenir = t.get("souvenir_id")
             if souvenir:
                 self._check_items_ref(file, f"triggers[{i}].souvenir_id", souvenir)
-        # loop_linkage：周目联动怪物/环境引用
+        # loop_linkage：周目联动怪物引用
         ll = reply.get("loop_linkage") or {}
         if isinstance(ll, dict):
-            env_name = ll.get("black_moon_environment")
-            if env_name and env_name not in self.data.get("environment_data.json", {}):
-                self._err(file, "loop_linkage.black_moon_environment", f"环境 {env_name} 不存在")
             for k in ("hound_vengeance", "hound_hesitate", "hound_weight"):
                 sub = ll.get(k) or {}
                 if isinstance(sub, dict) and sub.get("monster_id"):

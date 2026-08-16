@@ -90,12 +90,12 @@ def _loop_linkage(key: str) -> dict:
     return (data_loader.reply_data.get("loop_linkage") or {}).get(key) or {}
 
 
-def _black_moon_environment() -> str:
-    """启专属环境名：普通日随机池永远排除（挑战强制路径由 boss_data 战斗.强制环境承载）。"""
-    return str(
-        (data_loader.reply_data.get("loop_linkage") or {}).get("black_moon_environment")
-        or "庄园.黑色满月"
-    )
+def _black_moon_environment() -> str | None:
+    """启专属环境名：已由 environment_data.json 的「入池:false」标记承载（普通池排除）。
+
+    此函数保留仅为语义查询；实际过滤逻辑见 pick_random_environment（按入池标记）。
+    """
+    return None
 
 
 def _hound_weight(inv: Investigator) -> dict | None:
@@ -110,8 +110,12 @@ def _hound_weight(inv: Investigator) -> dict | None:
 
 
 def pick_random_environment() -> str | None:
-    """普通日随机环境：从排除「庄园.黑色满月」后的池中随机选取；池空返回 None。"""
-    pool = [k for k in data_loader.environment_data if k != _black_moon_environment()]
+    """普通日随机环境：从「入池」标记为 true（缺省视为 true）的环境池中随机选取；池空返回 None。"""
+    pool = [
+        k
+        for k, v in data_loader.environment_data.items()
+        if v.get("入池", True) is not False
+    ]
     return random.choice(pool) if pool else None
 
 
