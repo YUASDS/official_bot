@@ -144,7 +144,10 @@ class BattleEngineMixin:
                 return tuple(parts)
         elif getattr(self, "bone_whistle", 0) > 0:
             self.bone_whistle -= 1
-            _expr, val = roll_dice("2d4")
+            # 骨哨每回合伤害读 goods_data 506 use_effect.damage（配置驱动，缺省回退 2d4 现状）
+            _cfg = (data_loader.goods_data or {}).get("506", {}).get("use_effect") or {}
+            _dmg = str(_cfg.get("damage", "2d4"))
+            _expr, val = roll_dice(_dmg)
             val = max(0, val - self.monster.armor)  # 装甲减伤与 calc_dmg 一致
             self._apply_damage_to_monster(val)
             parts.append(

@@ -602,7 +602,9 @@
   "label_armor": "护甲",
   "label_skill": "行动",
   "label_price": "价格",
-  "label_desc": "描述"
+  "label_desc": "描述",
+  "label_use": "使用方式",
+  "label_effect": "效果"
  },
  "flow": {
   "enter_title": "🧭 奇闻探索",

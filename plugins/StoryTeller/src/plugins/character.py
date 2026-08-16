@@ -188,6 +188,9 @@ def query_item_info(user_id: str, item_id: str) -> str:
         ),
         (_t("item.label_price"), str(item.price) if item.price else ""),
         (_t("item.label_desc"), item.description),
+        # 道具使用描述/效果描述（use_desc/effect_desc，有才显示）
+        (_t("item.label_use"), str(raw.get("use_desc", "") or "")),
+        (_t("item.label_effect"), str(raw.get("effect_desc", "") or "")),
     ]
     lines = [_t("item.info_title")]
     for label, value in fields:

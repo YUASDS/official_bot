@@ -615,7 +615,18 @@
   "des": "一管荧绿色的粘稠凝胶，其中悬浮着细小的神经束。据说米戈用它修复受害者的脑叶——对还活着的人来说，它有微弱但有效的止痛与凝血作用。",
   "price": 60,
   "type": "misc",
-  "part": "misc"
+  "part": "misc",
+  "use_desc": "战斗中 /行动 使用505 [临时]——回复生命或获得临时护盾",
+  "effect_desc": "回复 1d6 生命；或输入「临时」获得 1d4 临时生命（消耗 1 枚）",
+  "use_effect": {
+   "type": "gel",
+   "heal": {
+    "dice": "1d6"
+   },
+   "temp": {
+    "dice": "1d4"
+   }
+  }
  },
  "506": {
   "visible": false,
@@ -623,7 +634,16 @@
   "des": "以猎犬脊骨打磨的哨子，哨孔呈扭曲的三角。吹响时没有声音，但你脚下的阴影会自己站起来——其中一具会替你撕咬，持续三个心跳。",
   "price": 80,
   "type": "misc",
-  "part": "misc"
+  "part": "misc",
+  "use_desc": "战斗中 /行动 使用506——召唤猎犬助战",
+  "effect_desc": "召唤猎犬助战 3 回合，每回合对怪物造成 2d4 伤害（消耗 1 枚）",
+  "use_effect": {
+   "type": "summon",
+   "turns": 3,
+   "damage": "2d4",
+   "start_text": "battle.bone_whistle_start",
+   "tick_text": "battle.bone_whistle_tick"
+  }
  },
  "507": {
   "visible": false,

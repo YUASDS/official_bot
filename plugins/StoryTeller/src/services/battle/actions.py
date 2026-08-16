@@ -448,23 +448,40 @@ class BattleActionsMixin:
                     "battle.no_item", default="背包中没有该物品（{id}）。", id=item_id
                 ),
             )
-        if item_id == "505":
-            return self._use_gel(mode)
-        return self._use_bone_whistle()
+        # 道具效果配置化：goods_data 条目 `use_effect` 驱动（新增消耗品 = 配置 + 可选新效果函数）
+        effect = (data_loader.goods_data or {}).get(item_id, {}).get("use_effect")
+        if not isinstance(effect, dict) or not effect.get("type"):
+            return (
+                data_loader.get_text(
+                    "battle.consumable_only", default="战斗中只能使用消耗品道具。"
+                ),
+            )
+        if effect["type"] == "gel":
+            return self._use_gel(mode, effect)
+        if effect["type"] == "summon":
+            return self._use_bone_whistle(effect)
+        return (
+            data_loader.get_text(
+                "battle.consumable_only", default="战斗中只能使用消耗品道具。"
+            ),
+        )
 
-    def _use_gel(self, mode: str = "") -> tuple:
-        """米戈神经凝胶：默认回复 1d6 HP；带「临时/护盾」参数获得 1d4 临时生命。"""
+    def _use_gel(self, mode: str = "", effect: dict | None = None) -> tuple:
+        """米戈神经凝胶：默认回复 HP；带「临时/护盾」参数获得临时生命（use_effect 配置驱动）。"""
+        effect = effect or {"type": "gel", "heal": {"dice": "1d6"}, "temp": {"dice": "1d4"}}
         is_temp = any(k in mode for k in ("临时", "护盾", "t", "temp")) if mode else False
         if is_temp:
-            _expr, val = roll_dice("1d4")
+            temp_cfg = effect.get("temp") or {"dice": "1d4"}
+            _expr, val = roll_dice(temp_cfg.get("dice", "1d4"))
             self.temp_hp += val
             text = data_loader.get_text(
                 "battle.gel_temp", default="🧪 米戈神经凝胶凝结成护膜，获得 {value} 点临时生命。", value=val
             )
         else:
+            heal_cfg = effect.get("heal") or {"dice": "1d6"}
             max_hp = self.investigator.get_max_hp()
             before = self.hp_record["inv"]
-            _expr, val = roll_dice("1d6")
+            _expr, val = roll_dice(heal_cfg.get("dice", "1d6"))
             self.hp_record["inv"] = min(max_hp, before + val)
             healed = self.hp_record["inv"] - before
             text = data_loader.get_text(
@@ -476,19 +493,21 @@ class BattleActionsMixin:
         self._stat_consumables["505"] = self._stat_consumables.get("505", 0) + 1
         return (text, self._end_turn())
 
-    def _use_bone_whistle(self) -> tuple:
-        """廷达洛斯的骨哨：召唤猎犬助战 3 回合（怪物行动前额外 1d4 伤害）。"""
+    def _use_bone_whistle(self, effect: dict | None = None) -> tuple:
+        """廷达洛斯的骨哨：召唤猎犬助战 N 回合（use_effect 配置驱动：turns/damage/文本键）。"""
+        effect = effect or {"type": "summon", "turns": 3, "damage": "1d4"}
+        turns = int(effect.get("turns", 3))
         investigator_repo.remove_item_from_inventory(
             self.investigator.qq, "506", 1
         )
-        self.bone_whistle = 3
+        self.bone_whistle = turns
         self._stat_consumables["506"] = self._stat_consumables.get("506", 0) + 1
         # 周目联动：使用 506 骨哨召唤猎犬 → 记录跨周目行为（与猎犬建立联系）
         self._record_run_choice("hound", "summoned")
         text = data_loader.get_text(
             "battle.bone_whistle_start",
             default="🦴 你吹响廷达洛斯的骨哨——脚下的阴影站了起来，猎犬将助战 {turns} 回合。",
-            turns=3,
+            turns=turns,
         )
         return (text, self._end_turn())
 

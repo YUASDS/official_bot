@@ -369,6 +369,18 @@ class ConfigValidator:
             cr = g.get("cross_run")
             if cr is not None and not isinstance(cr, bool):
                 self._err(file, f"{iid}.cross_run", "cross_run 应为 bool（true=死亡重建时继承）")
+            # use_effect：消耗品效果配置（type 枚举 + 参数）
+            ue = g.get("use_effect")
+            if ue is not None:
+                if not isinstance(ue, dict):
+                    self._err(file, f"{iid}.use_effect", "use_effect 应为 dict")
+                elif ue.get("type") not in ("gel", "summon"):
+                    self._err(file, f"{iid}.use_effect.type", f"非法效果类型 {ue.get('type')!r}（合法：gel/summon）")
+            # use_desc/effect_desc：使用/效果描述文本（str）
+            for field in ("use_desc", "effect_desc"):
+                v = g.get(field)
+                if v is not None and not isinstance(v, str):
+                    self._err(file, f"{iid}.{field}", "应为字符串")
             # ID 段位（config-id-naming §一）
             self._check_goods_segment(file, iid, g)
             # 法术残卷 → spell 引用
