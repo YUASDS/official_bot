@@ -140,11 +140,13 @@ async def send_combat_result(
 
         # 2. 结算卡片 + 结束引导按钮
         if getattr(battle, "door_choice", None):
-            # 门扉抉择：结算卡片与引导按钮由调用方接管（战报末尾已含抉择文案）
-            if result[-1]:
-                await send(
-                    md_message(str(result[-1]), bot, mention=battle.investigator.qq)
-                )
+            # 门扉抉择：先发结算卡片（胜利/战败主题），再发门扉抉择文案（由调用方接管按钮）
+            img = await render_pic(end_card_html(battle))
+            if img is None or not await send_pic(bot, img, send):
+                if result[-1]:
+                    await send(
+                        md_message(str(result[-1]), bot, mention=battle.investigator.qq)
+                    )
             return
         img = await render_pic(end_card_html(battle))
         if img is not None and await send_pic(bot, img, send):
