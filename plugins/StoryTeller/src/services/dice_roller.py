@@ -2,6 +2,44 @@ import random
 
 from .data_loader import data_loader
 
+# 骰子判定阈值缺省值（display_data.json `dice` 段缺失/非法时回退，与现状硬编码一致）。
+_DICE_DEFAULT_THRESHOLDS = {
+    "fumble_above": 95,
+    "crit_below": 6,
+    "hard_ratio": 0.5,
+    "extreme_ratio": 0.2,
+}
+
+
+def _dice_thresholds() -> dict:
+    """骰子判定阈值（display_data.json `dice` 段）；缺失/类型非法回退现状默认值。
+
+    函数内读取：dice_roller 是底层模块，避免反向依赖 battle_cards（battle_cards 依赖
+    battle → dice_roller 会成环）；display_data 由 data_loader 统一加载，dice_roller
+    本就依赖 data_loader，零新增依赖。
+    """
+    cfg = getattr(data_loader, "display_data", {}) or {}
+    cfg = cfg.get("dice") if isinstance(cfg, dict) else None
+    if not isinstance(cfg, dict):
+        return dict(_DICE_DEFAULT_THRESHOLDS)
+    try:
+        return {
+            "fumble_above": int(
+                cfg.get("fumble_above", _DICE_DEFAULT_THRESHOLDS["fumble_above"])
+            ),
+            "crit_below": int(
+                cfg.get("crit_below", _DICE_DEFAULT_THRESHOLDS["crit_below"])
+            ),
+            "hard_ratio": float(
+                cfg.get("hard_ratio", _DICE_DEFAULT_THRESHOLDS["hard_ratio"])
+            ),
+            "extreme_ratio": float(
+                cfg.get("extreme_ratio", _DICE_DEFAULT_THRESHOLDS["extreme_ratio"])
+            ),
+        }
+    except (TypeError, ValueError):
+        return dict(_DICE_DEFAULT_THRESHOLDS)
+
 
 class SuccessLevel:
     """Success Level Constants"""
@@ -49,9 +87,10 @@ class DiceRoll:
         return random.randint(1, 100)
 
     def _calculate_success_level(self, skill: int, roll: int) -> int:
-        if roll > 95:
+        th = _dice_thresholds()
+        if roll > th["fumble_above"]:
             return SuccessLevel.CRITICAL_FAILURE
-        if roll < 6:
+        if roll < th["crit_below"]:
             return SuccessLevel.CRITICAL_SUCCESS
         if skill <= 0:
             return SuccessLevel.FAILURE
@@ -59,9 +98,9 @@ class DiceRoll:
         success_ratio = roll / skill
         if success_ratio > 1:
             return SuccessLevel.FAILURE
-        if success_ratio > 0.5:
+        if success_ratio > th["hard_ratio"]:
             return SuccessLevel.SUCCESS
-        if success_ratio > 0.2:
+        if success_ratio > th["extreme_ratio"]:
             return SuccessLevel.HARD_SUCCESS
         return SuccessLevel.EXTREME_SUCCESS
 

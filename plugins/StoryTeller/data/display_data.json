@@ -194,6 +194,12 @@
         "monster": "👾"
     },
     "battle_env_effect_icon": "⚙️",
+    "dice": {
+        "fumble_above": 95,
+        "crit_below": 6,
+        "hard_ratio": 0.5,
+        "extreme_ratio": 0.2
+    },
     "defaults": {
         "white_accent": "#8a7a52"
     }

@@ -15,7 +15,9 @@ BUTTON_HANDLERS: dict[str, Callable] = {}
 
 
 def register_button_handler(kind: str, handler: Callable) -> None:
-    """注册按钮回调处理器。"""
+    """注册按钮回调处理器；同名 kind 重复注册时告警（不阻断，保持兼容）。"""
+    if kind in BUTTON_HANDLERS:
+        logger.warning(f"Button handler '{kind}' 重复注册，将覆盖旧处理器")
     BUTTON_HANDLERS[kind] = handler
 
 

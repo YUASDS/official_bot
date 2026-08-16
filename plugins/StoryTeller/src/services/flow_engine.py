@@ -142,7 +142,12 @@ def _node_text(flow_id: str, node_id: str) -> str:
             cur = cur.get(part)
         if isinstance(cur, str):
             return cur
-    return data_loader.get_text(key, default="")
+    value = data_loader.get_text(key, default="")
+    if not value or value == key:  # get_text 缺省回退返回键名本身 → 文案键缺失
+        logger.warning(
+            f"flow 文案键缺失: flow_id={flow_id} node_id={node_id} key={key}"
+        )
+    return value
 
 
 def _progress(inv: Investigator):

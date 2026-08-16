@@ -12,5 +12,8 @@ def equip_item_and_sync(user_id: str, item_id: str) -> tuple[bool, str]:
         if battle:
             battle.investigator.update_equipment()
             if battle.current_turn == "inv":
+                # 跨模块调私有：BattleService._update_gun_status（battle/base.py:171）为
+                # 装备/枪械状态同步的内部实现（adventure.py:979 同样直调）；加公开封装需改
+                # battle/base.py，超出本批改动范围，故沿用直调并在此说明原因。
                 battle._update_gun_status()
     return ok, res
