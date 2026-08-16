@@ -52,6 +52,7 @@ from ..utils.md_format import (
     need_create_message,
     report_section,
 )
+from ..utils.state_registry import register_state_store
 
 # 触发配置：读 reply_data.json `triggers` 段（id "gm_room"），缺省回退现状 10/39/d100/1（零行为）
 def _gm_trigger() -> dict:
@@ -111,6 +112,7 @@ gm_afterglow: dict[str, bool] = {}
 # 活跃流程态（对话/战斗/复活助力/奖励选择）保持内存：重启后中断合理（同战斗），
 # 不持久化（flags 只记"当日已进入"守卫，防重启后同 game-day 二次进入）。
 gm_room_active: dict[str, dict] = {}
+register_state_store(gm_room_active)
 # 当日守卫（game-day）：user_id -> 已进入 GM 房间的当日 day。
 # 内存 dict 为快路径；持久化镜像写 inv.flags `gm_room.met_day`，读时双读。
 _gm_met_day: dict[str, int] = {}

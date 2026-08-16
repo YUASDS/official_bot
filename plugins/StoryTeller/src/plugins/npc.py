@@ -26,9 +26,11 @@ from ..services.ending_engine import eval_option_condition
 from ..services.event_service import apply_event_effects
 from ..utils.buttons import _send_to_user, register_button_handler
 from ..utils.md_format import build_keyboard, md_message, need_create_message
+from ..utils.state_registry import register_state_store
 
 # 未决对话状态：user_id -> {"npc_id": ..., "node_id": ...}（类比 event_states）
 npc_states: dict[str, dict] = {}
+register_state_store(npc_states)
 # 每日互斥守卫：user_id -> 已触发 NPC 的当日 day（一天最多一次 NPC 彩蛋）
 _npc_met_day: dict[str, int] = {}
 

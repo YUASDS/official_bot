@@ -35,6 +35,7 @@ from ..utils.md_format import (
     need_create_message,
     report_section,
 )
+from ..utils.state_registry import clear_user_state
 
 _t = data_loader.get_text
 
@@ -252,54 +253,12 @@ async def handle_new_chapter(event: Event, bot: Bot):
 
 
 def _cleanup_ended_state(user_id: str) -> None:
-    """结局后清理残留状态：战斗 / 门扉 / 事件 / flow / GM / 启挑战。"""
-    # 延迟导入避免插件间循环依赖（adventure 等插件在运行期才加载完整）
-    stores = []
+    """结局后清理残留状态：战斗 + 统一状态注册表（door/event/flow/gm/qiren/npc 等）。"""
     try:
         battle_manager.remove_battle(user_id)
     except Exception:
         pass
-    try:
-        from .adventure import door_states
-
-        stores.append(door_states)
-    except Exception:
-        pass
-    try:
-        from ..services.event_service import event_states
-
-        stores.append(event_states)
-    except Exception:
-        pass
-    try:
-        from ..services.flow_engine import flow_states
-
-        stores.append(flow_states)
-    except Exception:
-        pass
-    try:
-        from .gm_room import gm_room_active
-
-        stores.append(gm_room_active)
-    except Exception:
-        pass
-    try:
-        from .qiren import qiren_pending
-
-        stores.append(qiren_pending)
-    except Exception:
-        pass
-    try:
-        from .npc import npc_states
-
-        stores.append(npc_states)
-    except Exception:
-        pass
-    for store in stores:
-        try:
-            store.pop(user_id, None)
-        except Exception:
-            pass
+    clear_user_state(user_id)
 
 
 # --- /创建调查员 ---

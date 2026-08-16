@@ -6,6 +6,7 @@ from typing import Optional
 from database.db import add_gold
 
 from ..models.player import Investigator
+from ..utils.state_registry import register_state_store
 from .data_loader import data_loader
 from .dice_roller import get_success_icon, roll_dice
 from .stats_service import gold_source, record_event, record_growth
@@ -19,6 +20,7 @@ _recent_events: dict[str, list[str]] = {}
 
 # State for active random events (user_id -> event context)
 event_states: dict[str, dict] = {}
+register_state_store(event_states)
 
 
 def delta_value(v) -> int:

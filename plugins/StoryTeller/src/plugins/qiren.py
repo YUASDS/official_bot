@@ -21,11 +21,13 @@ from ..services.boss_framework import (
     send_boss_dialogue,
 )
 from ..services.dice_roller import roll_dice
+from ..utils.state_registry import register_state_store
 
 BOSS_ID = "qiren"
 
 # 待挑战旗标：user_id -> True（兼容旧调用方直接写/读；通用解析由 boss_framework 统一收口）
 qiren_pending: dict[str, bool] = {}
+register_state_store(qiren_pending)
 
 
 def qiren_unlocked(inv) -> bool:

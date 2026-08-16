@@ -52,9 +52,11 @@ from ..utils.md_format import (
     need_create_message,
     report_section,
 )
+from ..utils.state_registry import register_state_store
 
 # 状态机：user_id -> {flow_id, node_id, phase: "stage"|"battle", entered: [], buff: {}, battle}
 flow_states: dict[str, dict] = {}
+register_state_store(flow_states)
 
 # --- 注册机制：flow_data.json 纯数据 + @flow_engine/register_flow 代码注册（代码优先覆盖） ---
 _CODE_FLOWS: dict[str, dict] = {}
