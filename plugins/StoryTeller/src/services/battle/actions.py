@@ -188,11 +188,11 @@ class BattleActionsMixin:
         self._stat_armor_absorbed = (
             getattr(self, "_stat_armor_absorbed", 0) + (val - final_val)
         )
-        # 大成功（极难/大成功）用 attack_crit 独立文案，回退 attack_succ
+        # 大成功（极难/大成功）用 attack_crit 独立文案，空值/缺失回退 attack_succ
         succ_template = (
-            monster_action.get("attack_crit", monster_action.get("attack_succ", ""))
+            (monster_action.get("attack_crit") or monster_action.get("attack_succ", ""))
             if level > SuccessLevel.HARD_SUCCESS
-            else monster_action.get("attack_succ", monster_action.get("desc", "攻击"))
+            else monster_action.get("attack_succ") or monster_action.get("desc", "攻击")
         )
         monster_text = self._fill_damage(succ_template, expr, final_val)
         player_text = self._apply_damage_to_player(final_val, armor_absorbed=True)

@@ -312,9 +312,16 @@ class Monster:
             action["attack"] = action.get("desc", t("monster.default_action"))
         if not action.get("attack_succ"):
             action["attack_succ"] = action.get("attack", t("monster.default_action"))
+        if not action.get("attack_crit"):
+            # 大成功文案兜底：缺失/空串时回退 attack_succ（防极难成功时整段文案消失）
+            action["attack_crit"] = action.get("attack_succ", t("monster.default_action"))
         if not action.get("attack_false"):
             action["attack_false"] = action.get(
                 "counterattack", t("monster.default_action")
+            )
+        if not action.get("attack_fumble"):
+            action["attack_fumble"] = action.get(
+                "attack_false", t("monster.default_action")
             )
         if not action.get("counterattack"):
             action["counterattack"] = action.get("attack", t("monster.default_action"))
