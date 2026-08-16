@@ -94,7 +94,7 @@ DOOR_CONDITION_KEYS: frozenset[str] = frozenset(
 # 怪物 ID 段位语义（config-id-naming §二）：不在每日池的固定语义怪
 # （47/48=乱入世界 BOSS，49/50=异世界高校第二季 BOSS，均仅被 guest/世界 flow 引用）
 _SPECIAL_MONSTER_IDS: frozenset[str] = frozenset(
-    {"38", "40", "41", "42", "44", "45", "46", "47", "48", "49", "50"}
+    {"38", "40", "41", "42", "44", "45", "46", "47", "48", "49", "50", "51"}
 )
 
 
