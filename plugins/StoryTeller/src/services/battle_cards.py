@@ -1,6 +1,7 @@
 """战报卡片渲染：把战斗状态渲染为 HTML 卡片（入场 CG / 开场 / 回合 / 结算 / SAN 崩塌）。"""
 
 import random
+import ujson
 from pathlib import Path
 
 from ..models.player import Investigator
@@ -8,6 +9,23 @@ from ..utils.md_format import md_to_html
 from .battle import BattleService
 from .data_loader import data_loader
 from .dice_roller import get_success_description, get_success_icon
+
+_DISPLAY_DATA_PATH = Path(__file__).parent.parent.parent / "data" / "display_data.json"
+
+_display_cache: dict | None = None
+
+
+def get_display_config() -> dict:
+    """展示配置（display_data.json）一次性加载缓存；文件缺失/损坏回退空 dict。"""
+    global _display_cache
+    if _display_cache is None:
+        try:
+            with open(_DISPLAY_DATA_PATH, encoding="utf-8-sig") as f:
+                raw = ujson.load(f)
+            _display_cache = raw if isinstance(raw, dict) else {}
+        except Exception:
+            _display_cache = {}
+    return _display_cache
 
 _CARD_TEMPLATE = Path(__file__).parent.parent.parent / "data" / "battle_card.html"
 _END_CARD_TEMPLATE = Path(__file__).parent.parent.parent / "data" / "end_card.html"
@@ -41,7 +59,8 @@ def _hex_rgba(hex_color: str, alpha: float) -> str:
 # 结局主题表（纯展示层：图标 + 主题色/背景，按结局类型分视觉家族）。
 # E01/E02 门扉胜利系=圣金/极光；E05 战败系=暗红；E06 疯狂系=紫；
 # E07 死亡系=墓园暗；E04/E09 隐藏=异色；E10 长眠=雾白。
-_ENDING_THEMES = {
+# 数据源 display_data.json `ending_themes`（配置缺失/缺项回退本默认表，逐字节不变）。
+_ENDING_THEMES_DEFAULT = {
     "E01": {
         "icon": "🌌",
         "accent": "#e8c97a",
@@ -154,14 +173,51 @@ _ENDING_THEMES = {
     },
 }
 
+def _merge_ending_themes(cfg: dict) -> dict:
+    """结局主题合并：display_data.json 覆盖同结局子键，其余键/结局回退默认表。"""
+    themes = dict(_ENDING_THEMES_DEFAULT)
+    for _eid, _theme in (cfg.get("ending_themes") or {}).items():
+        if isinstance(_theme, dict):
+            base = dict(themes.get(_eid, {}))
+            base.update({k: v for k, v in _theme.items() if v is not None})
+            themes[_eid] = base
+    return themes
+
+
+_ENDING_THEMES = _merge_ending_themes(get_display_config())
+
 # 变体级强调色微调（纯展示）：同一结局不同子分支在保留家族的前提下稍作区分。
-_ENDING_VARIANT_ACCENT = {
+# 数据源 display_data.json `ending_variant_accents`（键 "{结局}.{变体}"）。
+_ENDING_VARIANT_ACCENT_DEFAULT = {
     ("E01", "清醒合流"): "#f0dc9a",
     ("E01", "崩溃合流"): "#b8a468",
     ("E02", "圣灯"): "#e8b860",
     ("E02", "歌谣暂封"): "#c8b070",
     ("E05", "星光变体"): "#d0c0a0",
 }
+
+
+def _merge_ending_variant_accents(cfg: dict) -> dict:
+    """变体强调色合并：display_data.json 键 "{结局}.{变体}" → 元组键，缺省回退。"""
+    accents = dict(_ENDING_VARIANT_ACCENT_DEFAULT)
+    for _key, _accent in (cfg.get("ending_variant_accents") or {}).items():
+        if isinstance(_key, str) and "." in _key:
+            _parts = _key.split(".", 1)
+            accents[(_parts[0], _parts[1])] = _accent
+    return accents
+
+
+_ENDING_VARIANT_ACCENT = _merge_ending_variant_accents(get_display_config())
+
+
+def _ending_default_icon() -> str:
+    """未知结局的默认图标（display_data.json `ending_defaults.icon`，回退 🌌）。"""
+    defaults = get_display_config().get("ending_defaults")
+    if isinstance(defaults, dict):
+        icon = defaults.get("icon")
+        if icon:
+            return icon
+    return "🌌"
 
 
 def _ending_theme_style(end_id: str, variant: str = "") -> str:
@@ -210,7 +266,7 @@ def ending_card_html(
     主题按结局 id（+变体微调）注入，无主题的未知结局用模板默认圣金。
     """
     theme = _ENDING_THEMES.get(end_id)
-    icon = theme["icon"] if theme else "🌌"
+    icon = theme["icon"] if theme else _ending_default_icon()
     title = f"{end_id} · {name}" if name else end_id
     variant_tag = (
         f'<div class="variant-tag">{_esc(variant)}</div>' if variant else ""
@@ -259,32 +315,90 @@ def battle_title(service: BattleService) -> str:
     return title.replace("# 🕯️ ", "").replace(" · 实时战报", "")
 
 
+def _chip_icon(key: str) -> str:
+    """回合状态条 chip 图标（display_data.json `battle_chips`，缺失回退现状）。"""
+    default_map = {
+        "inv": "🧑‍🎤",
+        "san": "🧠",
+        "monster": "👾",
+        "ammo": "🔫",
+        "mp": "🔮",
+        "temp_hp": "🛡",
+    }
+    icon = default_map.get(key, "")
+    cfg = get_display_config().get("battle_chips")
+    if isinstance(cfg, dict):
+        icon = cfg.get(key) or icon
+    return icon
+
+
+def _env_icon(key: str) -> str:
+    """环境效果摘要行图标（display_data.json `battle_env_icons`，缺失回退现状）。"""
+    default_map = {"player": "🧑‍🎤", "monster": "👾"}
+    icon = default_map.get(key, "")
+    cfg = get_display_config().get("battle_env_icons")
+    if isinstance(cfg, dict):
+        icon = cfg.get(key) or icon
+    return icon
+
+
+def _env_effect_icon() -> str:
+    """环境修正标题图标（display_data.json `battle_env_effect_icon`，回退 ⚙️）。"""
+    return get_display_config().get("battle_env_effect_icon") or "⚙️"
+
+
+def _battle_end_display(key: str) -> tuple[str, str]:
+    """结算卡片图标/类名（display_data.json `battle_end`，缺失回退现状）。"""
+    default_map = {
+        "fled": ("🏃", "win"),
+        "victory": ("🏆", "win"),
+        "death": ("💀", "dead"),
+    }
+    icon, cls = default_map.get(key, ("", ""))
+    cfg = get_display_config().get("battle_end")
+    entry = cfg.get(key) if isinstance(cfg, dict) else None
+    if isinstance(entry, dict):
+        icon = entry.get("icon") or icon
+        cls = entry.get("class") or cls
+    return icon, cls
+
+
+def _white_default_accent() -> str:
+    """白色主题无强调色时的默认圣金（display_data.json `defaults.white_accent`，回退 #8a7a52）。"""
+    defaults = get_display_config().get("defaults")
+    if isinstance(defaults, dict):
+        accent = defaults.get("white_accent")
+        if accent:
+            return accent
+    return "#8a7a52"
+
+
 def round_status_html(service: BattleService) -> str:
     """回合卡片状态条（HP/SAN/弹药/MP/临时生命 chips）。"""
     inv = service.investigator
     chips = [
-        f'<div class="chip"><span class="k">🧑‍🎤 {inv.name}</span> '
+        f'<div class="chip"><span class="k">{_chip_icon("inv")} {inv.name}</span> '
         f'<span class="v">HP {service.hp_record["inv"]}/{inv.get_max_hp()}</span>'
         f"</div>",
-        f'<div class="chip"><span class="k">🧠 SAN</span> '
+        f'<div class="chip"><span class="k">{_chip_icon("san")} SAN</span> '
         f'<span class="v">{inv.get_skill("san", 0)}</span></div>',
-        f'<div class="chip"><span class="k">👾 {service.monster.名字}</span> '
+        f'<div class="chip"><span class="k">{_chip_icon("monster")} {service.monster.名字}</span> '
         f'<span class="v">HP {service.hp_record["mon"]}/{service.monster.max_hp}</span>'
         f"</div>",
     ]
     if service.gun:
         chips.append(
-            f'<div class="chip"><span class="k">🔫 弹药</span> '
+            f'<div class="chip"><span class="k">{_chip_icon("ammo")} 弹药</span> '
             f'<span class="v">{service.bullet}/{service.max_bullet}</span></div>'
         )
     if service.max_mp > 0:
         chips.append(
-            f'<div class="chip"><span class="k">🔮 MP</span> '
+            f'<div class="chip"><span class="k">{_chip_icon("mp")} MP</span> '
             f'<span class="v">{service.mp}/{service.max_mp}</span></div>'
         )
     if service.temp_hp > 0:
         chips.append(
-            f'<div class="chip"><span class="k">🛡 临时生命</span> '
+            f'<div class="chip"><span class="k">{_chip_icon("temp_hp")} 临时生命</span> '
             f'<span class="v">{service.temp_hp}</span></div>'
         )
     return "".join(chips)
@@ -343,11 +457,13 @@ def env_effects_lines(env: dict) -> list[str]:
     monster = env.get("怪物", {})
     if player:
         lines.append(
-            "🧑‍🎤 " + " ｜ ".join(f"{k} {fmt_bonus(v)}" for k, v in player.items())
+            f"{_env_icon('player')} "
+            + " ｜ ".join(f"{k} {fmt_bonus(v)}" for k, v in player.items())
         )
     if monster:
         lines.append(
-            "👾 " + " ｜ ".join(f"{k} {fmt_bonus(v)}" for k, v in monster.items())
+            f"{_env_icon('monster')} "
+            + " ｜ ".join(f"{k} {fmt_bonus(v)}" for k, v in monster.items())
         )
     return lines
 
@@ -402,7 +518,7 @@ def _white_theme(accent: str, filt: str) -> str:
     覆盖全套模板类（card/seal/title/round/meta/sec/表格/引用/代码/chip/结算块），
     其余怪物/环境无「白色主题」字段时逐字节不变。
     """
-    gold = accent or "#8a7a52"
+    gold = accent or _white_default_accent()
     rules = [
         "body{background:#f4f1ea!important}",
         ".card{background:#ffffff!important;border:1px solid #e8e2d4!important;"
@@ -469,7 +585,7 @@ def battle_card_html(
         t2 = data_loader.get_text
         rows = "".join(f'<div class="e-row">{l}</div>' for l in env_lines)
         effects = (
-            f'<div class="effects"><div class="e-title">⚙️ {t2("adventure.env_effect_title")}</div>'
+            f'<div class="effects"><div class="e-title">{_env_effect_icon()} {t2("adventure.env_effect_title")}</div>'
             f"{rows}</div>"
         )
 
@@ -488,28 +604,18 @@ def end_card_html(service: BattleService) -> str:
     t = data_loader.get_text
     d = service.get_end_card_data()
     if d["fled"]:
-        icon, cls, title, hint = (
-            "🏃",
-            "win",
-            t("battle.fled_title"),
-            t("battle.fled_hint"),
-        )
+        icon, cls = _battle_end_display("fled")
+        title, hint = t("battle.fled_title"), t("battle.fled_hint")
         ending = t("battle.fled_ending")
     elif d["victory"]:
-        icon, cls, title, hint = (
-            "🏆",
-            "win",
-            t("battle.victory_title").replace("## ", ""),
-            "明日可继续冒险",
-        )
+        icon, cls = _battle_end_display("victory")
+        title = t("battle.victory_title").replace("## ", "")
+        hint = t("battle.victory_hint")
         ending = d["ending"]
     else:
-        icon, cls, title, hint = (
-            "💀",
-            "dead",
-            t("battle.death_text", name=service.player_name).replace("## ", ""),
-            "重新创建调查员继续冒险",
-        )
+        icon, cls = _battle_end_display("death")
+        title = t("battle.death_text", name=service.player_name).replace("## ", "")
+        hint = t("battle.death_hint")
         ending = t("battle.death_ending")
 
     # 胜利明细（侦查检定/战利品/成长）渲染进卡片

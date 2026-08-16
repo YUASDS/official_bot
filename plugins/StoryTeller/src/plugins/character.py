@@ -10,6 +10,7 @@ from ..models.player import (
     ending_repo,
     investigator_repo,
 )
+from ..services.battle_cards import get_display_config
 from ..services.character_cards import (
     candidate_card_html,
     choose_success_card_html,
@@ -117,7 +118,8 @@ query_cmd = on_command(
     "查询", aliases={"item_info", "物品查询"}, priority=10, block=True
 )
 
-_ITEM_TYPE_LABELS = {
+# 物品类型/部件展示标签（display_data.json `item.type_labels`/`item.part_labels`，缺失回退现状）。
+_ITEM_TYPE_LABELS_DEFAULT = {
     "武器": "武器",
     "防具": "防具",
     "饰品": "饰品",
@@ -125,7 +127,7 @@ _ITEM_TYPE_LABELS = {
     "misc": "道具",
 }
 
-_ITEM_PART_LABELS = {
+_ITEM_PART_LABELS_DEFAULT = {
     "近战": "近战",
     "远程": "远程",
     "防具": "防具",
@@ -133,6 +135,24 @@ _ITEM_PART_LABELS = {
     "法术": "法术",
     "misc": "道具",
 }
+
+
+def _item_type_labels() -> dict:
+    merged = dict(_ITEM_TYPE_LABELS_DEFAULT)
+    cfg = get_display_config().get("item") or {}
+    labels = cfg.get("type_labels")
+    if isinstance(labels, dict):
+        merged.update(labels)
+    return merged
+
+
+def _item_part_labels() -> dict:
+    merged = dict(_ITEM_PART_LABELS_DEFAULT)
+    cfg = get_display_config().get("item") or {}
+    labels = cfg.get("part_labels")
+    if isinstance(labels, dict):
+        merged.update(labels)
+    return merged
 
 
 def query_item_info(user_id: str, item_id: str) -> str:
@@ -152,8 +172,8 @@ def query_item_info(user_id: str, item_id: str) -> str:
     fields = [
         (_t("item.label_id"), item.id),
         (_t("item.label_name"), item.name),
-        (_t("item.label_type"), _ITEM_TYPE_LABELS.get(item.type, item.type)),
-        (_t("item.label_part"), _ITEM_PART_LABELS.get(item.part, item.part or "—")),
+        (_t("item.label_type"), _item_type_labels().get(item.type, item.type)),
+        (_t("item.label_part"), _item_part_labels().get(item.part, item.part or "—")),
         (
             _t("item.label_damage"),
             item.damage_dice if item.damage_dice and item.damage_dice != "0" else "",

@@ -15,15 +15,23 @@ import ujson
 
 from ..models.player import ending_repo, investigator_repo
 from ..utils.md_format import report_quote, report_section
+from .battle_cards import get_display_config
 from .data_loader import data_loader
 
 _t = data_loader.get_text
 
+# 展示配置段（display_data.json `stat`，缺失回退默认）
+_DISPLAY_STAT = get_display_config().get("stat") or {}
+
 # 结局图鉴总数（E01~E10，对齐 stats-design.md A3）
-TOTAL_ENDINGS = 10
+_TOTAL_ENDINGS_DEFAULT = 10
+_total_endings_cfg = _DISPLAY_STAT.get("total_endings")
+TOTAL_ENDINGS = (
+    _total_endings_cfg if isinstance(_total_endings_cfg, int) else _TOTAL_ENDINGS_DEFAULT
+)
 
 # run_stats.door_choice 存储终局 id（_finish_door 落 end_id）或空 → 展示标签
-_DOOR_LABELS = {
+_DOOR_LABELS_DEFAULT = {
     "E01": "A门·合流",
     "E02": "B门·封印",
     "E03": "C门·离去",
@@ -35,6 +43,10 @@ _DOOR_LABELS = {
     "E09": "见证·庄园",
     "E10": "长眠",
 }
+_DOOR_LABELS = dict(_DOOR_LABELS_DEFAULT)
+_door_labels_cfg = _DISPLAY_STAT.get("door_labels")
+if isinstance(_door_labels_cfg, dict):
+    _DOOR_LABELS.update({k: v for k, v in _door_labels_cfg.items() if v is not None})
 
 _SPELL_NAME_CACHE: dict[str, str] = {}
 _MONSTER_NAME_CACHE: dict[str, str] = {}

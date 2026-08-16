@@ -1,0 +1,200 @@
+{
+    "version": 1,
+    "ending_themes": {
+        "E01": {
+            "icon": "🌌",
+            "accent": "#e8c97a",
+            "border": "#8a743a",
+            "bg_top": "#1c1610",
+            "bg_mid": "#241a12",
+            "bg_bottom": "#181008",
+            "text": "#e8d9b8",
+            "text_soft": "#c4b494",
+            "text_dim": "#8f8268"
+        },
+        "E02": {
+            "icon": "🏮",
+            "accent": "#e0b060",
+            "border": "#8a6a30",
+            "bg_top": "#1e1710",
+            "bg_mid": "#251d12",
+            "bg_bottom": "#191108",
+            "text": "#ead9b0",
+            "text_soft": "#c8b288",
+            "text_dim": "#8a7a58"
+        },
+        "E03": {
+            "icon": "🍃",
+            "accent": "#9fb4c8",
+            "border": "#5a6b7a",
+            "bg_top": "#14181c",
+            "bg_mid": "#1a2026",
+            "bg_bottom": "#101418",
+            "text": "#c8d8e0",
+            "text_soft": "#a0b0c0",
+            "text_dim": "#72808c"
+        },
+        "E04": {
+            "icon": "🪞",
+            "accent": "#b07ad0",
+            "border": "#6a4a8a",
+            "bg_top": "#1a1420",
+            "bg_mid": "#221832",
+            "bg_bottom": "#140e18",
+            "text": "#d8c8ec",
+            "text_soft": "#b090c8",
+            "text_dim": "#7a5c94"
+        },
+        "E05": {
+            "icon": "🌑",
+            "accent": "#c26060",
+            "border": "#8a3a3a",
+            "bg_top": "#201414",
+            "bg_mid": "#281818",
+            "bg_bottom": "#160e0e",
+            "text": "#e8c8c8",
+            "text_soft": "#c09090",
+            "text_dim": "#7a5050"
+        },
+        "E06": {
+            "icon": "🌀",
+            "accent": "#9a6ac8",
+            "border": "#6a3a8a",
+            "bg_top": "#1c1424",
+            "bg_mid": "#241a30",
+            "bg_bottom": "#120c18",
+            "text": "#d8c8e8",
+            "text_soft": "#a888b8",
+            "text_dim": "#70507e"
+        },
+        "E07": {
+            "icon": "🪦",
+            "accent": "#7a8a9a",
+            "border": "#4a5a6a",
+            "bg_top": "#14161a",
+            "bg_mid": "#1a1e24",
+            "bg_bottom": "#0e1014",
+            "text": "#c8d0d8",
+            "text_soft": "#a0a8b0",
+            "text_dim": "#6a7278"
+        },
+        "E08": {
+            "icon": "🚪",
+            "accent": "#b0a070",
+            "border": "#7a6a3a",
+            "bg_top": "#1e1a12",
+            "bg_mid": "#262216",
+            "bg_bottom": "#140e08",
+            "text": "#dcd0ae",
+            "text_soft": "#b0a078",
+            "text_dim": "#7a7048"
+        },
+        "E09": {
+            "icon": "📿",
+            "accent": "#6ec6c8",
+            "border": "#3a7a7a",
+            "bg_top": "#12201c",
+            "bg_mid": "#182a24",
+            "bg_bottom": "#0c1412",
+            "text": "#b8dcd8",
+            "text_soft": "#90b0ac",
+            "text_dim": "#5c7a78"
+        },
+        "E10": {
+            "icon": "🌫️",
+            "accent": "#b8b8c8",
+            "border": "#6a6a78",
+            "bg_top": "#16161a",
+            "bg_mid": "#1c1c22",
+            "bg_bottom": "#0e0e12",
+            "text": "#d0d0d8",
+            "text_soft": "#a0a0a8",
+            "text_dim": "#6e6e76"
+        }
+    },
+    "ending_variant_accents": {
+        "E01.清醒合流": "#f0dc9a",
+        "E01.崩溃合流": "#b8a468",
+        "E02.圣灯": "#e8b860",
+        "E02.歌谣暂封": "#c8b070",
+        "E05.星光变体": "#d0c0a0"
+    },
+    "ending_defaults": {
+        "icon": "🌌"
+    },
+    "ending_variant_keys": {
+        "E01": {
+            "清醒合流": "variant_clear",
+            "崩溃合流": "variant_collapse"
+        },
+        "E02": {
+            "圣灯": "variant_light",
+            "歌谣暂封": "variant_song"
+        },
+        "E05": {
+            "星光变体": "variant_light"
+        }
+    },
+    "item": {
+        "type_labels": {
+            "武器": "武器",
+            "防具": "防具",
+            "饰品": "饰品",
+            "spell_scroll": "法术残卷",
+            "misc": "道具"
+        },
+        "part_labels": {
+            "近战": "近战",
+            "远程": "远程",
+            "防具": "防具",
+            "饰品": "饰品",
+            "法术": "法术",
+            "misc": "道具"
+        }
+    },
+    "stat": {
+        "total_endings": 10,
+        "door_labels": {
+            "E01": "A门·合流",
+            "E02": "B门·封印",
+            "E03": "C门·离去",
+            "E04": "碎镜·自由",
+            "E05": "战败归于门",
+            "E06": "永夜低语",
+            "E07": "墓园拾骨",
+            "E08": "驻足旁观",
+            "E09": "见证·庄园",
+            "E10": "长眠"
+        }
+    },
+    "battle_end": {
+        "fled": {
+            "icon": "🏃",
+            "class": "win"
+        },
+        "victory": {
+            "icon": "🏆",
+            "class": "win"
+        },
+        "death": {
+            "icon": "💀",
+            "class": "dead"
+        }
+    },
+    "battle_chips": {
+        "inv": "🧑‍🎤",
+        "san": "🧠",
+        "monster": "👾",
+        "ammo": "🔫",
+        "mp": "🔮",
+        "temp_hp": "🛡"
+    },
+    "battle_env_icons": {
+        "player": "🧑‍🎤",
+        "monster": "👾"
+    },
+    "battle_env_effect_icon": "⚙️",
+    "defaults": {
+        "white_accent": "#8a7a52"
+    }
+}
