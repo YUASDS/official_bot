@@ -18,7 +18,9 @@ from typing import Any, Iterator, Optional
 import ujson
 from loguru import logger
 
-from ..models.player import ending_repo
+# 注意：不在此模块级导入 ending_repo（来自 models.player）——
+# player._snapshot_unsettled_run 会函数内导入本模块，模块级互依会成环（架构环③）。
+# 使用处（_run_id_of / _snapshot_endings）在函数内延迟导入，运行期单向依赖。
 
 # 经济流水来源上下文：调用点用 gold_source() 标记本次 add_gold/reduce_gold 的业务来源
 _GOLD_CTX: contextvars.ContextVar = contextvars.ContextVar(
@@ -54,6 +56,8 @@ def _now_ts() -> str:
 
 def _run_id_of(qq: str) -> int:
     try:
+        from ..models.player import ending_repo  # 函数内延迟导入（防环③）
+
         progress = ending_repo.get_progress(qq)
         if progress is not None:
             return int(progress.run_id or 0)
@@ -219,6 +223,8 @@ def snapshot_run(
 
         qq = str(inv.qq)
         if progress is None:
+            from ..models.player import ending_repo  # 函数内延迟导入（防环③）
+
             progress = ending_repo.get_progress(qq)
         if progress is None:
             return
