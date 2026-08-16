@@ -402,7 +402,7 @@
       },
       "触发概率": {
         "dice": "d100",
-        "value": 3,
+        "value": 10,
         "relation": "lte"
       }
     }
