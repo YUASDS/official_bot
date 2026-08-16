@@ -43,6 +43,8 @@ DATA_FILES: tuple[str, ...] = (
     "display_data.json",
     "shop_data.json",
     "spell_data.json",
+    "weights.json",
+    "boss_weights.json",
 )
 
 # 玩家可用技能集合（player.py InvestigatorModel 字段 + 标准 COC 技能）
@@ -771,6 +773,24 @@ class ConfigValidator:
                 if etype not in ("damage", "heal", "temp_hp"):
                     self._err(file, f"{sid}.effect.type", f"非法法术效果 {etype!r}")
 
+    def validate_weights(self) -> None:
+        """权重文件校验：weights.json（组级概率）+ boss_weights.json（BOSS 触发权重）。"""
+        file = "weights.json"
+        weights = self.data.get(file, {})
+        for gid, w in self._iter_items(weights):
+            if not self._require_dict(file, gid, w):
+                continue
+            for field in ("dice", "value", "relation"):
+                if field in w and not isinstance(w[field], (str, int)):
+                    self._err(file, f"{gid}.{field}", "应为字符串或整数")
+        file = "boss_weights.json"
+        bw = self.data.get(file, {})
+        for gid, w in self._iter_items(bw):
+            if not self._require_dict(file, gid, w):
+                continue
+            if "权重" in w and not isinstance(w["权重"], (int, float)):
+                self._err(file, f"{gid}.权重", "应为数字")
+
     # --- 汇总入口 ---
     def validate_all(self) -> list[str]:
         """运行全部校验，返回错误清单（含已收集错误）。"""
@@ -789,6 +809,7 @@ class ConfigValidator:
         self.validate_display()
         self.validate_shop()
         self.validate_spell()
+        self.validate_weights()
         return self.errors
 
 

@@ -210,6 +210,14 @@ def _eval_single_cond(key: str, value: Any, inv: Investigator, progress: Any) ->
     if key == "已死亡":
         dead = not inv.is_survive
         return (not dead) if not value else dead
+    if key == "旗标":
+        # 剧情旗标判断：value 为键名（存在即真）或 {键: 期望值}（精确匹配）
+        if isinstance(value, dict):
+            for k, v in value.items():
+                if inv.get_flag(k) != v:
+                    return False
+            return True
+        return inv.get_flag(str(value)) is not None
     return True
 
 

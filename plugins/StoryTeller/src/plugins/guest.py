@@ -79,8 +79,13 @@ def _guest_met_flag(inv: Investigator) -> Optional[int]:
         return None
 
 
-def _world_available(inv: Investigator, flow: dict) -> bool:
-    """世界解锁条件求值（复用事件条件求值器；flow.入口条件 = 原 guest 世界「解锁」）。"""
+def _world_available(inv: Investigator, flow: dict, flow_id: str) -> bool:
+    """世界解锁条件求值（复用事件条件求值器；flow.入口条件 = 原 guest 世界「解锁」）。
+
+    已触发过（进入过或通关过）的世界永久排除——战败后也不再相遇（用户需求）。
+    """
+    if inv.get_flag(f"flow.{flow_id}.visited") or inv.get_flag(f"flow.{flow_id}.done"):
+        return False
     from ..services.ending_engine import eval_option_condition
 
     cond = flow.get("入口条件")
@@ -97,10 +102,23 @@ def guest_should_trigger(inv: Investigator) -> Optional[str]:
         return None
     if flow_states.get(inv.qq):
         return None
-    if _guest_daily_roll(inv) > int(_guest_trigger().get("value", 3)):
+    roll = _guest_daily_roll(inv)
+    # 候选世界：已解锁 + 未触发过（visited/done 排除）
+    worlds = [
+        fid
+        for fid, f in guest_registry().items()
+        if _world_available(inv, f, fid)
+    ]
+    if not worlds:
         return None
-    worlds = [fid for fid, f in guest_registry().items() if _world_available(inv, f)]
-    return random.choice(worlds) if worlds else None
+    # 季级触发概率优先（季文件「触发概率」字段），缺省回退全局 guest value
+    for fid in worlds:
+        flow = guest_registry()[fid]
+        prob = (flow.get("触发概率") or {}).get("value")
+        value = int(prob) if prob is not None else int(_guest_trigger().get("value", 3))
+        if roll <= value:
+            return fid
+    return None
 
 
 async def guest_enter(user_id: str, inv: Investigator, bot: Bot, send, world_id: str) -> None:
