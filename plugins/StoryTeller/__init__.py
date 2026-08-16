@@ -11,6 +11,7 @@ from .src.plugins.gm import gm_gift_cmd, gm_scroll_cmd
 from .src.plugins.ending import ending_cmd
 from .src.plugins.qiren import qiren_pending
 from .src.plugins.stat import stats_cmd, review_cmd, rank_cmd
+from .src.plugins.flow import explore_cmd
 
 # Define plugin metadata
 __plugin_meta__ = PluginMetadata(
