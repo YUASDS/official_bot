@@ -112,7 +112,7 @@
         "monster_spell_shield": "{expr}={val}，他获得了 {value} 点临时生命。",
         "qiren_reward": "🕯️ 启的信物落入你手中：{items}。你获得 {gold} 乌帕。",
         "qiren_trophy": "🕰️ 战利品：{name}——他留下的怀表落进你掌心，表盘停在满月的位置。",
-        "jk_reward": "🗡️ 圣剑散落一地——她惨叫一声扑向每一把。战利品：{items}。你获得 {gold} 乌帕。"
+        "jk_reward": "🗡️ 战利品：{items}。你获得 {gold} 乌帕。"
     },
     "adventure": {
         "player_dead": "当前调查员已死亡。请使用复活道具。",
