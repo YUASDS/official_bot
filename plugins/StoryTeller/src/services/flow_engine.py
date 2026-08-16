@@ -3,7 +3,8 @@
 设计对齐 `.qa/plans/config-deep-eval.md`（TOP10 #2 统一流程引擎 / 2.1 架构设计）与本批次
 `.qa/plans/flow-engine-design.md`：
 
-- **节点模型**：`{id, 类型(文本/选项/检定/战斗/奖励/结束), 文案键, 选项列表, 条件, 效果, 下一步}`；
+- **节点模型**：`{id, 类型(文本/选项/检定/战斗/奖励/纪念品/结束), 文案键, 文案, 标题, 检定,
+  选项列表, 条件, 效果, 下一步, 玩家文案, 前置文案, 前置检定, 完成标记, 物品}`；
   数据承载在 `data/flow_data.json`，新剧情/遭遇只加配置即可运行，无需改代码。
 - **状态机**：`flow_states`（内存 dict，user_id -> {flow_id, node_id, phase, entered, buff, battle}）；
   提供 `start_flow` / `render_flow_node` / `handle_flow_input`（阶段选项 + 战斗行动统一入口）。
@@ -17,8 +18,14 @@
 - **注册机制**：纯数据加载（flow_data.json）为主 + `@flow_engine` 装饰器 / `register_flow`
   代码注册为辅（对齐 trinket 注册表：查表分发，新 flow 无需改分发链）。
 
-本批次为「地基」：仅新增，不迁移 guest/npc/event；战斗节点渲染为文本战报（不接图片卡片），
-后续批次可平滑升级。flow 为独立探索通道：不占用当日冒险、不推进 day、不触发任何结局判定。
+本批次（guest 迁移·期1）为「地基扩展」：仅新增，不迁移 guest/npc/event；对齐
+`.qa/plans/guest-migration-design.md` §2 扩展设计——新增 `纪念品` 节点类型（首发放幂等）、
+节点 `文案/标题/检定消费/玩家文案/前置文案/前置检定/完成标记` 字段、flow 级
+`入口条件/玩家文案/纪念品/收尾` 配置；战斗节点升级支持 battle_round_html 图片卡片
+（render_pic/send_pic 优先，md 回退）。
+
+flow 默认仍为独立探索通道：不占用当日冒险、不推进 day、不触发任何结局判定；开启
+`收尾.skip_daily` 的 flow（对齐 guest 归途）才会占当日冒险态（解除）+ day+1（<40 冻结）。
 """
 
 from __future__ import annotations
@@ -33,10 +40,12 @@ from nonebot.adapters import Bot
 from ..models.monster import Monster
 from ..models.player import Investigator, ending_repo, investigator_repo
 from ..services.battle import BattleService
+from ..services.battle_cards import battle_round_html
 from ..services.data_loader import data_loader
 from ..services.dice_roller import get_success_icon, roll_dice
 from ..services.event_service import apply_event_effects
 from ..utils.active_battles import battle_manager
+from ..utils.image_sender import render_pic, send_pic
 from ..utils.md_format import (
     build_keyboard,
     md_message,
@@ -110,12 +119,16 @@ def flow_node(flow: dict, node_id: str) -> dict:
 
 
 def _node_text(flow_id: str, node_id: str) -> str:
-    """节点文案：text_data.json 键约定 flow.<flow_id>.<node_id>（节点可用 `文案键` 覆盖）。
+    """节点文案：内嵌 `文案` 优先，其次 text_data.json 键约定 flow.<flow_id>.<node_id>
+    （节点可用 `文案键` 覆盖）。
 
     get_text 只支持「段.键」一层点号路径，flow 文案为「段.flow_id.node_id」两级，
     此处做深路径解析（text_data 可直接存嵌套 dict 或扁平键，兼容两者）。
     """
     node = flow_node(get_flow(flow_id), node_id)
+    inline = node.get("文案")
+    if isinstance(inline, str) and inline:
+        return inline
     key = node.get("文案键") or f"flow.{flow_id}.{node_id}"
     section = key.split(".", 1)[0]
     cur = data_loader.text_data.get(section)
@@ -191,14 +204,45 @@ def _flow_check_block(inv: Investigator, user_id: str, check: dict) -> str:
     return "\n\n".join(lines)
 
 
+def _flow_grant_souvenir(user_id: str, item_id: str) -> str:
+    """纪念品首发放：未持有才发、已持有幂等跳过（对齐 guest._guest_grant_souvenir）。
+
+    判定键一致（`equipments.get(id, 0) > 0` 则跳过），存量已持玩家重通关不重发。
+    返回物品名；未发放（已持有 / 无角色 / 缺 id）返回空字符串。
+    """
+    if not item_id:
+        return ""
+    inv_model = investigator_repo.find_by_qq(user_id)
+    if inv_model is None:
+        return ""
+    equipments, _ = Investigator(inv_model).get_equipments()
+    if equipments.get(item_id, 0) > 0:
+        return ""
+    investigator_repo.add_item_to_inventory(inv_model, item_id, 1)
+    from ..models.item import Equipment
+
+    return Equipment(item_id).name
+
+
 def start_flow(user_id: str, flow_id: str) -> Optional[dict]:
-    """启动一个 flow：清理旧状态 → 置入口节点状态。flow 不存在/无入口返回 None。"""
+    """启动一个 flow：校验入口条件 → 清理旧状态 → 置入口节点状态。
+
+    flow 不存在/无入口返回 None；flow 级 `入口条件`（= guest 世界「解锁」）不满足返回 None
+    （无角色则无法求值同样返回 None）。无入口条件的既有 flow 零影响。
+    """
     flow = get_flow(flow_id)
     if not flow:
         return None
     entry = flow.get("入口")
     if not entry or not flow_node(flow, entry):
         return None
+    if flow.get("入口条件"):
+        inv_model = investigator_repo.find_by_qq(user_id)
+        if inv_model is None:
+            return None
+        inv = Investigator(inv_model)
+        if not _condition_ok(flow["入口条件"], inv, _progress(inv)):
+            return None
     flow_states.pop(user_id, None)
     battle_manager.remove_battle(user_id)
     state = {
@@ -276,10 +320,18 @@ async def render_flow_node(user_id: str, state: dict, bot: Bot, send) -> None:
         if first:
             state["entered"].append(state["node_id"])
         lines: list[str] = []
+        if node.get("标题"):
+            flow_title = flow.get("标题") or ""
+            lines.append(
+                f"**{flow_title} · {node['标题']}**"
+                if flow_title
+                else f"**{node['标题']}**"
+            )
         text = _node_text(state["flow_id"], state["node_id"])
         if text:
             lines.append(text)
-        if ntype == "检定" and first:
+        if first and node.get("检定"):
+            # 检定消费：对「文本/选项」等任意节点首次进入自动检定（对齐 guest 阶段描述+检定+选项）
             check_block = _flow_check_block(
                 inv, user_id, node.get("检定") or {}
             )
@@ -292,6 +344,11 @@ async def render_flow_node(user_id: str, state: dict, bot: Bot, send) -> None:
                 lines.append(reply)
             if summary:
                 lines.append(f"> {summary}")
+        if ntype == "纪念品" and first:
+            souvenir_id = node.get("物品") or flow.get("纪念品") or ""
+            name = _flow_grant_souvenir(user_id, souvenir_id)
+            if name:
+                lines.append(t("guest.souvenir_gain", name=name))
         options = node.get("选项") or []
         if options:
             rows = _flow_option_rows(state, node, options, inv)
@@ -398,7 +455,11 @@ def _flow_battle_keyboard(service: BattleService):
 
 
 async def _flow_start_battle(user_id: str, state: dict, bot: Bot, send) -> None:
-    """进入战斗节点：BattleService + is_gm_room 隔离，应用已积攒的临时 buff。"""
+    """进入战斗节点：BattleService + is_gm_room 隔离，应用已积攒的临时 buff。
+
+    `玩家文案` 注入：节点级覆盖优先，缺省回退 flow 级（= guest 世界「玩家文案」17 键）；
+    开战前若配置 `标题/前置文案/前置检定` 先单独发一段描述（对齐 guest 纯战斗阶段先描述后开战）。
+    """
     flow = get_flow(state["flow_id"])
     node = flow_node(flow, state["node_id"])
     battle_cfg = node.get("战斗") or {}
@@ -410,12 +471,29 @@ async def _flow_start_battle(user_id: str, state: dict, bot: Bot, send) -> None:
     inv = Investigator(inv_model)
     service = BattleService(inv, Monster(monster_id))
     service.is_gm_room = True  # 隔离红线：战败不落 is_survive/不登记 E07，胜利不走掉落/门扉
+    service.set_guest_texts(node.get("玩家文案") or flow.get("玩家文案") or {})
     if state.get("buff"):
         service.set_environment({"玩家": dict(state["buff"])})
     state["battle"] = service
     state["phase"] = "battle"
     service.roll_initiative()
     t = data_loader.get_text
+    pre_lines: list[str] = []
+    if node.get("标题"):
+        flow_title = flow.get("标题") or ""
+        pre_lines.append(
+            f"**{flow_title} · {node['标题']}**"
+            if flow_title
+            else f"**{node['标题']}**"
+        )
+    if node.get("前置文案"):
+        pre_lines.append(node["前置文案"])
+    if node.get("前置检定"):
+        check_line = _flow_check_block(inv, user_id, node["前置检定"])
+        if check_line:
+            pre_lines.append(check_line)
+    if pre_lines:
+        await send(md_message("\n\n".join(pre_lines), bot, mention=user_id))
     intro = battle_cfg.get("开场", "")
     if not intro:
         intro = getattr(service.monster, "出场", "") or service.monster.名字
@@ -463,14 +541,13 @@ async def _flow_battle_input(
         return
     result = service.execute_action(choice)
     if service.fight_is_over():
+        # 1. 最后一轮检定/交锋战报（不含结束文本；battle_round_html 图片优先/md 回退）
         if any(x for x in result[:-1]):
-            await send(
-                md_message(
-                    "\n" + "\n\n".join(str(x) for x in result[:-1] if x),
-                    bot,
-                    mention=user_id,
-                )
-            )
+            img = await render_pic(battle_round_html(service, result))
+            if img is None or not await send_pic(bot, img, send):
+                combat_text = "\n" + "\n\n".join(str(x) for x in result[:-1] if x)
+                await send(md_message(combat_text, bot, mention=user_id))
+        # 2. 结束分支（胜利回复/战败归途，不附行动按钮）
         await _flow_battle_end(user_id, state, bot, send)
         return
     if not any(x for x in result[:-1]):
@@ -482,7 +559,12 @@ async def _flow_battle_input(
             msg.append(kb)
         await send(msg)
         return
-    text = "\n" + "\n\n".join(str(x) for x in result if x)
+    # 普通回合：battle_round_html 图片卡片优先，渲染/发送失败回退 md 战报（附行动按钮）
+    img = await render_pic(battle_round_html(service, result))
+    if img is not None and await send_pic(bot, img, send):
+        text = service.get_action_section()
+    else:
+        text = "\n" + "\n\n".join(str(x) for x in result if x)
     msg = md_message(text, bot, mention=user_id)
     kb = _flow_battle_keyboard(service)
     if kb is not None and not isinstance(msg, str):
@@ -538,7 +620,13 @@ async def _flow_battle_end(user_id: str, state: dict, bot: Bot, send) -> None:
 
 
 async def _finish_flow(user_id: str, state: dict, bot: Bot, send) -> None:
-    """flow 统一收尾：结束文案 + 清状态（不推进 day / 不占当日冒险——独立探索通道）。
+    """flow 统一收尾：结束文案 + 清状态。
+
+    默认不推进 day / 不占当日冒险（独立探索通道）；flow 级 `收尾.skip_daily` 开启则
+    调 daily_service._skip_daily（解除冒险态 + day+1 <40 冻结，对齐 guest 归途）并用
+    `exit_text_key`/`day_text_key` 替换默认 flow.exit 文案。
+    结束节点 `完成标记`（默认 true）：false = 战败归途不设 `flow.<flow_id>.done`（对齐
+    guest 仅胜利路径记完成）。
 
     flow_states（活跃流程态：node_id/entered/buff/battle）保持内存——重启后中断合理
     （同战斗）；完成标记 `flow.<flow_id>.done` 持久化到 flags，供后续条件/展示读取。
@@ -550,14 +638,26 @@ async def _finish_flow(user_id: str, state: dict, bot: Bot, send) -> None:
     lines: list[str] = []
     if text:
         lines.append(text)
-    lines.append(t("flow.exit"))
+    flow = get_flow(flow_id)
+    tail = flow.get("收尾") or {}
     battle_manager.remove_battle(user_id)
     flow_states.pop(user_id, None)
     inv_model = investigator_repo.find_by_qq(user_id)
     if inv_model is not None and flow_id:
         inv = Investigator(inv_model)
-        inv.set_flag(f"flow.{flow_id}.done", 1)
+        node = flow_node(flow, node_id)
+        if node.get("完成标记", True) is not False:
+            inv.set_flag(f"flow.{flow_id}.done", 1)
+        if tail.get("skip_daily"):
+            from ..services.daily_service import _skip_daily
+
+            _skip_daily(user_id, inv)
         inv.save()
+    if tail.get("skip_daily"):
+        lines.append(t(tail.get("exit_text_key") or "guest.exit"))
+        lines.append(t(tail.get("day_text_key") or "guest.day_passed"))
+    else:
+        lines.append(t("flow.exit"))
     await send(
         md_message(
             f"\n**{t('flow.end_title')}**\n\n" + "\n\n".join(lines),
