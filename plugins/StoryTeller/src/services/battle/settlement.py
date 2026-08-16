@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Optional
+
 from database.db import add_gold
 
 from ...models.item import Equipment
@@ -25,6 +27,22 @@ from ..stats_service import gold_source, record_growth
 
 
 class BattleSettlementMixin:
+    def _boss_victory_reward(self) -> Optional[dict]:
+        """隐藏 BOSS 胜利奖励（boss_data.json 奖励.胜利 段驱动，经 boss_framework 注册表）。
+
+        注册表键为 boss id（qiren/jk），按 `怪物id` 匹配当前怪物；无匹配返回 None（普通掉落）。
+        """
+        try:
+            from ..boss_framework import boss_registry  # 函数内导入（防循环）
+
+            for boss_cfg in boss_registry().values():
+                if str(boss_cfg.get("怪物id")) == str(self.monster.id):
+                    reward = (boss_cfg.get("奖励") or {}).get("胜利")
+                    return reward if reward else None
+            return None
+        except Exception:  # noqa: BLE001 - 奖励读取失败回退普通掉落
+            return None
+
     def get_success_record_description(self, rank: int, skill_name: str = "") -> str:
         if rank > SuccessLevel.FAILURE and skill_name:
             self.succeded_skill.add(skill_name)
@@ -56,49 +74,35 @@ class BattleSettlementMixin:
         )
 
         bonus_text = ""
-        if self.monster.id == "38":
-            # 隐藏挑战「启」：固定 100 乌帕 + 双物品 501/508（独立于侦查检定）
-            gold = 100
-            with gold_source("battle", ref_id="38_qiren_reward"):
-                add_gold(self.investigator.qq, gold)
+        boss_reward = self._boss_victory_reward()
+        if boss_reward is not None:
+            # 隐藏 BOSS（boss_data.json 奖励段驱动）：乌帕 + 物品全给 + 信物首杀不重复
+            gold = int(boss_reward.get("乌帕") or 0)
+            if gold:
+                with gold_source("battle", ref_id=f"{self.monster.id}_boss_reward"):
+                    add_gold(self.investigator.qq, gold)
             item_names: list[str] = []
-            for item_id in ("501", "508"):
-                self.investigator.add_item_to_inventory(item_id, 1)
-                register_relic_obtained(self.investigator, item_id)
-                item_names.append(Equipment(item_id).name)
-            bonus_text = self._t(
-                "battle.qiren_reward",
-                items="、".join(item_names),
-                gold=gold,
-            )
-            # 纪念道具「启的怀表」：首杀必掉，已持有不重复掉落（纯收藏，零数值）
-            trophy_id = "509"
+            for item_id in boss_reward.get("物品") or []:
+                self.investigator.add_item_to_inventory(str(item_id), 1)
+                item_names.append(Equipment(str(item_id)).name)
             equipments, _ = self.investigator.get_equipments()
-            if equipments.get(trophy_id, 0) <= 0:
-                self.investigator.add_item_to_inventory(trophy_id, 1)
-                trophy_line = self._t(
-                    "battle.qiren_trophy",
-                    name=Equipment(trophy_id).name,
+            for relic_id in boss_reward.get("信物") or []:
+                if equipments.get(str(relic_id), 0) <= 0:
+                    self.investigator.add_item_to_inventory(str(relic_id), 1)
+                    register_relic_obtained(self.investigator, str(relic_id))
+                    item_names.append(Equipment(str(relic_id)).name)
+            reward_text_key = boss_reward.get("文本")
+            if reward_text_key:
+                bonus_text = self._t(
+                    reward_text_key,
+                    items="、".join(item_names),
+                    gold=gold,
                 )
-                bonus_text = f"{bonus_text}\n{trophy_line}"
-        elif self.monster.id == "48":
-            # 隐藏挑战「JK」：固定 50 乌帕 + 武器 511「圣剑发射器·Promax」+ 信物 510「主角的徽记」
-            # （独立于侦查检定；510 不进 relics.ids，E09 由背包直读；首杀不重复，持有时跳过）
-            gold = 50
-            with gold_source("battle", ref_id="48_jk_reward"):
-                add_gold(self.investigator.qq, gold)
-            item_names: list[str] = []
-            self.investigator.add_item_to_inventory("511", 1)
-            item_names.append(Equipment("511").name)
-            equipments, _ = self.investigator.get_equipments()
-            if equipments.get("510", 0) <= 0:
-                self.investigator.add_item_to_inventory("510", 1)
-                item_names.append(Equipment("510").name)
-            bonus_text = self._t(
-                "battle.jk_reward",
-                items="、".join(item_names),
-                gold=gold,
-            )
+            else:
+                bonus_text = (
+                    f"战利品：{'、'.join(item_names) if item_names else '无'}。"
+                    f"你获得 {gold} 乌帕。"
+                )
         elif search_roll.level > SuccessLevel.FAILURE:
             gold, dropped_item, bonus_text = self.monster.generate_loot(self._battle_day)
             with gold_source("battle", ref_id=f"monster:{self.monster.id}"):
