@@ -35,7 +35,6 @@ class DataLoader:
             self.ending_data = self._load_json(base_path / "ending_data.json")
             self.npc_data = self._load_json(base_path / "npc_data.json")
             self._validate_monster_data()
-            logger.info("Game data loaded successfully.")
         except Exception as e:
             logger.exception(f"Failed to load game data: {e}")
             self.reply_data = {}
@@ -49,6 +48,14 @@ class DataLoader:
             self.text_data = {}
             self.ending_data = {}
             self.npc_data = {}
+            return
+        # 配置全量校验（fail-fast / warn 双模式，见 config_validator 文档）：
+        # 所有 JSON 加载成功后统一校验一次；fail 模式抛错阻止启动（不在上面的
+        # except 内，避免被吞掉导致数据被清空后仍继续运行）。
+        from .config_validator import run_config_validation
+
+        run_config_validation(base_path)
+        logger.info("Game data loaded successfully.")
 
     def _load_json(self, path: Path) -> dict[str, Any]:
         if not path.exists():
