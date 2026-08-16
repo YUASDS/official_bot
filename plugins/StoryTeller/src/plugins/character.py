@@ -252,7 +252,7 @@ async def handle_new_chapter(event: Event, bot: Bot):
 
 
 def _cleanup_ended_state(user_id: str) -> None:
-    """结局后清理残留状态：战斗 / 门扉 / 事件 / NPC / 乱入 / GM / 启挑战。"""
+    """结局后清理残留状态：战斗 / 门扉 / 事件 / flow / GM / 启挑战。"""
     # 延迟导入避免插件间循环依赖（adventure 等插件在运行期才加载完整）
     stores = []
     try:
@@ -272,9 +272,9 @@ def _cleanup_ended_state(user_id: str) -> None:
     except Exception:
         pass
     try:
-        from .guest import guest_active
+        from ..services.flow_engine import flow_states
 
-        stores.append(guest_active)
+        stores.append(flow_states)
     except Exception:
         pass
     try:

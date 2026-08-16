@@ -5,7 +5,7 @@
 
 - **逐文件 schema 校验**：必填键 / 类型 / ID 段位（按 config-id-naming 段位表断言）。
 - **跨文件引用检查**：怪物→物品/法术、事件→物品/技能、goods→信物段、flow/boss→文案键/怪物、
-  shop→物品、首杀表→怪物、check_point→怪物、guest/npc/flow 效果→物品/技能、door→结局/物品/文案键。
+  shop→物品、首杀表→怪物、check_point→怪物、npc/flow 效果→物品/技能、door→结局/物品/文案键。
 - **报告格式**：收集**全部**错误（不遇错即停），每条错误精确定位到「文件 + key + 原因」。
 - **失败策略**：`CONFIG_VALIDATE_MODE` 环境变量——`fail`（默认，校验失败抛 `ConfigValidationError`
   阻止启动）/ `warn`（仅日志告警，保留上一份数据）。生产环境可在 `.env` 配置 `CONFIG_VALIDATE_MODE=warn`。
@@ -27,7 +27,7 @@ from loguru import logger
 # 失败策略：fail（默认，抛错阻止启动） / warn（仅告警）
 CONFIG_VALIDATE_MODE = os.environ.get("CONFIG_VALIDATE_MODE", "fail")
 
-# 需校验的数据文件（13 个数据 JSON + shop/spell 引用数据）
+# 需校验的数据文件（guest 迁移批次2：guest_data.json 已归档 test/archive，不再校验）
 DATA_FILES: tuple[str, ...] = (
     "monster_data.json",
     "goods_data.json",
@@ -36,7 +36,6 @@ DATA_FILES: tuple[str, ...] = (
     "check_point.json",
     "reply_data.json",
     "text_data.json",
-    "guest_data.json",
     "npc_data.json",
     "ending_data.json",
     "flow_data.json",
@@ -494,51 +493,6 @@ class ConfigValidator:
         if not isinstance(text, dict):
             self._err(file, "<文件>", f"应为 dict，实际 {type(text).__name__}")
 
-    def validate_guest(self) -> None:
-        file = "guest_data.json"
-        guests = self.data.get(file, {})
-        for wid, w in self._iter_items(guests):
-            if not self._require_dict(file, wid, w):
-                continue
-            self._require_str(file, f"{wid}.名字", w.get("名字"))
-            if not isinstance(w.get("阶段"), list) or not w["阶段"]:
-                self._err(file, wid, "阶段应为非空列表")
-                continue
-            stage_ids = {st.get("id") for st in w["阶段"] if isinstance(st, dict)}
-            for i, st in enumerate(w["阶段"]):
-                if not isinstance(st, dict):
-                    self._err(file, f"{wid}.阶段[{i}]", "阶段应为 dict")
-                    continue
-                sid = st.get("id")
-                skey = f"{wid}.阶段[{i}]({sid})"
-                self._require_str(file, f"{skey}.标题", st.get("标题"))
-                self._require_str(file, f"{skey}.描述", st.get("描述"))
-                self._check_check_block(file, f"{skey}.检定", st.get("检定"))
-                for j, opt in enumerate(st.get("选项") or []):
-                    if not isinstance(opt, dict):
-                        continue
-                    self._require_str(file, f"{skey}.选项[{j}].输入", opt.get("输入"))
-                    self._check_effects(file, f"{skey}.选项[{j}]", opt.get("效果"))
-                    self._check_check_block(file, f"{skey}.选项[{j}].检定", opt.get("检定"))
-                    nxt = opt.get("下一步")
-                    if nxt and nxt not in stage_ids and nxt != "结束":
-                        self._err(file, f"{skey}.选项[{j}].下一步", f"未知阶段 {nxt!r}")
-                battle = st.get("战斗") or {}
-                if isinstance(battle, dict):
-                    if battle.get("怪物"):
-                        self._check_monster_ref(file, f"{skey}.战斗.怪物", battle["怪物"])
-                    for br in ("胜利", "战败"):
-                        branch = battle.get(br) or {}
-                        if isinstance(branch, dict):
-                            self._check_effects(file, f"{skey}.战斗.{br}", branch.get("效果"))
-                            nxt = branch.get("下一步")
-                            if nxt and nxt not in stage_ids and nxt != "结束":
-                                self._err(file, f"{skey}.战斗.{br}.下一步", f"未知阶段 {nxt!r}")
-            # 结尾
-            ending_sec = w.get("结尾") or {}
-            if isinstance(ending_sec, dict):
-                self._check_effects(file, f"{wid}.结尾", ending_sec.get("效果"))
-
     def validate_npc(self) -> None:
         file = "npc_data.json"
         npcs = self.data.get(file, {})
@@ -632,6 +586,26 @@ class ConfigValidator:
             if not self._require_dict(file, fid, f):
                 continue
             self._require_str(file, f"{fid}.名字", f.get("名字"))
+            if f.get("标题") is not None and not isinstance(f["标题"], str):
+                self._err(file, f"{fid}.标题", "应为字符串")
+            # flow 级新字段（guest 迁移批次2）：入口条件 / 玩家文案 / 纪念品 / 收尾
+            self._check_condition(file, f"{fid}.入口条件", f.get("入口条件"))
+            texts = f.get("玩家文案")
+            if texts is not None and not isinstance(texts, dict):
+                self._err(file, f"{fid}.玩家文案", "应为 dict（玩家战斗文案键值）")
+            if f.get("纪念品"):
+                self._check_items_ref(file, f"{fid}.纪念品", f["纪念品"])
+            tail = f.get("收尾") or {}
+            if tail:
+                if not self._require_dict(file, f"{fid}.收尾", tail):
+                    pass
+                else:
+                    if tail.get("skip_daily") is not None and not isinstance(
+                        tail["skip_daily"], bool
+                    ):
+                        self._err(file, f"{fid}.收尾.skip_daily", "应为布尔值")
+                    self._check_text_key(file, f"{fid}.收尾.exit_text_key", tail.get("exit_text_key"))
+                    self._check_text_key(file, f"{fid}.收尾.day_text_key", tail.get("day_text_key"))
             nodes = f.get("节点")
             if not isinstance(nodes, dict) or not nodes:
                 self._err(file, fid, "节点应为非空 dict")
@@ -644,12 +618,29 @@ class ConfigValidator:
                     continue
                 nkey = f"{fid}.节点.{nid}"
                 ntype = node.get("类型")
-                if ntype not in ("文本", "选项", "检定", "奖励", "战斗", "结束"):
+                if ntype not in ("文本", "选项", "检定", "奖励", "战斗", "纪念品", "结束"):
                     self._err(file, nkey, f"非法节点类型 {ntype!r}")
+                if node.get("标题") is not None and not isinstance(node["标题"], str):
+                    self._err(file, f"{nkey}.标题", "应为字符串")
+                if node.get("文案") is not None and not isinstance(node["文案"], str):
+                    self._err(file, f"{nkey}.文案", "应为字符串")
+                if node.get("前置文案") is not None and not isinstance(node["前置文案"], str):
+                    self._err(file, f"{nkey}.前置文案", "应为字符串")
                 self._check_text_key(file, f"{nkey}.文案键", node.get("文案键"))
                 self._check_effects(file, nkey, node.get("效果"))
                 self._check_check_block(file, f"{nkey}.检定", node.get("检定"))
+                self._check_check_block(file, f"{nkey}.前置检定", node.get("前置检定"))
                 self._check_condition(file, f"{nkey}.条件", node.get("条件"))
+                if node.get("玩家文案") is not None and not isinstance(
+                    node["玩家文案"], dict
+                ):
+                    self._err(file, f"{nkey}.玩家文案", "应为 dict")
+                if node.get("完成标记") is not None and not isinstance(
+                    node["完成标记"], bool
+                ):
+                    self._err(file, f"{nkey}.完成标记", "应为布尔值")
+                if node.get("物品"):
+                    self._check_items_ref(file, f"{nkey}.物品", node["物品"])
                 for i, opt in enumerate(node.get("选项") or []):
                     if not isinstance(opt, dict):
                         continue
@@ -790,7 +781,6 @@ class ConfigValidator:
         self.validate_checkpoint()
         self.validate_reply()
         self.validate_text()
-        self.validate_guest()
         self.validate_npc()
         self.validate_ending()
         self.validate_flow()
