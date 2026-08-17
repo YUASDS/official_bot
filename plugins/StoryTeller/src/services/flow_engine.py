@@ -244,13 +244,38 @@ def _condition_ok(cond, inv: Investigator, progress=None) -> bool:
 
 
 def _apply_effects(inv: Investigator, user_id: str, effects: dict) -> str:
-    """标准效果（san/hp/金币/物品/技能）走 apply_event_effects 统一收口，返回摘要。"""
+    """标准效果（san/hp/金币/物品/技能）走 apply_event_effects 统一收口，返回摘要。
+
+    主线专属效果（纯增量，缺省零变化，不影响日常事件）：
+    - `倾向`：开幕选择 → mainline.apply_tendency（累积主线倾向 + 置当日已选）。值形如
+      `{"tendency": "dread", "day": 1}`；day 缺省回退 inv.day。
+    - `结局`：分支终局达成 → mainline.register_mainline_ending（登记独立结局 + 置线 done）。
+    二者仅在 flow 效果层生效（apply_event_effects 未扩展），日常事件走 apply_event_effects
+    不受影响——倾向只来自主线插曲选择。
+    """
+    effects = effects or {}
     standard = {
         k: v
-        for k, v in (effects or {}).items()
+        for k, v in effects.items()
         if k in ("san", "hp", "金币", "物品", "技能")
     }
-    return apply_event_effects(inv, user_id, standard) if standard else ""
+    summary = apply_event_effects(inv, user_id, standard) if standard else ""
+    tend = effects.get("倾向")
+    if isinstance(tend, dict):
+        from ..plugins import mainline as _ml
+
+        _ml.apply_tendency(
+            inv,
+            tend.get("day", inv.day),
+            tend.get("tendency"),
+            save=True,
+        )
+    end_id = effects.get("结局")
+    if end_id:
+        from ..plugins import mainline as _ml
+
+        _ml.register_mainline_ending(inv, str(end_id))
+    return summary
 
 
 def _flow_check_block(inv: Investigator, user_id: str, check: dict) -> str:
