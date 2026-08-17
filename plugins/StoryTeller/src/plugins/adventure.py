@@ -54,6 +54,7 @@ from ..services.sanity import run_sanity_and_madness
 from .jk import hidden_should_trigger
 from .guest import guest_enter, guest_should_trigger
 from .gm_room import gm_afterglow, gm_room_enter, gm_room_should_trigger
+from .mainline import pick_mainline_monster, try_mainline_daily
 from .npc import (
     inject_companion,
     npc_handle_command,
@@ -397,6 +398,11 @@ async def _run_adventure(
         for _log in _logs:
             await send(md_message(f"\n{_log}", bot, mention=user_id))
 
+        # 主线弧互斥链优先级最高（二周目）：开幕插曲/分支节点命中即接管当日（占日 day+1 走 flow）。
+        # 一周目/未解锁恒不命中（mainline 内部零回归红线），此处返回 False 走既有 乱入/普通冒险。
+        if await try_mainline_daily(user_id, inv, bot, send, finish):
+            return
+
         # 隐藏挑战 BOSS（jk/qiren 及未来新 BOSS）：挑战旗标 → 强制绑定怪物（boss 配置表）；
         # 否则每日共享概率触发对话（挑战/不挑战）。day40 守卫内置 boss_framework（门扉归守门人）。
         forced_boss = boss_resolve_forced(user_id, inv)
@@ -411,9 +417,15 @@ async def _run_adventure(
             ):
                 # 每日彩蛋互斥链：按 triggers 配置 priority 排序，第一个命中即触发（一天至多一个）
                 return
-            # 周目联动：被猎犬杀死过 → 猎犬在每日池权重 ×2（"它来找你了"）
-            weights = _hound_weight(inv)
-            monster_id = monster_repo.find_random_id_for_day(inv.day, weights=weights)
+            # 主线弧冒险融合：未分流有倾向 / 已分流 → 当日怪物从「对应主线池」抽取（选择决定世界）。
+            # 未解锁/未选线返回 None → 走既有 check_point 池（一周目零回归）。
+            monster_id = pick_mainline_monster(inv)
+            if not monster_id:
+                # 周目联动：被猎犬杀死过 → 猎犬在每日池权重 ×2（"它来找你了"）
+                weights = _hound_weight(inv)
+                monster_id = monster_repo.find_random_id_for_day(
+                    inv.day, weights=weights
+                )
         # 周目联动：击杀过猎犬 → D12/D20 概率替换为强化版「猎犬·复仇」(44)
         if not forced:
             linked = _linkage_encounter(inv)

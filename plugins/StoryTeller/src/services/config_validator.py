@@ -99,6 +99,9 @@ _SPECIAL_MONSTER_IDS: frozenset[str] = frozenset(
      "52", "53", "55", "56", "57", "67", "68", "69", "70", "71", "72"}
 )
 
+# 主线三倾向（mainline.py _LANES 一致）
+_LANES_MAINLINE = ("dread", "hymn", "free")
+
 
 class ConfigValidationError(ValueError):
     """配置校验失败（CONFIG_VALIDATE_MODE=fail 时抛出，阻止 bot 启动）。"""
@@ -1070,16 +1073,63 @@ class ConfigValidator:
                 self._err(file, f"{gid}.权重", "应为数字")
 
     def validate_mainline_config(self) -> None:
-        """主线配置（mainline_config.json）：怪物池 id 引用校验。
+        """主线配置（mainline_config.json）：schema + 怪物池引用校验，逐项对齐 mainline 插件读法。
 
-        池 id 允许「配置注册」（期2/3 才建的 61-66/73-78 未建怪不报错）；
-        已建怪则必须登记进 _SPECIAL_MONSTER_IDS（本批 67-72）——保证池引用
-        指向明确语义的固定怪，而非误标每日池。
+        - 二周目解锁.ng_plus_min：正整数（解锁阈值）
+        - 分歧窗口.day / 分支节奏.间隔：正整数（分流日 / 分支节点间隔）
+        - 开幕插曲.days：1+ 正整数列表（开幕各幕日）；flow：非空字符串（幕流程引用）
+        - 倾向阈值.min：非负整数（MAX 分流门槛）
+        - 平局策略：dread/hymn/free 枚举
+        - 怪物池 dread/hymn/free：池 id 引用校验；已在 monster_data 的固定怪必须登记
+          _SPECIAL_MONSTER_IDS（保证池引用指向明确语义固定怪，而非误标每日池）；
+          期2/3 才建的 61-66/73-78 未建怪允许「配置注册」。
         """
         file = "mainline_config.json"
         cfg = self.data.get(file)
         if not isinstance(cfg, dict):
             return
+
+        unlock = cfg.get("二周目解锁")
+        if self._require_dict(file, "二周目解锁", unlock):
+            _ng = unlock.get("ng_plus_min")
+            if _ng is not None and (not self._require_int(file, "二周目解锁.ng_plus_min", _ng) or _ng < 1):
+                self._err(file, "二周目解锁.ng_plus_min", "应为正整数（解锁需通过结局数）")
+
+        win = cfg.get("分歧窗口")
+        if self._require_dict(file, "分歧窗口", win):
+            _d = win.get("day")
+            if _d is not None and (not self._require_int(file, "分歧窗口.day", _d) or _d < 1):
+                self._err(file, "分歧窗口.day", "应为正整数（分流判定日）")
+
+        opening = cfg.get("开幕插曲")
+        if self._require_dict(file, "开幕插曲", opening):
+            days = opening.get("days")
+            if not isinstance(days, list) or not days:
+                self._err(file, "开幕插曲.days", "应为非空整数列表（开幕各幕日）")
+            else:
+                for i, d in enumerate(days):
+                    if isinstance(d, bool) or not isinstance(d, int) or d < 1:
+                        self._err(file, f"开幕插曲.days[{i}]", f"应为正整数，实际 {d!r}")
+            flow = opening.get("flow")
+            if flow is not None:
+                self._require_str(file, "开幕插曲.flow", flow)
+
+        rhythm = cfg.get("分支节奏")
+        if self._require_dict(file, "分支节奏", rhythm):
+            _iv = rhythm.get("间隔")
+            if _iv is not None and (not self._require_int(file, "分支节奏.间隔", _iv) or _iv < 1):
+                self._err(file, "分支节奏.间隔", "应为正整数（分支节点间隔天数）")
+
+        thresh = cfg.get("倾向阈值")
+        if self._require_dict(file, "倾向阈值", thresh):
+            _m = thresh.get("min")
+            if _m is not None and (not self._require_int(file, "倾向阈值.min", _m) or _m < 0):
+                self._err(file, "倾向阈值.min", "应为非负整数（MAX 分流门槛）")
+
+        tie = cfg.get("平局策略")
+        if tie is not None and tie not in _LANES_MAINLINE and tie != "courage":
+            self._err(file, "平局策略", f"应为三倾向枚举 dread/hymn/free 或 courage，实际 {tie!r}")
+
         pool = cfg.get("怪物池")
         if pool is None:
             return
@@ -1087,7 +1137,7 @@ class ConfigValidator:
             self._err(file, "怪物池", "应为 dict（dread/hymn/free 三个怪物池）")
             return
         monster_data = self.data.get("monster_data.json", {})
-        for lane in ("dread", "hymn", "free"):
+        for lane in _LANES_MAINLINE:
             ids = pool.get(lane)
             if ids is None:
                 self._err(file, f"怪物池.{lane}", "缺少该主线怪物池")
