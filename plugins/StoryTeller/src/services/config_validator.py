@@ -44,6 +44,7 @@ DATA_FILES: tuple[str, ...] = (
     "display_data.json",
     "shop_data.json",
     "spell_data.json",
+    "mainline_config.json",
     "weights.json",
     "boss_weights.json",
     "boss/",
@@ -94,7 +95,8 @@ DOOR_CONDITION_KEYS: frozenset[str] = frozenset(
 # 怪物 ID 段位语义（config-id-naming §二）：不在每日池的固定语义怪
 # （47/48=乱入世界 BOSS，49/50=异世界高校第二季 BOSS，均仅被 guest/世界 flow 引用）
 _SPECIAL_MONSTER_IDS: frozenset[str] = frozenset(
-    {"38", "40", "41", "42", "44", "45", "46", "47", "48", "49", "50", "51", "55", "56", "57"}
+    {"38", "40", "41", "42", "44", "45", "46", "47", "48", "49", "50", "51",
+     "52", "53", "55", "56", "57", "67", "68", "69", "70", "71", "72"}
 )
 
 
@@ -1067,6 +1069,42 @@ class ConfigValidator:
             if "权重" in w and not isinstance(w["权重"], (int, float)):
                 self._err(file, f"{gid}.权重", "应为数字")
 
+    def validate_mainline_config(self) -> None:
+        """主线配置（mainline_config.json）：怪物池 id 引用校验。
+
+        池 id 允许「配置注册」（期2/3 才建的 61-66/73-78 未建怪不报错）；
+        已建怪则必须登记进 _SPECIAL_MONSTER_IDS（本批 67-72）——保证池引用
+        指向明确语义的固定怪，而非误标每日池。
+        """
+        file = "mainline_config.json"
+        cfg = self.data.get(file)
+        if not isinstance(cfg, dict):
+            return
+        pool = cfg.get("怪物池")
+        if pool is None:
+            return
+        if not isinstance(pool, dict):
+            self._err(file, "怪物池", "应为 dict（dread/hymn/free 三个怪物池）")
+            return
+        monster_data = self.data.get("monster_data.json", {})
+        for lane in ("dread", "hymn", "free"):
+            ids = pool.get(lane)
+            if ids is None:
+                self._err(file, f"怪物池.{lane}", "缺少该主线怪物池")
+                continue
+            if not isinstance(ids, list) or not ids:
+                self._err(file, f"怪物池.{lane}", "怪物池应为非空 id 列表")
+                continue
+            for iid in ids:
+                if not (isinstance(iid, str) and iid.isdigit()):
+                    self._err(file, f"怪物池.{lane}", f"怪物 id 应为数字字符串，实际 {iid!r}")
+                    continue
+                if iid in monster_data and iid not in _SPECIAL_MONSTER_IDS:
+                    self._err(
+                        file, f"怪物池.{lane}.{iid}",
+                        "已建固定怪未登记 _SPECIAL_MONSTER_IDS（应为明确语义怪，非每日池）",
+                    )
+
     # --- 汇总入口 ---
     def validate_all(self) -> list[str]:
         """运行全部校验，返回错误清单（含已收集错误）。"""
@@ -1086,6 +1124,7 @@ class ConfigValidator:
         self.validate_shop()
         self.validate_spell()
         self.validate_weights()
+        self.validate_mainline_config()
         return self.errors
 
 
