@@ -177,9 +177,6 @@
         },
         "any": [
           {
-            "旗标": "flow.anime_academy.done"
-          },
-          {
             "旗标": {
               "flow.flow.anime_academy.s1.done": 1
             }
@@ -417,11 +414,8 @@
         },
         "any": [
           {
-            "旗标": "flow.anime_academy.s2.done"
-          },
-          {
             "旗标": {
-              "flow.flow.anime_academy.s1.done": 1
+              "flow.flow.anime_academy.s2.done": 1
             }
           }
         ]
