@@ -111,7 +111,7 @@ class BattleSpellsMixin:
         expr, val = roll_dice(dice)
 
         if etype == "damage":
-            monster_text = self._apply_damage_to_monster(val)
+            monster_text = self._apply_damage_to_monster(val, dmg_type="magic")
             return f"{expr}={val}，造成 {val} 点伤害", monster_text
         if etype == "heal":
             max_hp = self.investigator.get_max_hp()

@@ -95,6 +95,18 @@ class Monster:
         self.敏捷 = self.dex
         self.名字 = self.name
 
+        # 战斗系统扩展（批次1）：伤害标签免疫/抗性/骰子压制（缺省零回归）
+        self.dice_suppress = bool(self._data.get("dice_suppress", False))
+        self.免疫 = self._data.get("免疫", []) or []
+        if not isinstance(self.免疫, list):
+            self.免疫 = []
+        self.抗性 = self._data.get("抗性", {}) or {}
+        if not isinstance(self.抗性, dict):
+            self.抗性 = {}
+        self.免疫文案 = self._data.get("免疫文案", {}) or {}
+        if not isinstance(self.免疫文案, dict):
+            self.免疫文案 = {}
+
         # AI 状态机（仅含 `ai` 字段的怪物启用；老怪物零回归）
         self._ai_data = self._data.get("ai")
         # 阶段制「远程」仅对带 `ai.远程` 配置的怪物启用（38 等阶段制 BOSS）；

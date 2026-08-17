@@ -149,7 +149,7 @@ class BattleEngineMixin:
             _dmg = str(_cfg.get("damage", "2d4"))
             _expr, val = roll_dice(_dmg)
             val = max(0, val - self.monster.armor)  # 装甲减伤与 calc_dmg 一致
-            self._apply_damage_to_monster(val)
+            self._apply_damage_to_monster(val, dmg_type="magic")
             parts.append(
                 data_loader.get_text(
                     "battle.bone_whistle_tick",
@@ -223,7 +223,8 @@ class BattleEngineMixin:
                 "battle.monster_spell_shield", expr=expr, val=val, value=val
             )
         else:
-            effect_line = ""
+            # damage 型法术：怪物施放对玩家造成实际伤害（魔法标签），走玩家伤害管道
+            effect_line = self._apply_damage_to_player(val, dmg_type="magic")
         lines = [t("battle.monster_spell_title", name=name), cast_text, effect_line]
         return ["\n".join(x for x in lines if x)]
 

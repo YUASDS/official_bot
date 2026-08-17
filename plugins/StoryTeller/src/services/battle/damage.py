@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 
+# 伤害标签 → 怪物数据键（免疫/抗性 用「物理/魔法」，标签用 physical/magic）
+_DMG_TAG_TO_CN = {"physical": "物理", "magic": "魔法"}
+
+
 class BattleDamageMixin:
     def _apply_damage_to_player(
-        self, damage: int, armor_absorbed: bool = False
+        self, damage: int, armor_absorbed: bool = False, dmg_type: str = "physical"
     ) -> str:
         if damage <= 0:
             return self._get_reply("低伤害")
@@ -61,7 +65,37 @@ class BattleDamageMixin:
             reply = f"{reply}\n\n" + "\n".join(trinket_lines)
         return reply
 
-    def _apply_damage_to_monster(self, damage: int) -> str:
+    def _monster_immune_cn(self, dmg_type: str) -> str:
+        """命中怪物的伤害标签对应的免疫键（「物理」/「魔法」），无对应返回空串。"""
+        return _DMG_TAG_TO_CN.get(dmg_type, "")
+
+    def _monster_resist_rate(self, dmg_type: str) -> float:
+        """怪物对该标签的抗性比例（0~1），无配置返回 0。"""
+        cn = self._monster_immune_cn(dmg_type)
+        if not cn:
+            return 0.0
+        rate = self.monster.抗性.get(cn, 0)
+        try:
+            return float(rate)
+        except (TypeError, ValueError):
+            return 0.0
+
+    def _immunity_text(self, dmg_type: str) -> str:
+        """免疫专属文案（怪物「免疫文案」字段缺省回退模板键 battle.immunity_default）。"""
+        cn = self._monster_immune_cn(dmg_type)
+        text = ""
+        if cn:
+            text = self.monster.免疫文案.get(cn, "")
+        return text or self._t("battle.immunity_default")
+
+    def _apply_damage_to_monster(self, damage: int, dmg_type: str = "physical") -> str:
+        # 免疫优先（0 伤 + 专属文案）：先于抗性，避免双重判定歧义
+        if self._monster_immune_cn(dmg_type) in self.monster.免疫:
+            return self._immunity_text(dmg_type)
+        # 抗性：百分比减伤（val = int(val*(1-rate))，向下取整），叠加装甲（装甲已在调用点平扣）
+        rate = self._monster_resist_rate(dmg_type)
+        if rate:
+            damage = int(damage * (1 - rate))
         if damage <= 0:
             return getattr(self.monster, "低伤害", self._t("battle.no_damage"))
 

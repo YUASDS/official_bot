@@ -156,7 +156,7 @@ def _fx_append_attack(
     self: "BattleTrinketMixin", item: Equipment, eff: dict, fx: dict, ctx: dict, defer_heal: bool
 ) -> list[str]:
     expr, val = self._trinket_fx_value(fx, "dice", "1d3")
-    dmg_text = self._apply_damage_to_monster(val)
+    dmg_text = self._apply_damage_to_monster(val, dmg_type="magic")
     line = self._trinket_render(eff, expr, val, name=item.name, item_id=item.id)
     if dmg_text:
         line = f"{line}\n{dmg_text}"

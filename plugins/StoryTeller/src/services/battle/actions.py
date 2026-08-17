@@ -99,12 +99,16 @@ class BattleActionsMixin:
             confrontation.level1,
             weapon.is_extreme_double,
             armor=self.monster.armor,
+            dmg_type="physical",
+            min_roll=self.monster.dice_suppress,
         )
         reply_key = "格斗大成功" if confrontation.level1 > SuccessLevel.HARD_SUCCESS else "格斗成功"
         player_text = self._fill_damage(
             self._get_reply(reply_key), expr, val
         ).replace("$装备", weapon.name)
-        monster_text = self._apply_damage_to_monster(val)
+        if self.monster.dice_suppress:
+            player_text = f"{player_text}\n{self._t('battle.dice_suppressed')}"
+        monster_text = self._apply_damage_to_monster(val, dmg_type="physical")
         # 闪避模式：怪物闪避（不反击）；怪物大失败：自身失控
         if getattr(self.monster, "is_dodging", False):
             monster_react = self._monster_dodge_text()
@@ -311,10 +315,14 @@ class BattleActionsMixin:
                 roll.level,
                 weapon.is_extreme_double,
                 armor=self.monster.armor,
+                dmg_type="physical",
+                min_roll=self.monster.dice_suppress,
             )
             reply_template = self._get_reply("射击大成功") if roll.level > SuccessLevel.HARD_SUCCESS else self._get_reply("射击成功")
             player_text = self._fill_damage(reply_template, expr, val)
-            monster_text = self._apply_damage_to_monster(val)
+            if self.monster.dice_suppress:
+                player_text = f"{player_text}\n{self._t('battle.dice_suppressed')}"
+            monster_text = self._apply_damage_to_monster(val, dmg_type="physical")
             exchange = self._exchange([monster_text], [self._get_weapon_reply(weapon), player_text])
             return (roll_description, exchange, self._end_turn())
         if roll.level == SuccessLevel.CRITICAL_FAILURE:
@@ -362,17 +370,21 @@ class BattleActionsMixin:
                     roll.level,
                     weapon.is_extreme_double,
                     armor=self.monster.armor,
+                    dmg_type="physical",
+                    min_roll=self.monster.dice_suppress,
                 )
                 player_texts.append(self._t("battle.multi_shot_damage", expr=expr, value=val))
                 total_damage += val
 
         roll_description = self._check_section(weapon.identify_skill, rows)
         player_text = "\n".join(player_texts)
+        if self.monster.dice_suppress and total_damage > 0:
+            player_text = f"{player_text}\n{self._t('battle.dice_suppressed')}"
 
         # 已命中的子弹伤害照常结算；大失败只中断后续子弹，不清空已累计伤害
         if total_damage > 0:
             player_text += f"\n{self._t('battle.total_damage', total=total_damage)}"
-            monster_text = self._apply_damage_to_monster(total_damage)
+            monster_text = self._apply_damage_to_monster(total_damage, dmg_type="physical")
         else:
             monster_text = ""
 
@@ -708,10 +720,17 @@ class BattleActionsMixin:
             return self._t("battle.counter_failed"), ""
 
         damage_formula = self._get_player_damage_formula(weapon)
-        expr, val = calc_dmg(damage_formula, armor=self.monster.armor)
+        expr, val = calc_dmg(
+            damage_formula,
+            armor=self.monster.armor,
+            dmg_type="physical",
+            min_roll=self.monster.dice_suppress,
+        )
 
         player_text = self._fill_damage(
             self._get_reply("反击成功"), expr, val
         ).replace("$装备", weapon.name)
-        monster_text = self._apply_damage_to_monster(val)
+        if self.monster.dice_suppress:
+            player_text = f"{player_text}\n{self._t('battle.dice_suppressed')}"
+        monster_text = self._apply_damage_to_monster(val, dmg_type="physical")
         return player_text, monster_text

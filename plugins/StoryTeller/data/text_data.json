@@ -110,6 +110,8 @@
   "monster_spell_title": "施法·{name}",
   "monster_spell_heal": "{expr}={val}，他愈合了 {value} 点生命。",
   "monster_spell_shield": "{expr}={val}，他获得了 {value} 点临时生命。",
+  "immunity_default": "攻击落在它的甲壳上，毫无效果。",
+  "dice_suppressed": "武器被无形的力量压制，只能挥出最弱的一击。",
   "qiren_reward": "🕯️ 启的信物落入你手中：{items}。你获得 {gold} 乌帕。",
   "qiren_trophy": "🕰️ 战利品：{name}——他留下的怀表落进你掌心，表盘停在满月的位置。",
   "jk_reward": "🗡️ 战利品：{items}。你获得 {gold} 乌帕。",

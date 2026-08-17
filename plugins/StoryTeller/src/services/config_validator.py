@@ -319,6 +319,43 @@ class ConfigValidator:
                     dmg = act.get("damage")
                     if not isinstance(dmg, str) or not dmg:
                         self._err(file, f"{mid}.攻击.{act_name}.damage", "缺少伤害骰 damage")
+            # 战斗系统扩展（批次1）：免疫 / 抗性 / 骰子压制
+            immune = m.get("免疫")
+            if immune is not None:
+                if not isinstance(immune, list):
+                    self._err(file, f"{mid}.免疫", "应为数组（元素 ∈ {物理, 魔法}）")
+                else:
+                    for tag in immune:
+                        if tag not in ("物理", "魔法"):
+                            self._err(
+                                file, f"{mid}.免疫", f"非法免疫类型 {tag!r}（合法：物理/魔法）"
+                            )
+            resist = m.get("抗性")
+            if resist is not None:
+                if not isinstance(resist, dict):
+                    self._err(file, f"{mid}.抗性", "应为映射（{物理|魔法: 0~1 数字}）")
+                else:
+                    for tag, rate in resist.items():
+                        if tag not in ("物理", "魔法"):
+                            self._err(file, f"{mid}.抗性.{tag}", f"非法抗性类型 {tag!r}（合法：物理/魔法）")
+                        if isinstance(rate, bool) or not isinstance(rate, (int, float)):
+                            self._err(file, f"{mid}.抗性.{tag}", "抗性值应为数字")
+                        elif not (0 <= rate <= 1):
+                            self._err(file, f"{mid}.抗性.{tag}", f"抗性值应落 0~1，实际 {rate!r}")
+            ds = m.get("dice_suppress")
+            if ds is not None and not isinstance(ds, bool):
+                self._err(file, f"{mid}.dice_suppress", "应为 bool（true=压制玩家武器骰）")
+            # 免疫文案字段（可选）：映射键 ∈ {物理, 魔法}，值非空字符串
+            immune_text = m.get("免疫文案")
+            if immune_text is not None:
+                if not isinstance(immune_text, dict):
+                    self._err(file, f"{mid}.免疫文案", "应为映射（{物理|魔法: 文案}）")
+                else:
+                    for tag, text in immune_text.items():
+                        if tag not in ("物理", "魔法"):
+                            self._err(file, f"{mid}.免疫文案.{tag}", f"非法免疫文案类型 {tag!r}")
+                        if not isinstance(text, str) or not text:
+                            self._err(file, f"{mid}.免疫文案.{tag}", "应为非空字符串")
             # 奖励 → 物品引用
             reward = m.get("奖励")
             if isinstance(reward, dict):
