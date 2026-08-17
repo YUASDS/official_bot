@@ -554,6 +554,7 @@ async def _flow_start_battle(user_id: str, state: dict, bot: Bot, send) -> None:
     inv = Investigator(inv_model)
     service = BattleService(inv, Monster(monster_id))
     service.is_gm_room = True  # 隔离红线：战败不落 is_survive/不登记 E07，胜利不走掉落/门扉
+    service.set_battle_cfg(battle_cfg)  # 战斗配置透传（含 胜利条件，坚守战）
     service.set_guest_texts(node.get("玩家文案") or flow.get("玩家文案") or {})
     if state.get("buff"):
         service.set_environment({"玩家": dict(state["buff"])})
@@ -667,9 +668,12 @@ async def _flow_battle_end(user_id: str, state: dict, bot: Bot, send) -> None:
     state["phase"] = "stage"
     state["battle"] = None
     battle_manager.remove_battle(user_id)
-    if service.hp_record["mon"] <= 0:
+    if service.hp_record["mon"] <= 0 or getattr(service, "_conditional_won", False):
         win = battle_cfg.get("胜利") or {}
         reply = win.get("回复", "")
+        hold_text = getattr(service, "hold_win_text", "")
+        if hold_text:
+            reply = f"{hold_text}\n\n{reply}" if reply else hold_text
         if inv is not None:
             summary = _apply_effects(inv, user_id, win.get("效果") or {})
             inv.save()

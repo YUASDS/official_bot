@@ -107,6 +107,10 @@ class BattleEngineMixin:
 
     def _execute_monster_action(self, action: str) -> tuple:
         parts: list[str] = []
+        # 条件胜利（坚守战）：怪物行动前检查——坚守已达成则怪物停手（防「坚持住却被补刀」）
+        cond_msg = self._check_conditional_victory()
+        if cond_msg:
+            return (cond_msg,)
         # 周目联动：被猎犬杀死过的调查员首次遭遇猎犬时，它迟疑一回合（不攻击，轮到玩家）
         if getattr(self, "hound_hesitates", False):
             self.hound_hesitates = False
@@ -284,6 +288,34 @@ class BattleEngineMixin:
             prompt = "\n\n".join((pending or []) + turn_end_lines) + "\n\n" + prompt
         return prompt
 
+    def _check_conditional_victory(self) -> Optional[str]:
+        """坚守战条件胜利：每回合开始检查 `_turn_counter >= N 且玩家存活` → 条件胜利。
+
+        达成后标记 conditional_won，走现有胜利收尾（GM 房间隔离 / 普通战斗结算），
+        怪物不再攻击（防「坚持住却被补刀」）。文案用 胜利条件.文案 缺省回退 battle.hold_win。
+        """
+        if not getattr(self, "_win_condition", None) or self._conditional_won:
+            return None
+        if self.hp_record["inv"] <= 0:
+            return None
+        try:
+            need = int(self._win_condition.get("回合", 0))
+        except (TypeError, ValueError):
+            need = 0
+        if self._turn_counter < need:
+            return None
+        self._conditional_won = True
+        text = self._win_condition.get("文案") or self._t("battle.hold_win")
+        self.hold_win_text = text
+        self._restore_absorb_snapshot()
+        self._log_battle("win")
+        if getattr(self, "is_gm_room", False):
+            # flow 战斗（隔离）：结束分支由 flow_engine 按 胜利 配置发放效果/回复/下一步
+            header = f"{self._t('battle.victory_title')}\n\n{text}"
+            self.end_parts = (header, "")
+            return header
+        return self._handle_victory()
+
     def _check_combat_over(self) -> Optional[str]:
         if self.hp_record["inv"] <= 0:
             # 饰品触发：濒死免死（挂点最顶、判定生效前；GM 房间/乱入隔离不触发）
@@ -360,6 +392,11 @@ class BattleEngineMixin:
             msg = self._handle_victory()
             self._log_battle("win")
             return msg
+        # 条件胜利（坚守战）：坚守满 N 回合且玩家存活 → 条件胜利（怪物不再攻击）。
+        # 置于玩家死亡 / 怪物死亡判定之后：玩家被击杀仍走死亡路径，怪物已死走正常胜利。
+        cond_msg = self._check_conditional_victory()
+        if cond_msg:
+            return cond_msg
         return None
 
     def _record_run_choice(self, key: str, value) -> None:
@@ -402,4 +439,5 @@ class BattleEngineMixin:
             self.fled
             or self.hp_record["inv"] <= 0
             or self.hp_record["mon"] <= 0
+            or getattr(self, "_conditional_won", False)
         )

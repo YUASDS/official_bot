@@ -59,6 +59,13 @@ class BattleBaseMixin:
         self.end_parts: tuple[str, str] = ("", "")
         self.end_card_ext: dict = {}
 
+        # 条件胜利（坚守战，批次3）：flow 战斗节点透传的 胜利条件（缺省无 → 零回归）。
+        # _win_condition 缓存配置；_conditional_won 标记条件胜利已达成；hold_win_text 条件胜利文案。
+        self.battle_cfg: dict = {}
+        self._win_condition: Optional[dict] = None
+        self._conditional_won = False
+        self.hold_win_text = ""
+
         # 法术资源：MP = 意志/5（战斗中不回复）；临时生命（先抵伤害）
         self.max_mp = investigator.get_skill("意志", 0) // 5
         self.mp = self.max_mp
@@ -105,6 +112,45 @@ class BattleBaseMixin:
         命中时覆盖玩家进攻/失败/反击/闪避/承伤叙述，未命中回退通用文案。
         """
         self._guest_texts = texts if isinstance(texts, dict) else {}
+
+    def set_battle_cfg(self, cfg: dict) -> None:
+        """注入战斗配置（flow 战斗节点透传）：解析 胜利条件（坚守战，缺省无）。
+
+        胜利条件 schema：{"类型": "坚守", "回合": N, "文案": "可选"}——坚持满 N 回合且
+        玩家存活 → 条件胜利。配置缺失/非法类型 → _win_condition 置 None（零回归）。
+        """
+        self.battle_cfg = cfg if isinstance(cfg, dict) else {}
+        wc = self.battle_cfg.get("胜利条件")
+        if isinstance(wc, dict) and wc.get("类型") == "坚守":
+            self._win_condition = wc
+        else:
+            self._win_condition = None
+        self._conditional_won = False
+        self.hold_win_text = ""
+
+    def _hold_remaining(self) -> int:
+        """坚守战剩余回合数（玩家还需坚持的回合数；非坚守战返回一个极大值）。"""
+        wc = self._win_condition
+        if not wc:
+            return 10**9
+        try:
+            need = int(wc.get("回合", 0))
+        except (TypeError, ValueError):
+            return 10**9
+        return max(0, need - self._turn_counter)
+
+    def _hold_remaining_hint(self) -> str:
+        """坚守战剩余回合提示（玩家行动前、剩余回合 ≤ 2 时展示 battle.hold_remaining）。"""
+        if self._conditional_won or self.current_turn != "inv":
+            return ""
+        remaining = self._hold_remaining()
+        if remaining <= 0 or remaining > 2:
+            return ""
+        from ..data_loader import data_loader
+
+        return data_loader.get_text(
+            "battle.hold_remaining", 回合=remaining, default=""
+        )
 
     def _get_reply(self, key: str) -> str:
         """玩家战斗文案查询：优先乱入主题覆盖，否则通用 reply_data（行为不变）。

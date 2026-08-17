@@ -264,6 +264,10 @@ class BattleReporterMixin:
             t("battle.turn_line", owner=owner),
             self._get_mini_status_table(),
         ]
+        # 坚守战剩余回合提示：玩家行动前、剩余回合 ≤ 2 时展示 battle.hold_remaining
+        hold_hint = self._hold_remaining_hint()
+        if hold_hint:
+            lines.append(hold_hint)
         if self.gun:
             lines.append(
                 t("battle.ammo_label", bullet=self.bullet, max_bullet=self.max_bullet)

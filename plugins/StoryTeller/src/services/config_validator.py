@@ -222,6 +222,28 @@ class ConfigValidator:
         if text is not None and (not isinstance(text, str) or not text):
             self._err(file, f"{key}.文案", "应为非空字符串")
 
+    def _validate_win_condition(self, file: str, key: str, wc: Any) -> None:
+        """战斗配置 胜利条件 字段校验（flow 战斗节点 / boss 战斗 通用）。
+
+        schema：{"类型": "坚守", "回合": 正整数, "文案": 可选非空字符串}。
+        """
+        if wc is None:
+            return
+        if not self._require_dict(file, key, wc):
+            return
+        wtype = wc.get("类型")
+        if wtype != "坚守":
+            self._err(
+                file, f"{key}.类型",
+                f"非法胜利条件类型 {wtype!r}（合法：坚守）",
+            )
+        turns = wc.get("回合")
+        if isinstance(turns, bool) or not isinstance(turns, int) or turns <= 0:
+            self._err(file, f"{key}.回合", f"回合应为正整数，实际 {turns!r}")
+        text = wc.get("文案")
+        if text is not None and (not isinstance(text, str) or not text):
+            self._err(file, f"{key}.文案", "应为非空字符串")
+
     def _check_items_ref(self, file: str, key: str, items: Any) -> None:
         """物品引用：str 或 list[str]，每一项必须存在于 goods_data。"""
         ids = items if isinstance(items, list) else [items]
@@ -840,6 +862,10 @@ class ConfigValidator:
             if isinstance(battle, dict):
                 if battle.get("怪物"):
                     self._check_monster_ref(file, f"{nkey}.战斗.怪物", battle["怪物"])
+                if "胜利条件" in battle:
+                    self._validate_win_condition(
+                        file, f"{nkey}.战斗.胜利条件", battle["胜利条件"]
+                    )
                 for br in ("胜利", "战败"):
                     branch = battle.get(br) or {}
                     if isinstance(branch, dict):
@@ -893,13 +919,17 @@ class ConfigValidator:
                 for i, btn in enumerate(dlg.get("按钮") or []):
                     if isinstance(btn, dict):
                         self._check_text_key(file, f"{bid}.对话.按钮[{i}].输入", btn.get("输入"))
-            # 战斗：开场大喝文案 / 强制环境
+            # 战斗：开场大喝文案 / 强制环境 / 胜利条件（坚守战）
             battle = b.get("战斗") or {}
             if isinstance(battle, dict):
                 self._check_text_key(file, f"{bid}.战斗.开场大喝", battle.get("开场大喝"))
                 env_name = battle.get("强制环境")
                 if env_name and env_name not in self.data.get("environment_data.json", {}):
                     self._err(file, f"{bid}.战斗.强制环境", f"环境 {env_name} 不存在")
+                if "胜利条件" in battle:
+                    self._validate_win_condition(
+                        file, f"{bid}.战斗.胜利条件", battle["胜利条件"]
+                    )
             # 奖励：物品/信物/文案键
             reward = b.get("奖励") or {}
             if isinstance(reward, dict):
