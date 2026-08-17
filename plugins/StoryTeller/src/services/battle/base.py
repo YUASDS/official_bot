@@ -18,6 +18,10 @@ _ABSORBABLE_SKILLS: tuple[str, ...] = (
     "克苏鲁神话", "san",
 )
 
+# 属性增减（批次4）：怪物战斗属性临时修正影响攻击技能的集合（力量/格斗/敏捷）。
+# 仅对「被修正过的属性」取净修正量求和，未修正的怪物净量恒 0（零回归）。
+_MONSTER_COMBAT_ATTRS: tuple[str, ...] = ("力量", "格斗", "敏捷")
+
 
 class BattleBaseMixin:
     def __init__(self, investigator: Investigator, monster: Monster) -> None:
@@ -51,6 +55,16 @@ class BattleBaseMixin:
         }
         self._absorb_modified: set[str] = set()
         self._absorb_perm_delta: dict[str, int] = {}
+
+        # 属性增减（批次4）：怪物属性临时修正（战斗内生效、战斗结束清除）。
+        # 只记录净修正量，不写 monster._data（共享 dict 防跨战斗污染）；
+        # 经 _get_monster_modified / _get_monster_attack_skill 生效，快照恢复即清空。
+        self._monster_attr_delta: dict[str, int] = {}
+
+        # 持续伤害（批次4）：玩家对怪 / 怪对玩家各自独立登记，每回合初 tick、耗尽清除。
+        # 结构：{"dice": "1d3", "剩余": 3, "tick_text": "可选内嵌文案"}
+        self._dot_on_monster: Optional[dict] = None
+        self._dot_on_player: Optional[dict] = None
 
         self.environment: dict[str, dict] = {}
         self._weapon_reply_shown = False
@@ -220,6 +234,8 @@ class BattleBaseMixin:
         )
         if monster_action.get("type") == "ranged":
             skill += mods.get("射击", 0)
+        # 属性增减（批次4）：怪物战斗属性（力量/格斗/敏捷）临时修正影响攻击技能
+        skill += self._monster_attr_skill_delta()
         return skill
 
     def _get_monster_modified(self, attr: str, default: int = 0) -> int:
@@ -230,6 +246,10 @@ class BattleBaseMixin:
             attr = "敏捷"
         if attr in monster_mods:
             base += monster_mods[attr]
+        # 属性增减（批次4）：怪物属性临时修正（自身 buff/debuff 净修正量）
+        if attr == "dex":
+            attr = "敏捷"
+        base += self._monster_attr_delta.get(attr, 0)
         return base
 
     def _update_gun_status(self):
@@ -251,6 +271,7 @@ class BattleBaseMixin:
         仅在临时（持久=false）吸收时登记 _absorb_modified；持久吸收不回滚，
         其累计扣减（_absorb_perm_delta）在恢复后仍保留。调用后清空登记，
         确保胜利/死亡/逃跑/结算任一收尾路径都不残留。
+        属性增减（批次4）的怪物属性临时修正一并清除（净修正量只存活于本场战斗）。
         """
         for skill in self._absorb_modified:
             if skill in self._absorb_snapshot:
@@ -258,6 +279,37 @@ class BattleBaseMixin:
                 permanent = self._absorb_perm_delta.get(skill, 0)
                 self.investigator.set_skill(skill, max(0, base - permanent))
         self._absorb_modified.clear()
+        self._monster_attr_delta.clear()
+
+    # --- 属性增减（批次4）：玩家/怪物属性临时修正（快照-恢复机制） ---
+    def _apply_player_attr_mod(self, attr: str, delta: int) -> None:
+        """玩家属性临时修正（自身 buff / 对玩家 debuff）：set_skill + 登记快照恢复。
+
+        仅在目标落在快照白名单内（合法配置）时生效，战斗结束恢复原值。
+        """
+        if attr not in self._absorb_snapshot:
+            return
+        current = self.investigator.get_skill(attr, 0)
+        self.investigator.set_skill(attr, max(0, current + delta))
+        self._absorb_modified.add(attr)
+
+    def _apply_monster_attr_mod(self, attr: str, delta: int) -> None:
+        """怪物属性临时修正（对怪 debuff / 怪物自身 buff）：净修正量登记。
+
+        不写 monster._data（共享 dict 防跨战斗污染）；经 _get_monster_modified /
+        _get_monster_attack_skill 生效，战斗结束随 _restore_absorb_snapshot 清空。
+        """
+        self._monster_attr_delta[attr] = (
+            self._monster_attr_delta.get(attr, 0) + delta
+        )
+
+    def _monster_attr_skill_delta(self) -> int:
+        """怪物战斗属性（力量/格斗/敏捷）临时修正对攻击技能的净影响。"""
+        return sum(
+            self._monster_attr_delta.get(a, 0)
+            for a in _MONSTER_COMBAT_ATTRS
+            if a in self._monster_attr_delta
+        )
 
     # --- 统计二期：战斗流水 / 周目快照（写后不理，绝不回抛） ---
     def _log_battle(self, result: str) -> None:

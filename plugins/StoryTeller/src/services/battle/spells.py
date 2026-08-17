@@ -108,18 +108,79 @@ class BattleSpellsMixin:
         effect = spell.get("effect", {})
         etype = effect.get("type", "damage")
         dice = effect.get("dice", "1d3")
-        expr, val = roll_dice(dice)
 
         if etype == "damage":
+            expr, val = roll_dice(dice)
             monster_text = self._apply_damage_to_monster(val, dmg_type="magic")
             return f"{expr}={val}，造成 {val} 点伤害", monster_text
         if etype == "heal":
+            expr, val = roll_dice(dice)
             max_hp = self.investigator.get_max_hp()
             before = self.hp_record["inv"]
             self.hp_record["inv"] = min(max_hp, before + val)
             healed = self.hp_record["inv"] - before
             return t("spell.heal_self", value=healed), ""
         if etype == "temp_hp":
+            expr, val = roll_dice(dice)
             self.temp_hp += val
             return t("spell.temp_gain", value=val), ""
+        if etype == "dot":
+            # 持续伤害：登记对怪 dot，每回合初 tick（回合数耗尽清除）
+            turns = int(effect.get("回合", 3))
+            tick_text = (
+                effect.get("tick_text")
+                or spell.get("回复")
+                or data_loader.get_text("battle.dot_tick", default="")
+            )
+            self._dot_on_monster = {
+                "dice": dice,
+                "剩余": max(1, turns),
+                "tick_text": tick_text,
+            }
+            return (
+                data_loader.get_text(
+                    "battle.dot_apply",
+                    default="诅咒缠上怪物，它将在每回合初承受 {dice} 点持续伤害（{回合} 回合）。",
+                    dice=dice,
+                    回合=turns,
+                ),
+                "",
+            )
+        if etype == "属性增减":
+            return self._apply_attr_change(spell, effect)
+        if etype == "san":
+            # 玩家对怪无效：怪无 san，validator 或文案兜底，不做玩家 san 自伤
+            return t("spell.san_no_effect"), ""
         return "", ""
+
+    def _apply_attr_change(self, spell: dict, effect: dict) -> tuple[str, str]:
+        """属性增减：目标=自身 → 玩家 buff；目标=怪物 → 对怪 debuff（战斗内临时修正）。"""
+        target = effect.get("目标", "自身")
+        attr = effect.get("属性", "")
+        dice = effect.get("骰子") or effect.get("dice", "1d3")
+        _expr, val = roll_dice(dice)
+        if target == "怪物":
+            self._apply_monster_attr_mod(attr, -val)
+            text = (
+                effect.get("文案")
+                or spell.get("回复")
+                or data_loader.get_text(
+                    "battle.attr_debuff_mon",
+                    default="「{属性}」被压制，怪物的攻势被削弱了 {值} 点。",
+                    属性=attr,
+                    值=val,
+                )
+            )
+            return text, ""
+        self._apply_player_attr_mod(attr, val)
+        text = (
+            effect.get("文案")
+            or spell.get("回复")
+            or data_loader.get_text(
+                "battle.attr_buff",
+                default="「{属性}」在你体内涌动，临时提升 {值} 点。",
+                属性=attr,
+                值=val,
+            )
+        )
+        return text, ""

@@ -226,11 +226,70 @@ class BattleEngineMixin:
             effect_line = t(
                 "battle.monster_spell_shield", expr=expr, val=val, value=val
             )
+        elif etype == "dot":
+            # 持续伤害：怪物对玩家施加 dot，每回合初 tick（回合数耗尽清除）
+            turns = int(effect.get("回合", 3))
+            tick_text = (
+                effect.get("tick_text")
+                or spell.get("回复")
+                or data_loader.get_text("battle.dot_tick", default="")
+            )
+            self._dot_on_player = {
+                "dice": dice,
+                "剩余": max(1, turns),
+                "tick_text": tick_text,
+            }
+            effect_line = data_loader.get_text(
+                "battle.dot_apply_inv",
+                default="诅咒缠上你，你将在每回合初承受 {dice} 点持续伤害（{回合} 回合）。",
+                dice=dice,
+                回合=turns,
+            )
+        elif etype == "属性增减":
+            effect_line = self._apply_monster_attr_spell(spell, effect)
+        elif etype == "san":
+            # san 伤害：扣玩家理智（走现有 set_skill 修改路径，下限 0）
+            san_before = self.investigator.get_skill("san", 0)
+            loss = min(val, san_before)
+            self.investigator.set_skill("san", max(0, san_before - loss))
+            effect_line = t(
+                "battle.monster_spell_san", expr=expr, val=val, value=loss
+            )
         else:
             # damage 型法术：怪物施放对玩家造成实际伤害（魔法标签），走玩家伤害管道
             effect_line = self._apply_damage_to_player(val, dmg_type="magic")
         lines = [t("battle.monster_spell_title", name=name), cast_text, effect_line]
         return ["\n".join(x for x in lines if x)]
+
+    def _apply_monster_attr_spell(self, spell: dict, effect: dict) -> str:
+        """怪物施法 属性增减：目标=自身 → 怪物 buff；目标=玩家 → 玩家 debuff（临时修正）。"""
+        target = effect.get("目标", "自身")
+        attr = effect.get("属性", "")
+        dice = effect.get("骰子") or effect.get("dice", "1d3")
+        _expr, val = roll_dice(dice)
+        if target == "玩家":
+            self._apply_player_attr_mod(attr, -val)
+            return (
+                effect.get("文案")
+                or spell.get("回复")
+                or data_loader.get_text(
+                    "battle.attr_debuff",
+                    default="你感到「{属性}」被压制，临时降低 {值} 点。",
+                    属性=attr,
+                    值=val,
+                )
+            )
+        self._apply_monster_attr_mod(attr, val)
+        return (
+            effect.get("文案")
+            or spell.get("回复")
+            or data_loader.get_text(
+                "battle.attr_buff_mon",
+                default="「{属性}」在怪物体内涌动，临时提升 {值} 点。",
+                属性=attr,
+                值=val,
+            )
+        )
 
     def _resolve_madness(self) -> tuple:
         """疯狂失控：按战斗轮顺序自动结算，怪物行动一次+玩家随机行动一次为一回合，直至疯狂结束。"""
@@ -279,14 +338,61 @@ class BattleEngineMixin:
         turn_end_lines = self._trigger_trinkets("回合结束")
         self._advance_turn()
         self.current_turn = "mon" if self.current_turn == "inv" else "inv"
+        # 持续伤害（批次4）：回合开始挂点——新回合为目标回合时结算 dot tick。
+        # 对齐骨哨每回合伤害模式：玩家对怪 dot 在怪物回合初、怪对玩家 dot 在玩家回合初。
+        dot_lines = self._apply_dot_ticks()
+        if dot_lines:
+            after = self._check_combat_over()
+            if after:
+                return "\n\n".join(dot_lines + [after])
         prompt = self._get_next_turn_prompt()
         # 濒死免死等挂点暂存的触发文案并入本回合提示
         pending = getattr(self, "_trinket_report", [])
         if pending:
             self._trinket_report = []
-        if pending or turn_end_lines:
-            prompt = "\n\n".join((pending or []) + turn_end_lines) + "\n\n" + prompt
+        if pending or turn_end_lines or dot_lines:
+            prompt = (
+                "\n\n".join((pending or []) + turn_end_lines + dot_lines)
+                + "\n\n"
+                + prompt
+            )
         return prompt
+
+    def _apply_dot_ticks(self) -> list[str]:
+        """持续伤害结算（回合开始挂点）：新回合为目标回合时 tick 一次，回合数耗尽清除。
+
+        玩家对怪 dot（_dot_on_monster）在怪物回合初结算、怪对玩家 dot（_dot_on_player）
+        在玩家回合初结算；双方独立记录互不影响。tick 文案按 tick_text → 法术回复 →
+        battle.dot_tick 模板缺省回退。
+        """
+        lines: list[str] = []
+        dot = (
+            self._dot_on_monster
+            if self.current_turn == "mon"
+            else self._dot_on_player
+        )
+        if not dot:
+            return lines
+        expr, val = roll_dice(dot["dice"])
+        tick_text = dot.get("tick_text") or data_loader.get_text(
+            "battle.dot_tick", default="持续伤害发作：{expr}={val}。"
+        )
+        try:
+            line = tick_text.format(expr=expr, val=val, damage=val)
+        except (KeyError, IndexError, ValueError):
+            line = tick_text
+        if self.current_turn == "mon":
+            self._apply_damage_to_monster(val, dmg_type="magic")
+        else:
+            self._apply_damage_to_player(val, dmg_type="magic")
+        lines.append(line)
+        dot["剩余"] -= 1
+        if dot["剩余"] <= 0:
+            if self.current_turn == "mon":
+                self._dot_on_monster = None
+            else:
+                self._dot_on_player = None
+        return lines
 
     def _check_conditional_victory(self) -> Optional[str]:
         """坚守战条件胜利：每回合开始检查 `_turn_counter >= N 且玩家存活` → 条件胜利。

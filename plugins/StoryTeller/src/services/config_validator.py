@@ -993,8 +993,61 @@ class ConfigValidator:
             fx = s.get("effect") or {}
             if isinstance(fx, dict):
                 etype = fx.get("type")
-                if etype not in ("damage", "heal", "temp_hp"):
+                if etype not in (
+                    "damage", "heal", "temp_hp", "dot", "属性增减", "san"
+                ):
                     self._err(file, f"{sid}.effect.type", f"非法法术效果 {etype!r}")
+                elif etype == "dot":
+                    self._validate_spell_dot(file, sid, fx)
+                elif etype == "属性增减":
+                    self._validate_spell_attr(file, sid, fx)
+                elif etype == "san":
+                    self._validate_spell_san(file, sid, fx)
+
+    def _validate_spell_dot(self, file: str, sid: str, fx: dict) -> None:
+        """dot 效果 schema（批次4）：dice 合法骰子、回合 正整数、tick_text 可选非空字符串。"""
+        key = f"{sid}.effect"
+        dice = fx.get("dice")
+        if dice is None:
+            self._err(file, f"{key}.dice", "缺少骰子 dice")
+        elif not self._valid_dice(str(dice)):
+            self._err(file, f"{key}.dice", f"非法骰子表达式 {dice!r}（如 1d3 / 2d4+1）")
+        turns = fx.get("回合")
+        if isinstance(turns, bool) or not isinstance(turns, int) or turns <= 0:
+            self._err(file, f"{key}.回合", f"回合应为正整数，实际 {turns!r}")
+        tick = fx.get("tick_text")
+        if tick is not None and (not isinstance(tick, str) or not tick):
+            self._err(file, f"{key}.tick_text", "应为非空字符串")
+
+    def _validate_spell_attr(self, file: str, sid: str, fx: dict) -> None:
+        """属性增减 效果 schema（批次4）：目标/属性/骰子/持续/文案。"""
+        key = f"{sid}.effect"
+        target = fx.get("目标")
+        if target not in ("自身", "怪物", "玩家"):
+            self._err(file, f"{key}.目标", f"非法目标 {target!r}（合法：自身/怪物/玩家）")
+        attr = fx.get("属性")
+        if attr not in KNOWN_SKILLS:
+            self._err(file, f"{key}.属性", f"非法属性 {attr!r}（合法技能名）")
+        dice = fx.get("骰子")
+        if dice is None:
+            self._err(file, f"{key}.骰子", "缺少骰子字段")
+        elif not self._valid_dice(str(dice)):
+            self._err(file, f"{key}.骰子", f"非法骰子表达式 {dice!r}（如 1d3 / 1d4+1）")
+        duration = fx.get("持续")
+        if duration is not None and duration != "战斗":
+            self._err(file, f"{key}.持续", f"非法持续 {duration!r}（合法：战斗）")
+        text = fx.get("文案")
+        if text is not None and (not isinstance(text, str) or not text):
+            self._err(file, f"{key}.文案", "应为非空字符串")
+
+    def _validate_spell_san(self, file: str, sid: str, fx: dict) -> None:
+        """san 效果 schema（批次4）：dice 合法骰子。"""
+        key = f"{sid}.effect"
+        dice = fx.get("dice")
+        if dice is None:
+            self._err(file, f"{key}.dice", "缺少骰子 dice")
+        elif not self._valid_dice(str(dice)):
+            self._err(file, f"{key}.dice", f"非法骰子表达式 {dice!r}（如 1d3 / 2d4+1）")
 
     def validate_weights(self) -> None:
         """权重文件校验：weights.json（组级概率）+ boss_weights.json（BOSS 触发权重）。"""

@@ -118,6 +118,8 @@ class Monster:
         self._ai_pending_spell = None
         self._ai_dodging = False
         self._ai_dodge = 99
+        # 回合数触发（批次4）：怪物回合计数器（advance_ai 每次调用 +1，施法回合也计入）
+        self._ai_turn_count = 0
         # 变身一次性状态：_ai_transformed 标记已变身（防反复触发）；_ai_transform_text 变身瞬间文案
         self._ai_transformed = False
         self._ai_transform_text = None
@@ -221,10 +223,12 @@ class Monster:
         多法术规则（可选）：`ai.受伤后.多法术`（如 JK）每怪物回合求值一次（无需先受伤）：
         - `{"触发": "hp低", "阈值": 0.5}`：HP < max×阈值 且 MP 足够 → 预取该法术
         - `{"触发": "概率", "值": 0.4}`：random() < 值 且 MP 足够 → 预取该法术
+        - `{"触发": "回合数", "值": 3}`：第 N 个怪物回合施法一次（且 MP 足够）
         MP 不足或未命中规则 → 继续走下方普通推进（不卡回合）。
         """
         if self._ai_data is None:
             return
+        self._ai_turn_count += 1
         if self._ai_pending_spell is not None:
             return  # 本轮为施法回合，不推进攻击次数
         injured = self._ai_data.get("受伤后") or {}
@@ -252,6 +256,14 @@ class Monster:
                 except (TypeError, ValueError):
                     prob = 0
                 if random.random() < prob:
+                    self._ai_pending_spell = sid
+                    return
+            elif trigger == "回合数":
+                try:
+                    target = int(rule.get("值", 0))
+                except (TypeError, ValueError):
+                    target = 0
+                if target > 0 and self._ai_turn_count == target:
                     self._ai_pending_spell = sid
                     return
         limit = self.max_hp
