@@ -152,6 +152,8 @@ class BattleSettlementMixin:
             luck_line = self._t("battle.victory_luck", value=gain)
 
         self.investigator.hp = self.hp_record["inv"]
+        # 战斗结束收尾：恢复临时属性吸收快照（对齐 hp 结算时机，不落持久字段）
+        self._restore_absorb_snapshot()
 
         # 出口①：第 40 天胜利 → 冻结 day（不再 +1）并进入门扉抉择
         door_result = None

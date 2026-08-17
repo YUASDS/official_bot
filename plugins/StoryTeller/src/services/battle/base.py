@@ -10,6 +10,14 @@ if TYPE_CHECKING:
     from ...models.monster import Monster
     from ...models.player import Investigator
 
+# 攻击吸收·属性模式可吸收的目标（player model 技能字段全集 + san）：
+# 与 config_validator.KNOWN_SKILLS 对齐，战斗内临时吸收只改快照内目标。
+_ABSORBABLE_SKILLS: tuple[str, ...] = (
+    "力量", "体质", "体型", "智力", "意志", "敏捷", "教育", "幸运", "外貌",
+    "格斗", "闪避", "侦查", "聆听", "手枪", "步枪", "急救", "医学",
+    "克苏鲁神话", "san",
+)
+
 
 class BattleBaseMixin:
     def __init__(self, investigator: Investigator, monster: Monster) -> None:
@@ -33,6 +41,16 @@ class BattleBaseMixin:
 
         self.is_madness = False
         self.madness_duration = 0
+
+        # 攻击吸收（批次2）：战斗内临时属性吸收快照-恢复（不落 player model 持久字段）。
+        # 战斗初始化记录可吸收技能原值；临时吸收只改内存缓存值并登记 _absorb_modified，
+        # 战斗结束（对齐 hp/san 结算时机）由 _restore_absorb_snapshot 统一恢复原值。
+        # _absorb_perm_delta 累计持久扣减（恢复临时时仅撤销临时部分，保留持久结果）。
+        self._absorb_snapshot: dict[str, int] = {
+            skill: investigator.get_skill(skill, 0) for skill in _ABSORBABLE_SKILLS
+        }
+        self._absorb_modified: set[str] = set()
+        self._absorb_perm_delta: dict[str, int] = {}
 
         self.environment: dict[str, dict] = {}
         self._weapon_reply_shown = False
@@ -179,6 +197,21 @@ class BattleBaseMixin:
                 self.gun = None
         else:
             self.gun = None
+
+    # --- 攻击吸收·临时属性快照恢复（幂等，战斗结束收尾统一调用） ---
+    def _restore_absorb_snapshot(self) -> None:
+        """恢复战斗内被临时吸收的玩家属性到快照原值（多次调用安全）。
+
+        仅在临时（持久=false）吸收时登记 _absorb_modified；持久吸收不回滚，
+        其累计扣减（_absorb_perm_delta）在恢复后仍保留。调用后清空登记，
+        确保胜利/死亡/逃跑/结算任一收尾路径都不残留。
+        """
+        for skill in self._absorb_modified:
+            if skill in self._absorb_snapshot:
+                base = self._absorb_snapshot[skill]
+                permanent = self._absorb_perm_delta.get(skill, 0)
+                self.investigator.set_skill(skill, max(0, base - permanent))
+        self._absorb_modified.clear()
 
     # --- 统计二期：战斗流水 / 周目快照（写后不理，绝不回抛） ---
     def _log_battle(self, result: str) -> None:

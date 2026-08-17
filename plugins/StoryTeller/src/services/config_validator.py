@@ -180,6 +180,48 @@ class ConfigValidator:
             return False
         return True
 
+    @staticmethod
+    def _valid_dice(dice: str) -> bool:
+        """骰子表达式合法性：`NdM[±K]` 复合式（如 1d6、2d4+1、1d6-2、纯数值 5）。"""
+        if not isinstance(dice, str) or not dice:
+            return False
+        import re
+
+        part = r"[0-9]*d[0-9]+|[0-9]+"
+        return bool(
+            re.fullmatch(rf"{part}(?:\s*[+-]\s*{part})*", dice.strip())
+        )
+
+    def _validate_absorb(self, file: str, key: str, absorb: Any) -> None:
+        """攻击吸收字段校验（monster 攻击表）：类型 / 目标 / 骰子 / 持久 / 文案。"""
+        if not self._require_dict(file, key, absorb):
+            return
+        a_type = absorb.get("类型")
+        if a_type not in ("hp", "护盾", "属性"):
+            self._err(
+                file, f"{key}.类型",
+                f"非法吸收类型 {a_type!r}（合法：hp/护盾/属性）",
+            )
+        dice = absorb.get("骰子")
+        if dice is not None and not self._valid_dice(str(dice)):
+            self._err(
+                file, f"{key}.骰子",
+                f"非法骰子表达式 {dice!r}（如 1d6 / 1d4+1）",
+            )
+        if a_type == "属性":
+            target = absorb.get("目标")
+            if target not in KNOWN_SKILLS:
+                self._err(
+                    file, f"{key}.目标",
+                    f"属性吸收必须指定合法技能名，实际 {target!r}",
+                )
+        persist = absorb.get("持久")
+        if persist is not None and not isinstance(persist, bool):
+            self._err(file, f"{key}.持久", "应为 bool（true=永久扣减）")
+        text = absorb.get("文案")
+        if text is not None and (not isinstance(text, str) or not text):
+            self._err(file, f"{key}.文案", "应为非空字符串")
+
     def _check_items_ref(self, file: str, key: str, items: Any) -> None:
         """物品引用：str 或 list[str]，每一项必须存在于 goods_data。"""
         ids = items if isinstance(items, list) else [items]
@@ -319,6 +361,11 @@ class ConfigValidator:
                     dmg = act.get("damage")
                     if not isinstance(dmg, str) or not dmg:
                         self._err(file, f"{mid}.攻击.{act_name}.damage", "缺少伤害骰 damage")
+                    # 攻击吸收（批次2）：吸收字段 schema 校验
+                    if "吸收" in act:
+                        self._validate_absorb(
+                            file, f"{mid}.攻击.{act_name}.吸收", act["吸收"]
+                        )
             # 战斗系统扩展（批次1）：免疫 / 抗性 / 骰子压制
             immune = m.get("免疫")
             if immune is not None:

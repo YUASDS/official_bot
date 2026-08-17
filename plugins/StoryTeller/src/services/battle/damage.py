@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from ..dice_roller import roll_dice
 
 # 伤害标签 → 怪物数据键（免疫/抗性 用「物理/魔法」，标签用 physical/magic）
 _DMG_TAG_TO_CN = {"physical": "物理", "magic": "魔法"}
@@ -131,3 +132,81 @@ class BattleDamageMixin:
         if trinket_lines:
             reply = f"{reply}\n\n" + "\n".join(trinket_lines)
         return reply
+
+    # --- 攻击吸收（批次2）：命中检定成功后不走伤害路径，改走吸收结算 ---
+    def _apply_absorb(self, monster_action: dict) -> tuple[str, str]:
+        """怪物攻击吸收结算：按类型分派，返回 (怪物文案, 玩家文案)。
+
+        - hp：玩家扣血 = 怪物回血（扣血不走护甲减伤，直接扣 hp 记录）
+        - 护盾：玩家 temp_hp 转移为怪 monster_temp_hp（转移量 = min(骰值, temp_hp)；
+          玩家无护盾落空，伤害 0 无额外惩罚）
+        - 属性：扣玩家属性（默认战斗内临时，战斗结束恢复；持久=永久扣减 + 警示）
+        """
+        absorb = monster_action.get("吸收")
+        if not isinstance(absorb, dict):
+            return "", ""
+        a_type = absorb.get("类型")
+        _expr, val = roll_dice(str(absorb.get("骰子", "1d1")))
+        custom = absorb.get("文案") or ""
+        if a_type == "hp":
+            return self._absorb_hp(val, custom)
+        if a_type == "护盾":
+            return self._absorb_shield(val, custom)
+        if a_type == "属性":
+            return self._absorb_attr(absorb, val, custom)
+        return "", ""
+
+    def _absorb_hp(self, val: int, custom: str) -> tuple[str, str]:
+        """吸血：玩家扣血（护甲不防，直接扣 hp）＝ 怪物回血（封顶 max_hp）。"""
+        before = self.hp_record["inv"]
+        self.hp_record["inv"] = max(0, before - val)
+        actual = before - self.hp_record["inv"]
+        self._stat_dmg_taken = getattr(self, "_stat_dmg_taken", 0) + actual
+        healed = self.monster.hp
+        self.monster.hp = min(self.monster.max_hp, healed + val)
+        self.hp_record["mon"] = self.monster.hp
+        absorbed = self.hp_record["mon"] - healed
+        monster_text = custom or self._t("battle.absorb_hp", 值=absorbed)
+        if actual > before / 2:
+            player_text = self._get_reply("高伤害")
+        elif actual < 2:
+            player_text = self._get_reply("低伤害")
+        else:
+            player_text = self._get_reply("正常伤害")
+        return monster_text, player_text
+
+    def _absorb_shield(self, val: int, custom: str) -> tuple[str, str]:
+        """护盾吞噬：玩家 temp_hp 转移为怪 monster_temp_hp；无护盾落空无惩罚。"""
+        if self.temp_hp <= 0:
+            # 无护盾：吸收落空（专属文案描述成功吸收，落空一律用落空模板）
+            return self._t("battle.absorb_shield_miss"), ""
+        transfer = min(val, self.temp_hp)
+        self.temp_hp -= transfer
+        self.monster_temp_hp += transfer
+        monster_text = custom or self._t("battle.absorb_shield", 值=transfer)
+        return monster_text, ""
+
+    def _absorb_attr(self, absorb: dict, val: int, custom: str) -> tuple[str, str]:
+        """属性吸收：默认战斗内临时（战斗结束恢复）；持久=true 永久扣减 + 警示文案。"""
+        target = absorb.get("目标", "")
+        if target not in self._absorb_snapshot:
+            # 兜底：目标不在快照白名单（非法配置绕过校验），不结算吸收
+            return custom or self._t("battle.absorb_attr", 属性=target, 值=0), ""
+        permanent = bool(absorb.get("持久", False))
+        current = self.investigator.get_skill(target, 0)
+        deducted = min(val, current)
+        self.investigator.set_skill(target, current - deducted)
+        if permanent:
+            # 累计持久扣减（供临时恢复时保留持久结果）
+            self._absorb_perm_delta[target] = (
+                self._absorb_perm_delta.get(target, 0) + deducted
+            )
+        else:
+            self._absorb_modified.add(target)
+        monster_text = custom or self._t("battle.absorb_attr", 属性=target, 值=deducted)
+        if permanent:
+            monster_text = (
+                f"{monster_text}\n"
+                f"{self._t('battle.absorb_attr_perm', 属性=target, 值=deducted)}"
+            )
+        return monster_text, ""

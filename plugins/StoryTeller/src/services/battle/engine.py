@@ -298,6 +298,7 @@ class BattleEngineMixin:
                 # GM 房间·战败隔离：不落 is_survive、不登记 E07、不碰 SAN/进度，
                 # 仅标记战败由 gm_room 接管（GM 复活 / 空手退出）。
                 self.gm_room_defeated = True
+                self._restore_absorb_snapshot()
                 header = data_loader.get_text(
                     "gm_room_v2.battle_defeat",
                     default="守卫的最后一击将你击倒在地，眼前一阵发黑。",
@@ -324,6 +325,7 @@ class BattleEngineMixin:
             if getattr(self.monster, "id", "") == "32":
                 self._record_run_choice("hound", "killed_by")
             self.investigator.is_survive = False
+            self._restore_absorb_snapshot()
             self.investigator.save()
             header = self._t("battle.death_text", name=self.player_name)
             detail = (
@@ -343,6 +345,7 @@ class BattleEngineMixin:
                 # GM 房间·胜利隔离：不走掉落/成长/day+1/门扉/SAN 回复，
                 # 奖励由 gm_room 状态机按分支发放。
                 self.gm_room_victory = True
+                self._restore_absorb_snapshot()
                 ending = getattr(self.monster, "结局", self._t("battle.monster_dead"))
                 header = f"{self._t('battle.victory_title')}\n\n{ending}"
                 self.end_parts = (header, "")
@@ -370,6 +373,7 @@ class BattleEngineMixin:
         """第 40 天战败（1.3）：持 501 自动复活并进入门扉抉择；无 501 直接 E05。"""
         inv = self.investigator
         inv.is_survive = False
+        self._restore_absorb_snapshot()
         inv.save()
         result = on_battle_40_end(inv, win=False)
         self.door_choice = result

@@ -180,11 +180,15 @@ class BattleActionsMixin:
         """@description 怪物攻击成功结算：critical=False 时强制普通伤害（反击不叠暴击）。
 
         返回 (怪物文案, 玩家承受文案)；命中判定由调用方完成。
+        行动带 `吸收` 时命中后不走伤害路径，改走 _apply_absorb 吸收结算。
         """
         if level is None:
             level = confrontation.level1
         if not critical:
             level = min(level, SuccessLevel.SUCCESS)
+        absorb = monster_action.get("吸收")
+        if isinstance(absorb, dict) and absorb.get("类型"):
+            return self._apply_absorb(monster_action)
         armor = self.investigator.get_armor_value()
         expr, val = self._monster_damage_roll(monster_action, level)
         final_val = max(0, val - armor)
@@ -411,6 +415,7 @@ class BattleActionsMixin:
             self.fled = True
             self.investigator.hp = self.hp_record["inv"]
             self.investigator.is_adventure = False
+            self._restore_absorb_snapshot()
             self.investigator.save()
             self.end_parts = (
                 f"{flee_check}\n\n{self._t('battle.flee_success')}",
