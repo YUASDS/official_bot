@@ -860,5 +860,23 @@
   "type": "misc",
   "part": "misc",
   "cross_run": true
+ },
+ "516": {
+  "visible": true,
+  "name": "深渊之瞳",
+  "des": "一枚深蓝的印记，安静地嵌在右手掌心。你看它时，它也看你。",
+  "price": 0,
+  "type": "misc",
+  "part": "misc",
+  "cross_run": true
+ },
+ "517": {
+  "visible": true,
+  "name": "镜之碎片",
+  "des": "从三百二十七片碎镜里拾起的那一片。翻过来，水银层上有行小字：往前走。",
+  "price": 0,
+  "type": "misc",
+  "part": "misc",
+  "cross_run": true
  }
 }
