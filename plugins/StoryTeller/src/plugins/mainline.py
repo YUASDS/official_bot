@@ -406,8 +406,11 @@ async def try_mainline_daily(
     - False：不接管（走既有 乱入/普通冒险，零回归）。
 
     顺序：选择器(day1) → opt_out 短路 → 分流判定(resolve_branch) → 开幕插曲(opening)
-    → 分支节点(branch)。命中分支/开幕 → 占日(day+1) + 走对应 flow。
+        → 分支节点(branch)。命中分支/开幕 → 占日(day+1) + 走对应 flow。
     """
+    # 幂等解锁检查：真实主流程每次入口置位 ml.unlocked（读结局数 ng_plus >= 门槛）。
+    # 缺此调用会导致旗标恒空——选择器/开幕/分支永不触发（线上 bug：多周目无选择器按钮）。
+    is_unlocked(inv)
     if selector_available(inv):
         return SELECTOR_SIGNAL
     if inv.get_flag("ml.opt_out"):
