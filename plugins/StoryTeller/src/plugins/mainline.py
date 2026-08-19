@@ -34,6 +34,10 @@ _LANES = ("dread", "hymn", "free")
 # 平局策略别名 → 实际线键：courage=勇气线=hymn（设计 §2 默认值）
 _TIEBREAK_ALIAS = {"courage": "hymn", "dread": "dread", "hymn": "hymn", "free": "free"}
 
+# 二周目选择器信号：try_mainline_daily 返回此值表示「需选择」（不发 opening），由调用方展示选择 UI。
+# 唯一特殊返回：False=零动作；True=主线已占日接管；SELECTOR_SIGNAL=day1 需选择。
+SELECTOR_SIGNAL = "mainline.selector"
+
 # 配置缓存（对齐 boss_framework._load_boss_file）：首次读取后缓存，测试可重置
 _mainline_config: Optional[dict] = None
 _ML_CONFIG_PATH = (
@@ -100,6 +104,14 @@ def _unlocked(inv) -> bool:
     return bool(inv.get_flag("ml.unlocked"))
 
 
+def _mainline_enabled(inv) -> bool:
+    """主线机制总开关：二周目已解锁 且 未「重游门扉」（ml.opt_out）。
+
+    选择器选「重游门扉」后本局为纯门扉推进（opening/branch/怪物池全部关闭，零主线）。
+    """
+    return _unlocked(inv) and not inv.get_flag("ml.opt_out")
+
+
 def _opening_days() -> list[int]:
     days = _cfg("开幕插曲", "days")
     if not isinstance(days, list):
@@ -119,7 +131,7 @@ def opening_available(inv, day) -> bool:
     「当日未处理」= ml.opening.<day>.picked 未置位。返回 True 表示冒险互斥链应接管当日，
     由调用方占日并走 `flow mainline.opening`。
     """
-    if not _unlocked(inv):
+    if not _mainline_enabled(inv):
         return False
     if inv.get_flag("ml.line"):
         return False
@@ -164,7 +176,7 @@ def resolve_branch(inv, day) -> str | None:
     """
     if inv.get_flag("ml.line"):
         return None
-    if not _unlocked(inv):
+    if not _mainline_enabled(inv):
         return None
     win_day = _cfg("分歧窗口", "day")
     win_day = int(win_day) if win_day is not None else 10
@@ -205,12 +217,13 @@ def mainline_pool(inv) -> Optional[list[str]]:
     """冒险融合钩子：返回当日怪物应取自的主线池（id 列表）或 None。
 
     三态：
-    - 未解锁（一周目/红旗未解锁）→ None（走 check_point 默认，零回归）。
+    -     未解锁（一周目/红旗未解锁）→ None（走 check_point 默认，零回归）。
     - 已分流（ml.line）→ 分支池。
     - 未分流但有最近倾向（ml.at）→ 倾向池。
     - 其余（未做任何主线选择）→ None（check_point 默认）。
+    - 「重游门扉」（ml.opt_out）→ None（纯门扉推进，零主线）。
     """
-    if not _unlocked(inv):
+    if not _mainline_enabled(inv):
         return None
     lane = _pool_lane(inv)
     if lane is None:
@@ -246,11 +259,16 @@ def branch_available(inv, day) -> bool:
 
     「当日未处理」= ml.<line>.node.<day> 未置位。命中的分支节点由冒险互斥链占日走
     `flow mainline.<line>`，并计数 ml.<line>.node。
+
+    终局互斥：三线终局（ml.<line>.done）达成后不再重排分支节点——day40 不再重触发终局
+    （防「双结局/双 day40」），且不落入门扉守门人判定（mainline 玩家 day40 归主线侧）。
     """
-    if not _unlocked(inv):
+    if not _mainline_enabled(inv):
         return False
     line = inv.get_flag("ml.line")
     if not line:
+        return False
+    if inv.get_flag(f"ml.{line}.done"):
         return False
     offset = _branch_day_offset(inv, day)
     if offset < 0:
@@ -285,6 +303,60 @@ def register_mainline_ending(inv, ending_id: str, line: str | None = None) -> No
         inv.set_flag(f"ml.{line}.done", True)
     ending_repo.add_ending(inv.qq, ending_id)
     inv.save()
+
+
+# --- 二周目选择器（day1 踏入主线 / 重游门扉） ---
+def selector_enabled() -> bool:
+    """选择器是否启用（mainline_config `选择器.启用`，缺省 True）。"""
+    en = _cfg("选择器", "启用")
+    return bool(en) if en is not None else True
+
+
+def selector_copy() -> dict:
+    """选择器文案段（`选择器.文案`，缺省空 dict）。"""
+    copy = _cfg("选择器", "文案") or {}
+    return copy if isinstance(copy, dict) else {}
+
+
+def selector_chosen_text() -> str:
+    """已选过文案（`选择器.选过文案`，缺省回退）。"""
+    return str(_cfg("选择器", "选过文案") or "你已做过选择。")
+
+
+def selector_available(inv) -> bool:
+    """day1 选择器判定：启用 + 二周目已解锁 + 未选过（ml.opt_choice 未设）+ day==1。
+
+    二周目玩家 day1 有且仅有一次明确选择机会；选定后（opt_choice）恒不再出现。
+    day>1 仍未选不强制卡住——直接走既有主线/普通冒险流程。
+    """
+    if not selector_enabled():
+        return False
+    if not _unlocked(inv):
+        return False
+    if inv.get_flag("ml.opt_choice"):
+        return False
+    return int(inv.day) == 1
+
+
+def apply_selector_choice(inv, choice: str, save: bool = True) -> bool:
+    """应用选择器选项：guard_in→ml.opt_in（踏入主线）；door→ml.opt_out（重游门扉）。
+
+    任一选择都置 ml.opt_choice=true（本局已选，不再弹选择器）。已选过返回 False（幂等）。
+    opt_out 后本局 opening/branch/怪物池全部关闭（纯门扉推进）。
+    """
+    if inv.get_flag("ml.opt_choice"):
+        return False
+    choice = str(choice)
+    if choice in ("guard_in", "guard", "主线", "踏入主线"):
+        inv.set_flag("ml.opt_in", True)
+    elif choice in ("door", "门扉", "重游门扉"):
+        inv.set_flag("ml.opt_out", True)
+    else:
+        return False
+    inv.set_flag("ml.opt_choice", True)
+    if save:
+        inv.save()
+    return True
 
 
 # --- 冒险互斥链调度入口（adventure.py 调用） ---
@@ -324,12 +396,23 @@ def _process_mainline_inv(user_id: str) -> Any:
 
 async def try_mainline_daily(
     user_id: str, inv, bot, send, finish
-) -> bool:
-    """冒险互斥链主线优先级入口：命中则接管当日并返回 True。
+) -> Any:
+    """冒险互斥链主线优先级入口。
 
-    顺序：分流判定(resolve_branch) → 开幕插曲(opening) → 分支节点(branch)。
-    命中任一 → 占日(day+1) + 走对应 flow。都不满足返回 False（走既有 乱入/普通冒险，零回归）。
+    返回：
+    - `SELECTOR_SIGNAL`：二周目 day1 待选择——调用方展示选择器 UI（不占日、不发 opening），
+      玩家选中后重进当日冒险。
+    - True：主线命中占日接管当日。
+    - False：不接管（走既有 乱入/普通冒险，零回归）。
+
+    顺序：选择器(day1) → opt_out 短路 → 分流判定(resolve_branch) → 开幕插曲(opening)
+    → 分支节点(branch)。命中分支/开幕 → 占日(day+1) + 走对应 flow。
     """
+    if selector_available(inv):
+        return SELECTOR_SIGNAL
+    if inv.get_flag("ml.opt_out"):
+        return False
+
     resolved = resolve_branch(inv, inv.day)
     if resolved:
         inv = _process_mainline_inv(user_id) or inv

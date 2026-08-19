@@ -54,7 +54,14 @@ from ..services.sanity import run_sanity_and_madness
 from .jk import hidden_should_trigger
 from .guest import guest_enter, guest_should_trigger
 from .gm_room import gm_afterglow, gm_room_enter, gm_room_should_trigger
-from .mainline import pick_mainline_monster, try_mainline_daily
+from .mainline import (
+    SELECTOR_SIGNAL,
+    apply_selector_choice,
+    pick_mainline_monster,
+    selector_chosen_text,
+    selector_copy,
+    try_mainline_daily,
+)
 from .npc import (
     inject_companion,
     npc_handle_command,
@@ -400,7 +407,11 @@ async def _run_adventure(
 
         # 主线弧互斥链优先级最高（二周目）：开幕插曲/分支节点命中即接管当日（占日 day+1 走 flow）。
         # 一周目/未解锁恒不命中（mainline 内部零回归红线），此处返回 False 走既有 乱入/普通冒险。
-        if await try_mainline_daily(user_id, inv, bot, send, finish):
+        # 二周目 day1 返回 SELECTOR_SIGNAL → 展示选择器 UI（不占日），玩家选择后重进当日冒险。
+        _signal = await try_mainline_daily(user_id, inv, bot, send, finish)
+        if _signal is not False:
+            if _signal is SELECTOR_SIGNAL or _signal == "mainline.selector":
+                await _present_mainline_selector(user_id, bot, send)
             return
 
         # 隐藏挑战 BOSS（jk/qiren 及未来新 BOSS）：挑战旗标 → 强制绑定怪物（boss 配置表）；
@@ -1440,6 +1451,79 @@ async def handle_event_choice(
     await _send(send_turn(battle, bot, reply))
 
 
+# --- 二周目选择器（day1 踏入主线 / 重游门扉） ---
+def _present_mainline_selector(
+    user_id: str, bot: Bot, send: Callable
+) -> None:
+    """选择器 UI：标题 + 双选项说明 + 双按钮（对齐项目按钮模式：keyboard + cmd_tag 兜底）。"""
+    copy = selector_copy()
+    title = copy.get("标题", "这是一段二周目的旅程。")
+    opt1 = copy.get("选项1", "踏入主线")
+    opt1_desc = copy.get("选项1说明", "")
+    opt2 = copy.get("选项2", "重游门扉")
+    opt2_desc = copy.get("选项2说明", "")
+
+    kb = build_keyboard(
+        [
+            [
+                (opt1, "mainline_selector:guard_in"),
+                (opt2, "mainline_selector:door"),
+            ]
+        ]
+    )
+    body = (
+        f"\n**{title}**\n\n"
+        f"🔹 `{opt1}`\n> {opt1_desc}  \n"
+        f"{cmd_tag('/踏入主线', show=opt1)}\n\n"
+        f"🔹 `{opt2}`\n> {opt2_desc}  \n"
+        f"{cmd_tag('/重游门扉', show=opt2)}"
+    )
+    msg = md_message(body, bot, mention=user_id)
+    if kb is not None and not isinstance(msg, str):
+        msg.append(kb)
+    send(msg)
+
+
+async def handle_mainline_selector_button(
+    user_id: str,
+    payload: str,
+    bot: Bot,
+    group_openid: str = "",
+    token: int | None = None,
+) -> None:
+    """选择器按钮回调：置对应旗标（opt_in/opt_out + opt_choice）后重进当日冒险。"""
+    inv_model = investigator_repo.find_by_qq(user_id)
+    if inv_model is None:
+        await _send_to_user(
+            bot,
+            user_id,
+            need_create_message(bot, mention=user_id),
+            group_openid,
+        )
+        return
+    inv = Investigator(inv_model)
+    if not apply_selector_choice(inv, payload):
+        await _send_to_user(
+            bot,
+            user_id,
+            md_message(f"\n{selector_chosen_text()}", bot, mention=user_id),
+            group_openid,
+        )
+        return
+
+    async def _send(msg) -> None:
+        await _send_to_user(bot, user_id, msg, group_openid)
+
+    async def _finish(msg) -> None:
+        await _send_to_user(bot, user_id, msg, group_openid)
+        raise FinishedException
+
+    try:
+        await _run_adventure(user_id, bot, _send, _finish)
+    except FinishedException:
+        pass
+
+
 # --- 按钮回调注册 ---
 register_button_handler("action", handle_combat_action)
 register_button_handler("event", handle_event_choice)
@@ -1448,4 +1532,5 @@ register_button_handler("door", handle_door_choice)
 register_button_handler("resurrect", handle_resurrect_button)
 register_button_handler("adventure", handle_adventure_button)
 register_button_handler("scroll_adventure", handle_scroll_adventure_button)
+register_button_handler("mainline_selector", handle_mainline_selector_button)
 setup_button_callback()
