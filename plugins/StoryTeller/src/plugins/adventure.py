@@ -91,7 +91,6 @@ from ..services.daily_service import (
     door_states,
 )
 
-
 # 周目联动配置段（reply_data.json `loop_linkage`）：天数/怪物 id/概率/权重/环境名全部数据驱动，
 # 缺省逐项回退现状魔法数字（零行为）。
 def _loop_linkage(key: str) -> dict:
@@ -162,11 +161,7 @@ def _apply_hound_hesitation(
     flag = cfg.get("flag", "past.hound")
     value = cfg.get("value", "killed_by")
     guard_flag = cfg.get("guard_flag", "past.hound_hesitated")
-    if (
-        monster_id == mid
-        and inv.get_flag(flag) == value
-        and not inv.get_flag(guard_flag)
-    ):
+    if monster_id == mid and inv.get_flag(flag) == value and not inv.get_flag(guard_flag):
         service.hound_hesitates = True
 
 
@@ -613,7 +608,9 @@ async def _run_adventure(
             inv.is_survive = False
             inv.save()
             _mark_adventure_done(user_id)
-            await send_sanity_zero(service, inv, san_desc, san_loss, bot, send)
+            await send_sanity_zero(
+                service, inv, san_desc, san_loss, bot, send
+            )
             # E06 结局卡片（卡片优先，渲染失败回退 md 结局文案）
             if not await _try_send_ending_card(
                 bot,
@@ -689,7 +686,9 @@ async def _run_adventure(
         )
         img = await render_pic(battle_open_html(service, battle_reply))
         if img is not None and await send_pic(bot, img, send):
-            await send(send_turn(service, bot, service.get_action_section()))
+            await send(
+                send_turn(service, bot, service.get_action_section())
+            )
             return
 
         # 图片失败回退 md（含完整开场内容）
@@ -738,7 +737,6 @@ async def handle_adventure_button(
     token: int | None = None,
 ) -> None:
     """「今日冒险」按钮回调：与命令共用同一流程。"""
-
     async def _send(msg: Any) -> None:
         await _send_to_user(bot, user_id, msg, group_openid)
 
@@ -860,9 +858,7 @@ async def handle_combat(event: Event, bot: Bot, msg: Message = CommandArg()):
     npc_state = npc_states.pop(user_id, None)
     if npc_state:
         choice = action.removeprefix("/行动 ").removeprefix("/行动").strip()
-        await npc_handle_command(
-            user_id, npc_state["npc_id"], choice, bot, combat_cmd.send
-        )
+        await npc_handle_command(user_id, npc_state["npc_id"], choice, bot, combat_cmd.send)
         return
 
     # Check for pending event choice first
@@ -907,9 +903,7 @@ async def handle_combat(event: Event, bot: Bot, msg: Message = CommandArg()):
             if skip_battle:
                 # 检定成功：跳过今日战斗（图片卡片优先，失败回退 md）
                 battle.investigator.is_adventure = False
-                _advance_day_after_event(
-                    battle.investigator
-                )  # day +1（day40 冻结），与胜利结算一致
+                _advance_day_after_event(battle.investigator)  # day +1（day40 冻结），与胜利结算一致
                 battle_manager.remove_battle(user_id)
                 _mark_adventure_done(user_id)
                 await send_event_skip_battle(
@@ -1031,13 +1025,8 @@ async def handle_combat(event: Event, bot: Bot, msg: Message = CommandArg()):
             await send_combat_result(battle, bot, result, send=combat_cmd.send)
             if battle.fight_is_over():
                 await _send_new_battle_endings(
-                    bot,
-                    user_id,
-                    "",
-                    battle,
-                    before,
-                    _ending_ids_snapshot(user_id),
-                    combat_cmd.send,
+                    bot, user_id, "", battle, before,
+                    _ending_ids_snapshot(user_id), combat_cmd.send,
                 )
                 await _cleanup_battle(user_id, battle)
                 await _present_door_choice(user_id, battle, bot, combat_cmd.send)
@@ -1059,13 +1048,8 @@ async def handle_combat(event: Event, bot: Bot, msg: Message = CommandArg()):
 
     if battle.fight_is_over():
         await _send_new_battle_endings(
-            bot,
-            user_id,
-            "",
-            battle,
-            before,
-            _ending_ids_snapshot(user_id),
-            combat_cmd.send,
+            bot, user_id, "", battle, before,
+            _ending_ids_snapshot(user_id), combat_cmd.send,
         )
         await _cleanup_battle(user_id, battle)
         await _present_door_choice(user_id, battle, bot, combat_cmd.send)
@@ -1124,13 +1108,8 @@ async def handle_combat_action(
 
     if battle.fight_is_over():
         await _send_new_battle_endings(
-            bot,
-            user_id,
-            group_openid,
-            battle,
-            before,
-            _ending_ids_snapshot(user_id),
-            _send,
+            bot, user_id, group_openid, battle, before,
+            _ending_ids_snapshot(user_id), _send,
         )
         await _cleanup_battle(user_id, battle)
         await _present_door_choice(user_id, battle, bot, _send, group_openid)
@@ -1303,7 +1282,9 @@ async def handle_door_choice(
         await _send(md_message(f"\n{result['message']}", bot, mention=user_id))
 
 
-async def _start_day40_refight(user_id: str, bot: Bot, send: Callable) -> None:
+async def _start_day40_refight(
+    user_id: str, bot: Bot, send: Callable
+) -> None:
     """「重赴门前」：以守门人 36 重开 day40 战斗（跳过事件与每日守卫）。"""
     inv_model = investigator_repo.find_by_qq(user_id)
     if inv_model is None:
@@ -1323,7 +1304,9 @@ async def _start_day40_refight(user_id: str, bot: Bot, send: Callable) -> None:
     monster_intro = getattr(
         monster,
         "出场",
-        data_loader.get_text("adventure.monster_intro_default", name=monster.name),
+        data_loader.get_text(
+            "adventure.monster_intro_default", name=monster.name
+        ),
     )
     reply = (
         f"🚪 **你再次站到门前。**\n\n"
@@ -1412,9 +1395,7 @@ async def handle_event_choice(
         if skip_battle:
             # 检定成功：跳过今日战斗（图片卡片优先，失败回退 md）
             battle.investigator.is_adventure = False
-            _advance_day_after_event(
-                battle.investigator
-            )  # day +1（day40 冻结），与胜利结算一致
+            _advance_day_after_event(battle.investigator)  # day +1（day40 冻结），与胜利结算一致
             battle_manager.remove_battle(user_id)
             _mark_adventure_done(user_id)
             await send_event_skip_battle(battle, event_reply, bot, _send, _send)
@@ -1456,7 +1437,9 @@ async def handle_event_choice(
             inv=battle.investigator,
             send=_send,
         ):
-            await _send(md_message(f"\n{e06_result['message']}", bot, mention=user_id))
+            await _send(
+                md_message(f"\n{e06_result['message']}", bot, mention=user_id)
+            )
         return
     if is_mad:
         battle.set_madness(True, madness_duration)
@@ -1487,7 +1470,9 @@ async def handle_event_choice(
 
 
 # --- 二周目选择器（day1 踏入主线 / 重游门扉） ---
-async def _present_mainline_selector(user_id: str, bot: Bot, send: Callable) -> None:
+async def _present_mainline_selector(
+    user_id: str, bot: Bot, send: Callable
+) -> None:
     """选择器 UI：标题 + 双选项说明 + 双按钮（对齐项目按钮模式：keyboard + cmd_tag 兜底）。"""
     copy = selector_copy()
     title = copy.get("标题", "这是一段二周目的旅程。")
@@ -1497,11 +1482,11 @@ async def _present_mainline_selector(user_id: str, bot: Bot, send: Callable) -> 
     opt2_desc = copy.get("选项2说明", "")
 
     kb = build_keyboard(
-        [
-            [(opt1, "mainline_selector:guard_in")],
-            [(opt2, "mainline_selector:door")],
-        ]
-    )
+            [
+                [(opt1, "mainline_selector:guard_in")],
+                [(opt2, "mainline_selector:door")],
+            ]
+        )
     body = (
         f"\n**{title}**\n\n"
         f"🔹 `{opt1}`\n> {opt1_desc}  \n"
@@ -1512,7 +1497,7 @@ async def _present_mainline_selector(user_id: str, bot: Bot, send: Callable) -> 
     msg = md_message(body, bot, mention=user_id)
     if kb is not None and not isinstance(msg, str):
         msg.append(kb)
-        await send(msg)
+    await send(msg)
 
 
 async def handle_mainline_selector_button(
