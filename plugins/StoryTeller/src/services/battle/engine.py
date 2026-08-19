@@ -317,6 +317,7 @@ class BattleEngineMixin:
                 if self.madness_duration == 0:
                     self.is_madness = False
                     msg += self._t("battle.madness_end")
+                self.current_action = random_action  # 疯狂随机行动同步 current_action，防武器判定读到残留动作
                 parts.append(msg)
                 parts.extend(self._execute_player_action(random_action))
                 if self.current_turn == "inv" and not self.fight_is_over():
