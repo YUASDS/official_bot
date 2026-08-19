@@ -173,6 +173,28 @@ def _resurrect_price() -> int:
     return 200
 
 
+def _new_chapter_guide() -> str:
+    """结局结算后的「迈向新篇」指引：首行 + 既有段 + 指令行。
+
+    组合 ending.frozen_ended 首行与 adventure.day40_new_chapter 段，
+    末尾附 /迈向新篇 指令（NoneBot 文本命令，玩家可直接触发新周目）。
+    """
+    try:
+        first = data_loader.get_text(
+            "ending.frozen_ended",
+            default="结局已结算，庄园不再回应你的呼唤。",
+        )
+    except Exception:  # noqa: BLE001
+        first = "结局已结算，庄园不再回应你的呼唤。"
+    try:
+        body = data_loader.get_text("adventure.day40_new_chapter", default="")
+    except Exception:  # noqa: BLE001
+        body = ""
+    if not body:
+        return first
+    return f"{first}\n\n{body}\n\n🔹 `/迈向新篇`"
+
+
 async def _send_frozen_door(
     user_id: str,
     inv: Investigator,
@@ -182,6 +204,7 @@ async def _send_frozen_door(
     finish: Callable,
 ) -> None:
     """门扉冻结拦截：若有未完成抉择则重渲染门扉按钮（防 bot 重启后卡死），否则直接拦截。"""
+    guide = _new_chapter_guide() if inv.day >= 40 else ""
     if pending_door_choice(inv):
         door_render = render_door_choice(inv)
         door_states[user_id] = {"choices": door_render["choices"]}
@@ -191,22 +214,17 @@ async def _send_frozen_door(
             for i in range(0, len(choices), 3)
         ]
         kb = build_keyboard(rows)
-        msg = md_message(f"\n{block}\n\n{door_render['text']}", bot, mention=user_id)
+        suffix = f"\n\n{guide}" if guide else ""
+        msg = md_message(
+            f"\n{block}\n\n{door_render['text']}{suffix}",
+            bot,
+            mention=user_id,
+        )
         if kb is not None and not isinstance(msg, str):
             msg.append(kb)
         await finish(msg)
-    # 已通关 day40（frozen_door）：追加「迈向新篇」指引（配置化文案）
-    guide = ""
-    try:
-        from ..services.ending_engine import ending_repo
-
-        progress = ending_repo.get_progress(user_id)
-        if inv.day >= 40 and progress is not None and (
-            progress.boss36_defeated or progress.ended
-        ):
-            guide = data_loader.get_text("adventure.day40_new_chapter")
-    except Exception:  # noqa: BLE001 - 指引缺失不影响主流程
-        guide = ""
+        return
+    # 结局已结算（frozen_door / frozen_ended）：显示「迈向新篇」完整指引
     if guide:
         block = f"{block}\n\n{guide}"
     await finish(md_message(f"\n{block}", bot, mention=user_id))
@@ -1124,11 +1142,11 @@ async def _present_door_choice(
         for i in range(0, len(choices), 3)
     ]
     kb = build_keyboard(rows)
-    msg = md_message(
-        f"\n{data_loader.get_text('door.title', default='🚪 门扉抉择')}",
-        bot,
-        mention=user_id,
-    )
+    door_text = data_loader.get_text("door.title", default="🚪 门扉抉择")
+    guide = _new_chapter_guide()
+    if guide:
+        door_text = f"{door_text}\n\n{guide}"
+    msg = md_message(f"\n{door_text}", bot, mention=user_id)
     if kb is not None and not isinstance(msg, str):
         msg.append(kb)
     await send(msg)
