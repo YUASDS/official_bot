@@ -368,28 +368,18 @@ def start_flow(user_id: str, flow_id: str) -> Optional[dict]:
 def _flow_option_rows(
     state: dict, node: dict, options: list[dict], inv: Investigator
 ) -> list[list[tuple[str, str]]]:
-    """选项按钮行（自适应 QQ 键盘上限）：选项 <=4 每行 1 个；5-8 每行 2 个（<=4 行）；
-    >8 只渲染前 8 个（每行 2 个，共 4 行）。超出部分依赖 flow 文本选项/命令兜底。
+    """选项按钮行（每行 1 个，选框清晰）；条件未满足的选项加「（条件未满足）」标注。
 
     payload：flow_stage:{node_id}|{option_input}（含节点校验防旧按钮）。
     """
     t = data_loader.get_text
     progress = _progress(inv)
-    buttons = []
+    rows: list[list[tuple[str, str]]] = []
     for opt in options:
         label = opt["输入"]
         if not _condition_ok(opt.get("条件"), inv, progress):
             label = f"{label}（{t('flow.locked')}）"
-        buttons.append((label, f"flow_stage:{state['node_id']}|{opt['输入']}"))
-    rows: list[list[tuple[str, str]]] = []
-    if len(buttons) <= 4:
-        # 每日 1 个（<=4 行）
-        for b in buttons:
-            rows.append([b])
-    else:
-        # 5-8：每行 2 个（保证 <=4 行）；>8：只取前 8 个按钮
-        for i in range(0, min(len(buttons), 8), 2):
-            rows.append(list(buttons[i : i + 2]))
+        rows.append([(label, f"flow_stage:{state['node_id']}|{opt['输入']}")])
     return rows
 
 
