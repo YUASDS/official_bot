@@ -73,7 +73,9 @@ async def _send_to_user(
                 logger.warning(f"send_to_c2c failed: {e}")
     except Exception as e:
         logger.warning(f"Failed to send via QQ bot: {e}")
-    await bot.send_msg(user_id=user_id, message=message)
+    # QQ 适配器无 send_msg（onebot/mirai 风格 API）——群聊/私聊两通道全败时仅记录，
+    # 不再调用不存在的 send_msg，避免 AttributeError 打断冒险/流程（键盘超限等场景兜底）。
+    logger.warning("QQ 消息两通道均发送失败，跳过兜底（不抛）")
 
 
 def setup_button_callback() -> bool:
