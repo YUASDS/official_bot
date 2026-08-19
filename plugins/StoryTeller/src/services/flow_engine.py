@@ -368,21 +368,18 @@ def start_flow(user_id: str, flow_id: str) -> Optional[dict]:
 def _flow_option_rows(
     state: dict, node: dict, options: list[dict], inv: Investigator
 ) -> list[list[tuple[str, str]]]:
-    """选项按钮行（每行 3 个，对齐事件按钮）；条件未满足的选项加「（条件未满足）」标注。
+    """选项按钮行（每行 1 个，选框清晰）；条件未满足的选项加「（条件未满足）」标注。
 
     payload：flow_stage:{node_id}|{option_input}（含节点校验防旧按钮）。
     """
     t = data_loader.get_text
     progress = _progress(inv)
     rows: list[list[tuple[str, str]]] = []
-    for i in range(0, len(options), 3):
-        row: list[tuple[str, str]] = []
-        for opt in options[i : i + 3]:
-            label = opt["输入"]
-            if not _condition_ok(opt.get("条件"), inv, progress):
-                label = f"{label}（{t('flow.locked')}）"
-            row.append((label, f"flow_stage:{state['node_id']}|{opt['输入']}"))
-        rows.append(row)
+    for opt in options:
+        label = opt["输入"]
+        if not _condition_ok(opt.get("条件"), inv, progress):
+            label = f"{label}（{t('flow.locked')}）"
+        rows.append([(label, f"flow_stage:{state['node_id']}|{opt['输入']}")])
     return rows
 
 

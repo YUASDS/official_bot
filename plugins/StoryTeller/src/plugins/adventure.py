@@ -1482,13 +1482,11 @@ def _present_mainline_selector(
     opt2_desc = copy.get("选项2说明", "")
 
     kb = build_keyboard(
-        [
             [
-                (opt1, "mainline_selector:guard_in"),
-                (opt2, "mainline_selector:door"),
+                [(opt1, "mainline_selector:guard_in")],
+                [(opt2, "mainline_selector:door")],
             ]
-        ]
-    )
+        )
     body = (
         f"\n**{title}**\n\n"
         f"🔹 `{opt1}`\n> {opt1_desc}  \n"
