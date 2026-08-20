@@ -8,7 +8,7 @@ from database.db import add_gold
 from ..models.player import Investigator
 from ..utils.state_registry import register_state_store
 from .data_loader import data_loader
-from .dice_roller import get_success_icon, roll_dice
+from .dice_roller import get_success_icon, roll_check_core, roll_dice
 from .effect_keys import gold_price
 from .stats_service import gold_source, record_event, record_growth
 
@@ -125,10 +125,7 @@ def resolve_check_option(
     check = option.get("检定")
     if not check:
         return option.get("效果", {}), option.get("回复", ""), None
-    skill = check.get("技能", "意志")
-    skill_val = inv.get_skill(skill, 0)
-    _expr, roll = roll_dice("1d100")
-    passed = roll <= skill_val
+    passed, skill, roll, skill_val = roll_check_core(inv, check)
     effects = check.get("奖励", {}) if passed else check.get("失败", {})
     reply = option.get("成功回复") if passed else option.get("失败回复")
     if reply is None:

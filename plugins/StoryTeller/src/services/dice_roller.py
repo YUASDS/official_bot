@@ -258,3 +258,18 @@ def roll_dice(dice_expression: str, use_max: bool = False, use_min: bool = False
         details[0] = details[0][1:]
 
     return "".join(details), total
+
+
+def roll_check_core(inv, check: dict, roll_fn=roll_dice) -> tuple[bool, str, int, int]:
+    """检定判定核：掷 1d100 vs 技能（默认意志），roll<=skill 判定成功。
+
+    返回 (passed, skill, roll, skill_val)。判定口径与 event/flow 一致；
+    分支选择与文案由调用方负责（schema：event 用 奖励/失败，flow 用 成功/失败）。
+    roll_fn 缺省为 roll_dice；flow 侧传入自身 roll_dice 以保留既有 patch 点
+    （test 通过 patch flow_engine.roll_dice 固定检定骰），行为不变。
+    """
+    skill = check.get("技能", "意志")
+    skill_val = inv.get_skill(skill, 0)
+    _expr, roll = roll_fn("1d100")
+    passed = roll <= skill_val
+    return passed, skill, roll, skill_val

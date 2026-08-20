@@ -43,7 +43,7 @@ from ..models.player import Investigator, ending_repo, investigator_repo
 from ..services.battle import BattleService
 from ..services.battle_cards import battle_open_html, battle_round_html
 from ..services.data_loader import data_loader
-from ..services.dice_roller import get_success_icon, roll_dice
+from ..services.dice_roller import get_success_icon, roll_check_core, roll_dice
 from ..services.effect_keys import standard_effects
 from ..services.event_service import apply_event_effects
 from ..utils.active_battles import battle_manager
@@ -282,10 +282,7 @@ def _flow_check_block(inv: Investigator, user_id: str, check: dict) -> str:
     判定与 guest/event 逐字一致（1d100 / 默认意志 / roll<=skill_val）；应用成功/失败
     分支效果并返回「检定行 + 结果」。
     """
-    skill = check.get("技能", "意志")
-    skill_val = inv.get_skill(skill, 0)
-    _expr, roll = roll_dice("1d100")
-    passed = roll <= skill_val
+    passed, skill, roll, skill_val = roll_check_core(inv, check, roll_fn=roll_dice)
     branch = check.get("成功") if passed else check.get("失败")
     t = data_loader.get_text
     icon = get_success_icon(1 if passed else 0)
