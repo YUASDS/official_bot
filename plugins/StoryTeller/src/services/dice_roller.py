@@ -192,7 +192,7 @@ def calculate_damage_bonus(size: int, strength: int) -> str:
     additional_dice = (total - 205) // 80 + 2
     return f"{additional_dice}d6"
 
-def roll_dice(dice_expression: str, use_max: bool = False) -> tuple[str, int]:
+def roll_dice(dice_expression: str, use_max: bool = False, use_min: bool = False) -> tuple[str, int]:
     """
     Roll dice based on expression like '1d10', '2d6+3', '1d100', '1d8+2d6+3'.
     Returns (expression_result_str, total_value).
@@ -207,6 +207,9 @@ def roll_dice(dice_expression: str, use_max: bool = False) -> tuple[str, int]:
                 count_str, sides_str = part.split("d")
                 count = int(count_str) if count_str else 1
                 sides = int(sides_str)
+            if use_min:
+                rolls = [1] * count
+                return count, "+".join(map(str, rolls))
             if use_max:
                 rolls = [sides] * count
                 return count * sides, "+".join(map(str, rolls))
