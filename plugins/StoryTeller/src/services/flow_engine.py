@@ -246,7 +246,18 @@ def _condition_ok(cond, inv: Investigator, progress=None) -> bool:
     return eval_option_condition(cond, inv, progress)
 
 
-def _apply_effects(inv: Investigator, user_id: str, effects: dict) -> str:
+def _merge_buff(buff: dict, key: str, value) -> dict:
+    """合并临时 buff：数值键累加（+25），字符串键替换（如伤害 '1d6'）。"""
+    if isinstance(value, str):
+        buff[key] = value
+    else:
+        buff[key] = buff.get(key, 0) + value
+    return buff
+
+
+def _apply_effects(
+    inv: Investigator, user_id: str, effects: dict, state: Optional[dict] = None
+) -> str:
     """标准效果（san/hp/金币/物品/技能）走 apply_event_effects 统一收口，返回摘要。
 
     主线专属效果（纯增量，缺省零变化，不影响日常事件）：
@@ -255,6 +266,8 @@ def _apply_effects(inv: Investigator, user_id: str, effects: dict) -> str:
     - `结局`：分支终局达成 → mainline.register_mainline_ending（登记独立结局 + 置线 done）。
     二者仅在 flow 效果层生效（apply_event_effects 未扩展），日常事件走 apply_event_effects
     不受影响——倾向只来自主线插曲选择。
+    - `助力`：非持久效果，由 flow 层转发到 `state["buff"]`（数值键累加 / 字符串键替换，
+      走 `_merge_buff`）；未传 `state` 时仅 warning 丢弃，默认零影响日常事件。
     """
     effects = effects or {}
     standard = standard_effects(effects)
@@ -274,6 +287,13 @@ def _apply_effects(inv: Investigator, user_id: str, effects: dict) -> str:
         from ..plugins import mainline as _ml
 
         _ml.register_mainline_ending(inv, str(end_id))
+    boost = effects.get("助力")
+    if isinstance(boost, dict):
+        if state is None:
+            logger.warning("助力效果需要 flow state 上下文，当前调用未传 state，已丢弃")
+        else:
+            for k, v in boost.items():
+                state["buff"] = _merge_buff(state.get("buff", {}), k, v)
     return summary
 
 
@@ -434,6 +454,19 @@ async def render_flow_node(user_id: str, state: dict, bot: Bot, send) -> None:
         text = _node_text(state["flow_id"], state["node_id"])
         if text:
             lines.append(text)
+        if (
+            first
+            and node.get("效果")
+            and not node.get("选项")
+            and ntype not in ("奖励", "纪念品")
+        ):
+            # 节点级效果（方案 A）：无选项的普通节点（文本等）首次进入应用；
+            # 奖励/纪念品类型已有各自效果处理，跳过防双应用；助力键在此转发进 state buff。
+            node_summary = _apply_effects(
+                inv, user_id, node.get("效果") or {}, state
+            )
+            if node_summary:
+                lines.append(f"> {node_summary}")
         if first and node.get("检定"):
             # 检定消费：对「文本/选项」等任意节点首次进入自动检定（对齐 guest 阶段描述+检定+选项）
             check_block = _flow_check_block(
@@ -527,7 +560,7 @@ async def _flow_handle_choice(
     buff = option.get("临时")
     if isinstance(buff, dict):
         for k, v in buff.items():
-            state["buff"][k] = state["buff"].get(k, 0) + v
+            state["buff"] = _merge_buff(state.get("buff", {}), k, v)
     inv.save()
     reply = option.get("回复", "")
     if summary:
@@ -773,7 +806,8 @@ async def _finish_flow(user_id: str, state: dict, bot: Bot, send) -> None:
 
     默认不推进 day / 不占当日冒险（独立探索通道）；flow 级 `收尾.skip_daily` 开启则
     调 daily_service._skip_daily（解除冒险态 + day+1 <40 冻结，对齐 guest 归途）并用
-    `exit_text_key`/`day_text_key` 替换默认 flow.exit 文案。
+    `exit_text_key`/`day_text_key` 替换默认 flow.exit 文案；`收尾.restore_hp` 开启则
+    收尾 HP 回满（对齐 gm_room 收尾，默认 false 不影响现有 flow）。
     结束节点 `完成标记`（默认 true）：false = 战败归途不设 `flow.<flow_id>.done`（对齐
     guest 仅胜利路径记完成）。
 
@@ -797,6 +831,8 @@ async def _finish_flow(user_id: str, state: dict, bot: Bot, send) -> None:
         node = flow_node(flow, node_id)
         if node.get("完成标记", True) is not False:
             inv.set_flag(f"flow.{flow_id}.done", 1)
+        if tail.get("restore_hp"):
+            inv.restore_hp()
         if tail.get("skip_daily"):
             from ..services.daily_service import _skip_daily
 
