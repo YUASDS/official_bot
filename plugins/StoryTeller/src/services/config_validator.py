@@ -866,7 +866,7 @@ class ConfigValidator:
                 self._err(file, f"{nkey}.下一步", f"未知节点 {nxt!r}")
             battle = node.get("战斗") or {}
             if isinstance(battle, dict):
-                if battle.get("怪物"):
+                if battle.get("怪物") and battle["怪物"] != "@上次":
                     self._check_monster_ref(file, f"{nkey}.战斗.怪物", battle["怪物"])
                 if "胜利条件" in battle:
                     self._validate_win_condition(

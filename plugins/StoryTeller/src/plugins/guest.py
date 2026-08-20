@@ -47,14 +47,18 @@ def _guest_trigger() -> dict:
 
 
 def guest_registry() -> dict:
-    """guest 世界注册表（= 开启 guest 模式收尾的 flow：data/worlds/*.json 季展开；
-    单季世界 flow_id = world_id，多季世界 flow.<世界id>.<季>）。"""
+    """guest 世界注册表（= 开启 guest 收尾且带「入口条件」的 flow：data/worlds/*.json 季展开；
+    单季世界 flow_id = world_id，多季世界 flow.<世界id>.<季>）。
+
+    无「入口条件」的 skip_daily flow（如 gm_room 特殊房间）由自身触发机制
+    （gm_room_should_trigger）进入，不进 guest 每日乱入候选集。
+    """
     from ..services.flow_engine import flow_registry
 
     return {
         fid: f
         for fid, f in flow_registry().items()
-        if (f.get("收尾") or {}).get("skip_daily")
+        if (f.get("收尾") or {}).get("skip_daily") and f.get("入口条件")
     }
 
 
