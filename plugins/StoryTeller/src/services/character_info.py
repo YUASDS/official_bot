@@ -6,6 +6,7 @@ from nonebot.adapters import Bot
 
 from database.db import get_info
 
+from ..models.item import Equipment
 from ..models.player import Investigator, ending_repo
 from ..utils.md_format import (
     build_keyboard,
@@ -41,22 +42,27 @@ async def card_msg(user_id: str):
 
 
 def info_kb_msg(user_id: str, bot: Bot):
-    """指令消息：背包「使用」标签 + 底部「今日冒险」按钮。"""
+    """指令消息：背包「使用」标签（过滤纪念品）+ 纪念品独立块 + 底部「今日冒险」按钮。"""
     inv = Investigator.load(user_id)
 
     equipments, res_name = inv.get_equipments()
-    item_ids = list(equipments.keys())
+    souvenir_ids = [iid for iid in equipments if Equipment(iid).type == "纪念品"]
+    usable_ids = [iid for iid in equipments if Equipment(iid).type != "纪念品"]
     tags = [
         cmd_tag(
             f"/使用物品 {item_id}",
             show=_t("player.use_button", name=res_name.get(item_id, item_id)),
         )
-        for item_id in item_ids
+        for item_id in usable_ids
     ]
-    parts = [f"\n**{_t('player.use_hint')}**"]
+    parts = []
     if tags:
+        parts.append(f"\n**{_t('player.use_hint')}**")
         parts.append("\n".join(tags))
     parts.append(cmd_tag("/今日冒险", show=_t("adventure.adventure_button")))
+    if souvenir_ids:
+        names = " / ".join(Equipment(iid).name for iid in souvenir_ids)
+        parts.append(f"🎖️ 纪念品\n{names}")
     return md_message("\n\n".join(parts), bot, mention=user_id)
 
 
@@ -108,21 +114,29 @@ async def build_info_message(user_id: str, bot: Bot):
     )
     if is_md_enabled():
         res += f"\n\n{cmd_tag('/今日冒险', show=_t('adventure.adventure_button'))}"
+
+    # 背包物品分区：纪念品独立成框（不渲染「使用」按钮），其余物品生成「使用」按钮
+    equipments, res_name = inv.get_equipments()
+    souvenir_ids = [iid for iid in equipments if Equipment(iid).type == "纪念品"]
+    if souvenir_ids:
+        names = " / ".join(Equipment(iid).name for iid in souvenir_ids)
+        res += f"\n\n🎖️ 纪念品\n{names}"
     msg = md_message(res, bot, mention=user_id)
 
-    # 背包物品「使用」按钮（QQ 平台；受键盘行数上限约束，超出部分见卡片/文本）
-    equipments, res_name = inv.get_equipments()
-    item_ids = list(equipments.keys())[:_MAX_USE_BUTTONS]
-    if item_ids:
+    # 背包物品「使用」按钮（QQ 平台；受键盘行数上限约束，超出部分见卡片/文本；过滤纪念品）
+    usable_ids = [
+        iid for iid in equipments if Equipment(iid).type != "纪念品"
+    ][:_MAX_USE_BUTTONS]
+    if usable_ids:
         kb_rows = [
             [
                 (
                     _t("player.use_button", name=res_name.get(item_id, item_id)),
                     f"equip:{item_id}",
                 )
-                for item_id in item_ids[i : i + 3]
+                for item_id in usable_ids[i : i + 3]
             ]
-            for i in range(0, len(item_ids), 3)
+            for i in range(0, len(usable_ids), 3)
         ]
         kb = build_keyboard(kb_rows)
         if kb is not None and not isinstance(msg, str):

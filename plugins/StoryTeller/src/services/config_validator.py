@@ -68,7 +68,7 @@ _ENDING_KEYS: frozenset[str] = frozenset(
 
 # 物品 type 合法值（goods_data）
 GOODS_TYPES: frozenset[str] = frozenset(
-    {"武器", "饰品", "misc", "spell_scroll"}
+    {"武器", "饰品", "misc", "spell_scroll", "纪念品"}
 )
 # 物品 part 合法值（goods_data）
 GOODS_PARTS: frozenset[str] = frozenset(

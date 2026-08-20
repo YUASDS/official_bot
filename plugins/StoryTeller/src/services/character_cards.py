@@ -157,13 +157,26 @@ def info_card_html(inv: Investigator, gold: int) -> str:
     if "防具" not in inv._equipped:
         equip_rows += '<div class="row"><span class="k">防具</span><span class="v">→ 无</span></div>'
 
+    # 背包区：纪念品（type=纪念品）独立成框，不混入武器/防具/信物的 __BAG__
     bag_rows = "".join(
         f'<div class="row"><span class="k">{item.name} x{qty}</span>'
         f'<span class="v">{_bag_item_damage(item)}</span></div>'
         for item_id, qty in equipments.items()
         for item in [Equipment(item_id)]
-        if item.is_valid
+        if item.is_valid and item.type != "纪念品"
     ) or '<div class="row"><span class="k">（空）</span></div>'
+
+    souvenir_rows = "".join(
+        f'<div class="row"><span class="k">{item.name} x{qty}</span></div>'
+        for item_id, qty in equipments.items()
+        for item in [Equipment(item_id)]
+        if item.is_valid and item.type == "纪念品"
+    )
+    souvenir_section = (
+        f'<div class="bar"></div>'
+        f'<div class="section">🎖️ 纪念品</div>'
+        f'<div class="rows">{souvenir_rows}</div>'
+    ) if souvenir_rows else ""
 
     spell_rows = "".join(
         f'<div class="row"><span class="k">{spell_name(sid)}</span>'
@@ -182,5 +195,6 @@ def info_card_html(inv: Investigator, gold: int) -> str:
         .replace("__SKILLS__", skill_items)
         .replace("__EQUIPS__", equip_rows)
         .replace("__BAG__", bag_rows)
+        .replace("__SOUVENIRS__", souvenir_section)
         .replace("__SPELLS__", spell_rows)
     )
