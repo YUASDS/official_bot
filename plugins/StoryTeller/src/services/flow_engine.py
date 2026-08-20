@@ -44,6 +44,7 @@ from ..services.battle import BattleService
 from ..services.battle_cards import battle_open_html, battle_round_html
 from ..services.data_loader import data_loader
 from ..services.dice_roller import get_success_icon, roll_dice
+from ..services.effect_keys import standard_effects
 from ..services.event_service import apply_event_effects
 from ..utils.active_battles import battle_manager
 from ..utils.image_sender import render_pic, send_pic
@@ -255,11 +256,7 @@ def _apply_effects(inv: Investigator, user_id: str, effects: dict) -> str:
     不受影响——倾向只来自主线插曲选择。
     """
     effects = effects or {}
-    standard = {
-        k: v
-        for k, v in effects.items()
-        if k in ("san", "hp", "金币", "物品", "技能")
-    }
+    standard = standard_effects(effects)
     summary = apply_event_effects(inv, user_id, standard) if standard else ""
     tend = effects.get("倾向")
     if isinstance(tend, dict):

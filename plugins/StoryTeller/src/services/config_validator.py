@@ -24,6 +24,8 @@ from typing import Any
 import ujson
 from loguru import logger
 
+from ..services.effect_keys import STANDARD_EFFECT_KEYS
+
 # 失败策略：fail（默认，抛错阻止启动） / warn（仅告警）
 CONFIG_VALIDATE_MODE = os.environ.get("CONFIG_VALIDATE_MODE", "fail")
 
@@ -78,10 +80,6 @@ GOODS_PARTS: frozenset[str] = frozenset(
 TRINKET_TRIGGERS: frozenset[str] = frozenset(
     {"受击", "受到伤害", "濒死", "造成伤害", "致死预判",
      "进入战斗", "回合开始", "回合结束"}
-)
-# 标准效果键（event_service.apply_event_effects 统一收口）
-STANDARD_EFFECT_KEYS: frozenset[str] = frozenset(
-    {"san", "hp", "金币", "物品", "技能"}
 )
 # 条件算子（ending_engine.eval_option_condition + event_service.event_condition_ok）
 CONDITION_KEYS: frozenset[str] = frozenset(

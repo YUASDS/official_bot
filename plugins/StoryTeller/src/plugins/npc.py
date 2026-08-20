@@ -23,6 +23,7 @@ from nonebot.exception import FinishedException
 from ..models.player import Investigator, investigator_repo
 from ..services.data_loader import data_loader
 from ..services.dice_roller import roll_dice
+from ..services.effect_keys import standard_effects
 from ..services.ending_engine import eval_option_condition
 from ..services.event_service import apply_event_effects
 from ..utils.buttons import _send_to_user, register_button_handler
@@ -149,7 +150,7 @@ def apply_npc_choice(inv: Investigator, user_id: str, npc: dict, node: dict, opt
     max_aff = int(npc.get("好感度上限", 5))
     before = npc_affinity(inv, npc_id)
 
-    standard = {k: v for k, v in effects.items() if k in ("san", "hp", "金币", "物品", "技能")}
+    standard = standard_effects(effects)
     summary = apply_event_effects(inv, user_id, standard) if standard else ""
 
     delta = int(effects.get("好感度", 0) or 0)
