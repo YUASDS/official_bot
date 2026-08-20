@@ -23,7 +23,7 @@ from nonebot.exception import FinishedException
 from ..models.player import Investigator, investigator_repo
 from ..services.data_loader import data_loader
 from ..services.dice_roller import roll_dice
-from ..services.effect_keys import standard_effects
+from ..services.effect_keys import gold_price, standard_effects
 from ..services.ending_engine import eval_option_condition
 from ..services.event_service import apply_event_effects
 from ..utils.buttons import _send_to_user, register_button_handler
@@ -134,7 +134,7 @@ async def npc_send_dialogue(
 
 def _gold_check(user_id: str, effects: dict) -> bool:
     """选项金币为负（购买）时校验乌帕是否充足；不足返回 False。"""
-    price = -int(effects["金币"]) if effects.get("金币", 0) < 0 else 0
+    price = gold_price(effects)
     if price <= 0:
         return True
     from database.db import get_info

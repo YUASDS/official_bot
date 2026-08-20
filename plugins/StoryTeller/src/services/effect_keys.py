@@ -10,3 +10,8 @@ STANDARD_EFFECT_KEYS: frozenset[str] = frozenset(
 def standard_effects(effects: dict[str, Any]) -> dict[str, Any]:
     """过滤出标准效果键子集（白名单）。"""
     return {k: v for k, v in effects.items() if k in STANDARD_EFFECT_KEYS}
+
+
+def gold_price(effects: dict[str, Any]) -> int:
+    """负金币效果视为购买价（返回正值）；非负返回 0。"""
+    return -int(effects["金币"]) if effects.get("金币", 0) < 0 else 0

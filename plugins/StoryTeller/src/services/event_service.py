@@ -9,6 +9,7 @@ from ..models.player import Investigator
 from ..utils.state_registry import register_state_store
 from .data_loader import data_loader
 from .dice_roller import get_success_icon, roll_dice
+from .effect_keys import gold_price
 from .stats_service import gold_source, record_event, record_growth
 
 # 奇遇随机出现概率
@@ -105,7 +106,7 @@ def apply_event_effects(inv: Investigator, user_id: str, effects: dict) -> str:
 
 def event_buy_check(user_id: str, effects: dict) -> str:
     """商品选项（乌帕换物品）余额校验：不足返回提示文本，否则返回空串。"""
-    price = -int(effects["金币"]) if effects.get("金币", 0) < 0 else 0
+    price = gold_price(effects)
     if price > 0 and effects.get("物品"):
         from database.db import get_info
 
