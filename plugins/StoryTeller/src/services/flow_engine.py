@@ -367,20 +367,23 @@ def start_flow(user_id: str, flow_id: str) -> Optional[dict]:
 
 def _flow_option_rows(
     state: dict, node: dict, options: list[dict], inv: Investigator
-) -> list[list[tuple[str, str]]]:
-    """选项按钮行（每行 1 个，选框清晰）；条件未满足的选项加「（条件未满足）」标注。
+) -> tuple[list[list[tuple[str, str]]], list[str]]:
+    """选项按钮行（每行 1 个，仅条件满足的选项进按钮）+ 锁定项收集。
 
-    payload：flow_stage:{node_id}|{option_input}（含节点校验防旧按钮）。
+    - 条件满足的选项渲染按钮，payload：flow_stage:{node_id}|{option_input}（含节点校验防旧按钮）。
+    - 条件未满足的选项不进按钮，仅收集其「输入」label，由 render_flow_node 追加为正文灰字
+      「◽ {输入}」（不再标注「条件未满足」——那是谜语式引导）。
     """
-    t = data_loader.get_text
     progress = _progress(inv)
     rows: list[list[tuple[str, str]]] = []
+    locked: list[str] = []
     for opt in options:
         label = opt["输入"]
-        if not _condition_ok(opt.get("条件"), inv, progress):
-            label = f"{label}（{t('flow.locked')}）"
-        rows.append([(label, f"flow_stage:{state['node_id']}|{opt['输入']}")])
-    return rows
+        if _condition_ok(opt.get("条件"), inv, progress):
+            rows.append([(label, f"flow_stage:{state['node_id']}|{opt['输入']}")])
+        else:
+            locked.append(label)
+    return rows, locked
 
 
 async def render_flow_node(user_id: str, state: dict, bot: Bot, send) -> None:
@@ -456,14 +459,18 @@ async def render_flow_node(user_id: str, state: dict, bot: Bot, send) -> None:
                 lines.append(t("guest.souvenir_gain", name=name))
         options = node.get("选项") or []
         if options:
-            rows = _flow_option_rows(state, node, options, inv)
-            kb = build_keyboard(rows)
+            rows, locked = _flow_option_rows(state, node, options, inv)
+            # 锁定项：条件未满足，不进按钮，正文追加灰字行「◽ {输入}」（不标条件未满足）
+            if locked:
+                lines.append("\n".join(f"◽ {label}" for label in locked))
             lines.append(f"**{t('flow.option_title')}**")
             msg = md_message(
                 "\n\n".join(x for x in lines if x), bot, mention=user_id
             )
-            if kb is not None and not isinstance(msg, str):
-                msg.append(kb)
+            if rows:  # 全部锁定时跳过空键盘，仍发送正文（不渲染不发送即丢节点）
+                kb = build_keyboard(rows)
+                if kb is not None and not isinstance(msg, str):
+                    msg.append(kb)
             await send(msg)
             return
         if lines:
