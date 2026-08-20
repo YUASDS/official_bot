@@ -84,7 +84,8 @@ async def _push_report(platform: str, chat_id: str, text: str) -> None:
         if platform == "qq":
             try:
                 await bot.send_to_c2c(openid=chat_id, message=text)
-            except Exception:  # noqa: BLE001 - 私聊失败回退群聊
+            except Exception as e:  # noqa: BLE001 - 私聊失败回退群聊
+                logger.warning(f"静默异常[Exception] in _push_report: {e}")
                 await bot.send_to_group(group_openid=chat_id, message=text)
             return
         if platform == "onebot":
@@ -124,7 +125,8 @@ def _capture_loop() -> None:
     global _REPORT_LOOP  # noqa: PLW0603 - 启动时一次性赋值
     try:
         _REPORT_LOOP = asyncio.get_running_loop()
-    except RuntimeError:
+    except RuntimeError as e:
+        logger.warning(f"静默异常[RuntimeError] in _capture_loop: {e}")
         _REPORT_LOOP = None
 
 
@@ -134,7 +136,7 @@ try:
 
     get_driver().on_startup(_capture_loop)
 except Exception as e:  # noqa: BLE001 - 非 bot 环境（测试/脚本）忽略
-    logger.debug(f"[统计日报] 启动回调注册失败: {type(e).__name__} {e}")
+    logger.warning(f"[统计日报] 启动回调注册失败: {type(e).__name__} {e}")
 
 try:
     from util.DaylyRecord import register_daily_rollover

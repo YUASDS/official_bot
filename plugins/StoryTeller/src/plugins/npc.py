@@ -12,6 +12,7 @@ qiren 一期保持独立，本框架平行新增，不触碰 38 号隐藏挑战�
 
 from __future__ import annotations
 
+from loguru import logger
 import copy
 from typing import Any, Optional
 
@@ -45,7 +46,8 @@ def npc_affinity(inv: Investigator, npc_id: str) -> int:
     value = inv.get_flag(f"npc.{npc_id}.好感度")
     try:
         return max(0, int(value))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError) as e:
+        logger.warning(f"静默异常[TypeError/ValueError] in npc_affinity: {e}")
         return 0
 
 
@@ -86,7 +88,8 @@ def npc_current_node(npc: dict, affinity: int) -> dict:
         trig = node.get("触发") or {}
         try:
             need = int(trig.get("好感度_min", 0))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError) as e:
+            logger.warning(f"静默异常[TypeError/ValueError] in npc_current_node: {e}")
             need = 0
         if need <= affinity:
             chosen = node

@@ -12,7 +12,8 @@ async def render_pic(html: str):
         from util.html2pic import html_to_pic
 
         return await html_to_pic(html, selector=".card", wait=0.8)
-    except Exception:
+    except Exception as e:
+        logger.warning(f"静默异常[Exception] in render_pic: {e}")
         return None
 
 
@@ -37,5 +38,5 @@ async def send_pic(bot: Bot, img: Any, send: Callable) -> bool:
             await send(MessageChain(Image(img)))
             return True
     except Exception as e:  # noqa: BLE001 - 图片发送失败应回退 md
-        logger.debug(f"send image failed on {bt}: {e}")
+        logger.warning(f"send image failed on {bt}: {e}")
     return False

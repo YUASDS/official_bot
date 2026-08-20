@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from loguru import logger
 from ..dice_roller import roll_dice
 
 # 伤害标签 → 怪物数据键（免疫/抗性 用「物理/魔法」，标签用 physical/magic）
@@ -78,7 +79,8 @@ class BattleDamageMixin:
         rate = self.monster.抗性.get(cn, 0)
         try:
             return float(rate)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError) as e:
+            logger.warning(f"静默异常[TypeError/ValueError] in _monster_resist_rate: {e}")
             return 0.0
 
     def _immunity_text(self, dmg_type: str) -> str:

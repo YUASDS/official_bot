@@ -1,5 +1,6 @@
 """调查员档案消息构建与发送流程（图片卡片 + md 双轨）。"""
 
+from loguru import logger
 from typing import Callable
 
 from nonebot.adapters import Bot
@@ -37,7 +38,8 @@ async def card_msg(user_id: str):
         img = await html_to_pic(html, selector=".card", wait=0.8)
         msg = QQMessage(MessageSegment.file_image(img))
         return msg
-    except Exception:
+    except Exception as e:
+        logger.warning(f"静默异常[Exception] in card_msg: {e}")
         return None
 
 

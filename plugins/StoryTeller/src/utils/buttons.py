@@ -81,7 +81,8 @@ def setup_button_callback() -> bool:
     try:
         from nonebot import on_type
         from nonebot.adapters.qq.event import InteractionCreateEvent
-    except ImportError:
+    except ImportError as e:
+        logger.warning(f"静默异常[ImportError] in setup_button_callback: {e}")
         return False
 
     button_callback = on_type(InteractionCreateEvent, priority=1, block=False)
@@ -92,7 +93,7 @@ def setup_button_callback() -> bool:
         try:
             await bot.put_interaction(interaction_id=event.id, code=0)
         except Exception as e:
-            logger.debug(f"Failed to ack interaction: {e}")
+            logger.warning(f"Failed to ack interaction: {e}")
 
         button_data = ""
         user_id = ""
@@ -102,7 +103,7 @@ def setup_button_callback() -> bool:
             user_id = event.get_user_id()
             group_openid = event.group_openid or ""
         except Exception as e:
-            logger.debug(f"Failed to parse button interaction: {e}")
+            logger.warning(f"Failed to parse button interaction: {e}")
             return
 
         if not button_data or not user_id:

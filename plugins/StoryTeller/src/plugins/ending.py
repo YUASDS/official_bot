@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+from loguru import logger
 from typing import Any
 
 import ujson
@@ -45,7 +46,8 @@ def _load_records(raw: str) -> list[dict[str, Any]]:
     try:
         data = ujson.loads(raw or "[]")
         return data if isinstance(data, list) else []
-    except (ValueError, TypeError):
+    except (ValueError, TypeError) as e:
+        logger.warning(f"静默异常[ValueError/TypeError] in _load_records: {e}")
         return []
 
 
@@ -53,7 +55,8 @@ def _load_marks(raw: str) -> dict[str, bool]:
     try:
         data = ujson.loads(raw or "{}")
         return data if isinstance(data, dict) else {}
-    except (ValueError, TypeError):
+    except (ValueError, TypeError) as e:
+        logger.warning(f"静默异常[ValueError/TypeError] in _load_marks: {e}")
         return {}
 
 
@@ -61,7 +64,8 @@ def _invoked_as_relic_alias(event: Event) -> bool:
     """以别名「结局图鉴」直接触发时（无参数）进入信物页。"""
     try:
         raw = (event.get_plaintext() or "").strip()
-    except Exception:
+    except Exception as e:
+        logger.warning(f"静默异常[Exception] in _invoked_as_relic_alias: {e}")
         return False
     return raw.replace("/", "").replace(" ", "") == "结局图鉴"
 

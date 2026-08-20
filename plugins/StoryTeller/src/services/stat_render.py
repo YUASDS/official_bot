@@ -12,6 +12,7 @@ import datetime
 from typing import Any, Optional
 
 import ujson
+from loguru import logger
 
 from ..models.player import ending_repo, investigator_repo
 from ..utils.md_format import report_quote, report_section
@@ -57,7 +58,8 @@ def _load_records(raw: str) -> list[dict[str, Any]]:
     try:
         data = ujson.loads(raw or "[]")
         return data if isinstance(data, list) else []
-    except (ValueError, TypeError):
+    except (ValueError, TypeError) as e:
+        logger.warning(f"静默异常[ValueError/TypeError] in _load_records: {e}")
         return []
 
 
@@ -65,7 +67,8 @@ def _load_marks(raw: str) -> dict[str, Any]:
     try:
         data = ujson.loads(raw or "{}")
         return data if isinstance(data, dict) else {}
-    except (ValueError, TypeError):
+    except (ValueError, TypeError) as e:
+        logger.warning(f"静默异常[ValueError/TypeError] in _load_marks: {e}")
         return {}
 
 
@@ -73,7 +76,8 @@ def _load_dict(raw: str) -> dict[str, Any]:
     try:
         data = ujson.loads(raw or "{}")
         return data if isinstance(data, dict) else {}
-    except (ValueError, TypeError):
+    except (ValueError, TypeError) as e:
+        logger.warning(f"静默异常[ValueError/TypeError] in _load_dict: {e}")
         return {}
 
 
@@ -81,7 +85,8 @@ def _load_list(raw: str) -> list[Any]:
     try:
         data = ujson.loads(raw or "[]")
         return data if isinstance(data, list) else []
-    except (ValueError, TypeError):
+    except (ValueError, TypeError) as e:
+        logger.warning(f"静默异常[ValueError/TypeError] in _load_list: {e}")
         return []
 
 
@@ -129,7 +134,8 @@ def _current_gold(qq: str) -> int:
 
         row = User.select(User.gold).where(User.user_id == str(qq)).first()
         return int(row.gold or 0) if row is not None else 0
-    except Exception:  # noqa: BLE001 - 只读容错
+    except Exception as e:  # noqa: BLE001 - 只读容错
+        logger.warning(f"静默异常[Exception] in _current_gold: {e}")
         return 0
 
 
@@ -163,7 +169,8 @@ def _battle_agg(qq: str) -> dict[str, int]:
             .count()
         )
         return {"battles": total, "wins": wins, "flees": flees, "deaths": deaths}
-    except Exception:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"静默异常[Exception] in _battle_agg: {e}")
         return {"battles": 0, "wins": 0, "flees": 0, "deaths": 0}
 
 
@@ -177,7 +184,8 @@ def _gold_agg(qq: str) -> dict[str, int]:
         income = sum(max(0, int(r.delta or 0)) for r in rows)
         expense = sum(max(0, -int(r.delta or 0)) for r in rows)
         return {"income": income, "expense": expense}
-    except Exception:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"静默异常[Exception] in _gold_agg: {e}")
         return {"income": 0, "expense": 0}
 
 
@@ -199,7 +207,8 @@ def _growth_top(qq: str, limit: int = 5) -> list[tuple[str, int, int]]:
             entry[1] += max(0, int(r.after or 0) - int(r.before or 0))
         ranked = sorted(agg.items(), key=lambda kv: (-kv[1][0], -kv[1][1]))
         return [(skill, cnt, gain) for skill, (cnt, gain) in ranked[:limit]]
-    except Exception:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"静默异常[Exception] in _growth_top: {e}")
         return []
 
 
@@ -219,7 +228,8 @@ def _spell_use_top(qq: str, limit: int = 5) -> list[tuple[str, str, int]]:
                 counts[sid] = counts.get(sid, 0) + int(n or 0)
         ranked = sorted(counts.items(), key=lambda kv: kv[1], reverse=True)
         return [(sid, _spell_name(sid), cnt) for sid, cnt in ranked[:limit]]
-    except Exception:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"静默异常[Exception] in _spell_use_top: {e}")
         return []
 
 
@@ -235,7 +245,8 @@ def _encounter_count(qq: str, monster_id: str) -> int:
             )
             .count()
         )
-    except Exception:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"静默异常[Exception] in _encounter_count: {e}")
         return 0
 
 
@@ -319,7 +330,8 @@ def build_review_reply(qq: str, limit: int = 5) -> str:
             .order_by(RunStats.run_id.desc())
             .limit(limit)
         )
-    except Exception:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"静默异常[Exception] in build_review_reply: {e}")
         rows = []
     if not rows:
         return _empty("review.empty", "🕰 暂无周目记录，快去开启你的冒险吧！")
@@ -364,7 +376,8 @@ def _rank_kills_data(limit: int = 10) -> list[tuple[str, int]]:
             agg[str(r.qq)] = agg.get(str(r.qq), 0) + _run_kills_total(r.kills)
         ranked = sorted(agg.items(), key=lambda kv: kv[1], reverse=True)
         return [(qq, n) for qq, n in ranked[:limit] if n > 0]
-    except Exception:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"静默异常[Exception] in _rank_kills_data: {e}")
         return []
 
 
@@ -379,7 +392,8 @@ def _rank_gold_data(limit: int = 10) -> list[tuple[str, int]]:
             .limit(limit)
         )
         return [(str(r.user_id), int(r.gold or 0)) for r in rows]
-    except Exception:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"静默异常[Exception] in _rank_gold_data: {e}")
         return []
 
 
@@ -398,7 +412,8 @@ def _rank_ending_data(limit: int = 10) -> list[tuple[str, int]]:
                 agg[str(r.qq)] = distinct
         ranked = sorted(agg.items(), key=lambda kv: kv[1], reverse=True)
         return [(qq, n) for qq, n in ranked[:limit]]
-    except Exception:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"静默异常[Exception] in _rank_ending_data: {e}")
         return []
 
 
@@ -490,7 +505,8 @@ def career_section(qq: str) -> str:
         unlocked = len({rec.get("id") for rec in records if rec.get("id")})
         try:
             from ..services.ending_engine import relic_ids
-        except Exception:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"静默异常[Exception] in career_section: {e}")
             relic_ids = list
         ids = relic_ids()
         owned = sum(1 for rid in ids if marks.get(str(rid)))
@@ -511,7 +527,8 @@ def career_section(qq: str) -> str:
         )
         lines.append(f"- NG+ 等级：Lv.{collection.ng_plus}")
         return "\n".join(lines)
-    except Exception:  # noqa: BLE001 - 生涯段失败不影响个人信息
+    except Exception as e:  # noqa: BLE001 - 生涯段失败不影响个人信息
+        logger.warning(f"静默异常[Exception] in career_section: {e}")
         return ""
 
 

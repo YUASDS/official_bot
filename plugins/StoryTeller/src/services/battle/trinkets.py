@@ -337,5 +337,6 @@ class BattleTrinketMixin:
             data.update(extra)
         try:
             return text.format(**data)
-        except (KeyError, IndexError, ValueError):
+        except (KeyError, IndexError, ValueError) as e:
+            logger.warning(f"静默异常[KeyError/IndexError/ValueError] in _trinket_render: {e}")
             return text

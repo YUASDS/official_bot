@@ -245,7 +245,8 @@ class Monster:
             if trigger == "hp低":
                 try:
                     threshold = float(rule.get("阈值", 1))
-                except (TypeError, ValueError):
+                except (TypeError, ValueError) as e:
+                    logger.warning(f"静默异常[TypeError/ValueError] in advance_ai: {e}")
                     threshold = 1
                 if self.hp < int(self.max_hp * threshold):
                     self._ai_pending_spell = sid
@@ -253,7 +254,8 @@ class Monster:
             elif trigger == "概率":
                 try:
                     prob = float(rule.get("值", 0))
-                except (TypeError, ValueError):
+                except (TypeError, ValueError) as e:
+                    logger.warning(f"静默异常[TypeError/ValueError] in advance_ai: {e}")
                     prob = 0
                 if random.random() < prob:
                     self._ai_pending_spell = sid
@@ -261,7 +263,8 @@ class Monster:
             elif trigger == "回合数":
                 try:
                     target = int(rule.get("值", 0))
-                except (TypeError, ValueError):
+                except (TypeError, ValueError) as e:
+                    logger.warning(f"静默异常[TypeError/ValueError] in advance_ai: {e}")
                     target = 0
                 if target > 0 and self._ai_turn_count == target:
                     self._ai_pending_spell = sid
@@ -270,7 +273,8 @@ class Monster:
         if injured.get("阈值"):
             try:
                 limit = int(self.max_hp * float(injured["阈值"]))
-            except (TypeError, ValueError):
+            except (TypeError, ValueError) as e:
+                logger.warning(f"静默异常[TypeError/ValueError] in advance_ai: {e}")
                 limit = self.max_hp
         if self.hp < limit and not self._ai_dodging:
             if self._ai_transformed:

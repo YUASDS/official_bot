@@ -13,6 +13,7 @@ judge_door_choice）、首杀必掉信物登记与结局登记。
 
 from __future__ import annotations
 
+from loguru import logger
 from typing import Any, Optional
 
 import ujson
@@ -484,7 +485,8 @@ def register_relic(inv: Investigator, progress: Any, relic_id: str) -> None:
     """登记一件信物到表 A items_first + 表 B collection（幂等，跨周目累计）。"""
     try:
         first_ids = list(ujson.loads(progress.items_first or "[]"))
-    except (ValueError, TypeError):
+    except (ValueError, TypeError) as e:
+        logger.warning(f"静默异常[ValueError/TypeError] in register_relic: {e}")
         first_ids = []
     if relic_id not in first_ids:
         first_ids.append(relic_id)
@@ -517,7 +519,8 @@ def first_kill_drop(inv: Investigator, monster_id: str) -> Optional[str]:
     progress = ending_repo.ensure_progress(inv.qq, inv.day)
     try:
         first_ids = list(ujson.loads(progress.items_first or "[]"))
-    except (ValueError, TypeError):
+    except (ValueError, TypeError) as e:
+        logger.warning(f"静默异常[ValueError/TypeError] in first_kill_drop: {e}")
         first_ids = []
     if relic_id in first_ids:
         return None
@@ -529,7 +532,8 @@ def _milestone_log(inv: Investigator, progress: Any) -> list[str]:
     """本次冒险前新出现的信物（背包持有且未登记过）→ 里程碑日志 + collection 标记。"""
     try:
         first_ids = list(ujson.loads(progress.items_first or "[]"))
-    except (ValueError, TypeError):
+    except (ValueError, TypeError) as e:
+        logger.warning(f"静默异常[ValueError/TypeError] in _milestone_log: {e}")
         first_ids = []
     held = relics_held(inv)
     new_ids = [rid for rid, ok in held.items() if ok and rid not in first_ids]
@@ -870,7 +874,8 @@ def reroll_door_choice(inv: Investigator) -> Optional[str]:
     collection = ending_repo.ensure_collection(inv.qq)
     try:
         records = list(ujson.loads(collection.endings or "[]"))
-    except (ValueError, TypeError):
+    except (ValueError, TypeError) as e:
+        logger.warning(f"静默异常[ValueError/TypeError] in reroll_door_choice: {e}")
         records = []
     target = progress.door_choice
     run = progress.run_id

@@ -1,5 +1,6 @@
 """战报卡片渲染：把战斗状态渲染为 HTML 卡片（入场 CG / 开场 / 回合 / 结算 / SAN 崩塌）。"""
 
+from loguru import logger
 import random
 import ujson
 from pathlib import Path
@@ -23,7 +24,8 @@ def get_display_config() -> dict:
             with open(_DISPLAY_DATA_PATH, encoding="utf-8-sig") as f:
                 raw = ujson.load(f)
             _display_cache = raw if isinstance(raw, dict) else {}
-        except Exception:
+        except Exception as e:
+            logger.warning(f"静默异常[Exception] in get_display_config: {e}")
             _display_cache = {}
     return _display_cache
 
@@ -51,7 +53,8 @@ def _hex_rgba(hex_color: str, alpha: float) -> str:
     h = hex_color.lstrip("#")
     try:
         r, g, b = (int(h[i : i + 2], 16) for i in (0, 2, 4))
-    except (ValueError, IndexError):
+    except (ValueError, IndexError) as e:
+        logger.warning(f"静默异常[ValueError/IndexError] in _hex_rgba: {e}")
         r = g = b = 200
     return f"rgba({r},{g},{b},{alpha})"
 

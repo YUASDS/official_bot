@@ -1,3 +1,4 @@
+from loguru import logger
 """统一用户状态注册表。
 
 背景（架构债 P2）：各插件/服务各自持有 `user_id -> dict` 状态（guest/gm_room/npc/
@@ -25,5 +26,6 @@ def clear_user_state(user_id: str) -> None:
     for store in _state_stores:
         try:
             store.pop(user_id, None)
-        except Exception:  # noqa: BLE001 - 清理写后不理
+        except Exception as e:  # noqa: BLE001 - 清理写后不理
+            logger.warning(f"静默异常[Exception] in clear_user_state: {e}")
             pass

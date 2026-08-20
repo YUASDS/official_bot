@@ -140,6 +140,7 @@ class ConfigValidator:
                 with open(path, encoding="utf-8-sig") as f:
                     self.data[name] = ujson.load(f)
             except Exception as e:  # noqa: BLE001 - 加载失败需暴露
+                logger.warning(f"静默异常[Exception] in load: {e}")
                 self._err(name, "<文件>", f"JSON 解析失败：{e}")
                 self.data[name] = {}
 
@@ -154,6 +155,7 @@ class ConfigValidator:
                 with open(f, encoding="utf-8-sig") as fh:
                     self.data[key] = ujson.load(fh)
             except Exception as e:  # noqa: BLE001 - 加载失败需暴露
+                logger.warning(f"静默异常[Exception] in _load_dir: {e}")
                 self._err(key, "<文件>", f"JSON 解析失败：{e}")
                 self.data[key] = {}
 

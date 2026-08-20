@@ -23,6 +23,7 @@ SAN 永不归零（不触发 E06）；胜利不走掉落/成长/day+1/门扉；�
 
 from __future__ import annotations
 
+from loguru import logger
 import random
 from typing import Any, Optional
 
@@ -122,7 +123,8 @@ def _gm_met_flag(inv: Investigator) -> Optional[int]:
     """读当日守卫持久化镜像：flags `gm_room.met_day`（重启后仍生效）。"""
     try:
         return int(inv.get_flag("gm_room.met_day"))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError) as e:
+        logger.warning(f"静默异常[TypeError/ValueError] in _gm_met_flag: {e}")
         return None
 
 
@@ -646,7 +648,8 @@ def _gm_active_rule(event: Event) -> bool:
     """/行动 兜底命令规则：仅当玩家处于 GM 房间状态时拦截（其余走原战斗命令）。"""
     try:
         return event.get_user_id() in gm_room_active
-    except Exception:
+    except Exception as e:
+        logger.warning(f"静默异常[Exception] in _gm_active_rule: {e}")
         return False
 
 

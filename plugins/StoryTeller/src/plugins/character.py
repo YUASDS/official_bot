@@ -1,3 +1,4 @@
+from loguru import logger
 import ujson
 
 from nonebot import on_command
@@ -52,7 +53,8 @@ def _build_legacy_summary(qq: str) -> str:
         return ""
     try:
         records = ujson.loads(collection.endings or "[]")
-    except (ValueError, TypeError):
+    except (ValueError, TypeError) as e:
+        logger.warning(f"静默异常[ValueError/TypeError] in _build_legacy_summary: {e}")
         records = []
     if not isinstance(records, list) or not records:
         return ""
@@ -75,7 +77,8 @@ def _build_legacy_summary(qq: str) -> str:
     marks = {}
     try:
         marks = ujson.loads(collection.collection or "{}")
-    except (ValueError, TypeError):
+    except (ValueError, TypeError) as e:
+        logger.warning(f"静默异常[ValueError/TypeError] in _build_legacy_summary: {e}")
         marks = {}
     if not isinstance(marks, dict):
         marks = {}
@@ -259,7 +262,8 @@ def _cleanup_ended_state(user_id: str) -> None:
     """结局后清理残留状态：战斗 + 统一状态注册表（door/event/flow/gm/qiren/npc 等）。"""
     try:
         battle_manager.remove_battle(user_id)
-    except Exception:
+    except Exception as e:
+        logger.warning(f"静默异常[Exception] in _cleanup_ended_state: {e}")
         pass
     clear_user_state(user_id)
 

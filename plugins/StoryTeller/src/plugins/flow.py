@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+from loguru import logger
 from nonebot import on_command
 from nonebot.adapters import Bot, Event, Message
 from nonebot.exception import FinishedException
@@ -66,7 +67,8 @@ def _flow_active_rule(event: Event) -> bool:
     """/行动 兜底命令规则：仅当玩家处于 flow 状态时拦截（对齐 guest 规则）。"""
     try:
         return event.get_user_id() in flow_states
-    except Exception:
+    except Exception as e:
+        logger.warning(f"静默异常[Exception] in _flow_active_rule: {e}")
         return False
 
 

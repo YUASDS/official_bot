@@ -61,7 +61,8 @@ def _run_id_of(qq: str) -> int:
         progress = ending_repo.get_progress(qq)
         if progress is not None:
             return int(progress.run_id or 0)
-    except Exception:
+    except Exception as e:
+        logger.warning(f"静默异常[Exception] in _run_id_of: {e}")
         pass
     return 0
 
@@ -125,7 +126,8 @@ def _run_kills(qq: str, run_id: int) -> dict:
             mid = str(row.monster_id or "")
             counts[mid] = counts.get(mid, 0) + 1
         return counts
-    except Exception:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"静默异常[Exception] in _run_kills: {e}")
         return {}
 
 
@@ -158,7 +160,8 @@ def _run_battle_agg(qq: str, run_id: int) -> tuple[int, int, int]:
             .count()
         )
         return battles, flees, deaths
-    except Exception:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"静默异常[Exception] in _run_battle_agg: {e}")
         return 0, 0, 0
 
 
@@ -171,7 +174,8 @@ def _run_gold_net(qq: str, run_id: int) -> int:
             (GoldLedger.qq == str(qq)) & (GoldLedger.run_id == int(run_id))
         )
         return sum(int(row.delta or 0) for row in rows)
-    except Exception:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"静默异常[Exception] in _run_gold_net: {e}")
         return 0
 
 
@@ -189,7 +193,8 @@ def _knowledge_of(inv: Any) -> int:
         bonus_items = cfg.get("bonus_items") or {"503": 15, "504": 5, "508": 10}
         bonus = sum(int(b) for rid, b in bonus_items.items() if eq.get(str(rid), 0) > 0)
         return int(inv.get_skill("克苏鲁神话", 0)) + bonus
-    except Exception:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"静默异常[Exception] in _knowledge_of: {e}")
         return 0
 
 
@@ -204,7 +209,8 @@ def _relics_of(inv: Any) -> int:
             or ["400", "501", "502", "503", "504", "506", "507", "508"]
         )
         return sum(1 for rid in ids if eq.get(str(rid), 0) > 0)
-    except Exception:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"静默异常[Exception] in _relics_of: {e}")
         return 0
 
 
@@ -324,7 +330,8 @@ def _find_event_key(option: dict) -> str:
             for opt in (ev.get("选项") or []):
                 if isinstance(opt, dict) and opt.get("输入") == option.get("输入"):
                     return str(key)
-    except Exception:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"静默异常[Exception] in _find_event_key: {e}")
         pass
     return ""
 
@@ -404,7 +411,8 @@ def _daily_stats_snapshot() -> list[str]:
             try:
                 rows = model.select(model.qq).where(col.startswith(prefix))
                 qqs.update(str(r.qq) for r in rows)
-            except Exception:  # noqa: BLE001
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"静默异常[Exception] in _daily_stats_snapshot: {e}")
                 pass
 
         # 战斗统计

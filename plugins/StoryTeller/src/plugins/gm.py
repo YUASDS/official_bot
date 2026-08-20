@@ -1,3 +1,4 @@
+from loguru import logger
 import os
 
 from nonebot import on_command
@@ -24,7 +25,8 @@ def get_master_ids() -> set[str]:
 
         value = getattr(get_driver().config, "master", "")
         raw = value if isinstance(value, str) else ""
-    except Exception:  # noqa: BLE001 - 未初始化时退回环境变量
+    except Exception as e:  # noqa: BLE001 - 未初始化时退回环境变量
+        logger.warning(f"静默异常[Exception] in get_master_ids: {e}")
         pass
     if not raw:
         raw = os.environ.get("MASTER", "")

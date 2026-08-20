@@ -28,7 +28,7 @@ def is_md_enabled() -> bool:
         value = getattr(get_driver().config, MD_ENV_KEY.lower(), "")
         return str(value).lower() in ("1", "true", "yes", "on")
     except Exception as e:
-        logger.debug(f"Failed to read {MD_ENV_KEY} config: {e}")
+        logger.warning(f"Failed to read {MD_ENV_KEY} config: {e}")
         return False
 
 
@@ -40,7 +40,7 @@ def pic_enabled() -> bool:
         value = getattr(get_driver().config, PIC_ENV_KEY.lower(), "")
         return str(value).lower() in ("1", "true", "yes", "on")
     except Exception as e:
-        logger.debug(f"Failed to read {PIC_ENV_KEY} config: {e}")
+        logger.warning(f"Failed to read {PIC_ENV_KEY} config: {e}")
         return False
 
 
@@ -235,7 +235,7 @@ def build_keyboard(rows: list[list[tuple[str, str]]]) -> Any:
             RenderData,
         )
     except Exception as e:
-        logger.debug(f"Failed to import QQ keyboard models: {e}")
+        logger.warning(f"Failed to import QQ keyboard models: {e}")
         return None
 
     try:

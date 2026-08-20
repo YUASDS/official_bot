@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from loguru import logger
 import contextlib
 import re
 from datetime import datetime
@@ -178,7 +179,8 @@ class InvestigatorRepository:
     def find_by_qq(self, qq: str) -> Optional[InvestigatorModel]:
         try:
             return InvestigatorModel.get(InvestigatorModel.qq == qq)
-        except DoesNotExist:
+        except DoesNotExist as e:
+            logger.warning(f"静默异常[DoesNotExist] in find_by_qq: {e}")
             return None
 
     def create_and_save(
@@ -349,7 +351,8 @@ class EndingRepository:
     def get_collection(self, qq: str) -> Optional[EndingCollectionModel]:
         try:
             return EndingCollectionModel.get(EndingCollectionModel.qq == qq)
-        except DoesNotExist:
+        except DoesNotExist as e:
+            logger.warning(f"静默异常[DoesNotExist] in get_collection: {e}")
             return None
 
     def ensure_collection(self, qq: str) -> EndingCollectionModel:
@@ -384,7 +387,8 @@ class EndingRepository:
     def get_progress(self, qq: str) -> Optional[EndingProgressModel]:
         try:
             return EndingProgressModel.get(EndingProgressModel.qq == qq)
-        except DoesNotExist:
+        except DoesNotExist as e:
+            logger.warning(f"静默异常[DoesNotExist] in get_progress: {e}")
             return None
 
     def ensure_progress(self, qq: str, day: int) -> EndingProgressModel:
@@ -429,7 +433,8 @@ class EndingRepository:
                 return
             inv = Investigator.load(qq)
             snapshot_run(inv, "", progress=progress)
-        except Exception:  # noqa: BLE001 - 统计写后不理
+        except Exception as e:  # noqa: BLE001 - 统计写后不理
+            logger.warning(f"静默异常[Exception] in _snapshot_unsettled_run: {e}")
             pass
 
     def add_ending(
@@ -443,7 +448,8 @@ class EndingRepository:
         collection = self.ensure_collection(qq)
         try:
             records = ujson.loads(collection.endings or "[]")
-        except (ValueError, TypeError):
+        except (ValueError, TypeError) as e:
+            logger.warning(f"静默异常[ValueError/TypeError] in add_ending: {e}")
             records = []
         if run is None:
             run = collection.total_runs
@@ -468,7 +474,8 @@ class EndingRepository:
         collection = self.ensure_collection(qq)
         try:
             marks = ujson.loads(collection.collection or "{}")
-        except (ValueError, TypeError):
+        except (ValueError, TypeError) as e:
+            logger.warning(f"静默异常[ValueError/TypeError] in touch_relic_collection: {e}")
             marks = {}
         marks = {**marks, **{rid: True for rid in relic_ids}}
         collection.collection = ujson.dumps(marks, ensure_ascii=False)
@@ -484,7 +491,8 @@ class EndingRepository:
         collection = self.ensure_collection(qq)
         try:
             choices = ujson.loads(collection.last_run_choices or "{}")
-        except (ValueError, TypeError):
+        except (ValueError, TypeError) as e:
+            logger.warning(f"静默异常[ValueError/TypeError] in record_run_choice: {e}")
             choices = {}
         if not isinstance(choices, dict):
             choices = {}
@@ -500,7 +508,8 @@ class EndingRepository:
             return {}
         try:
             choices = ujson.loads(collection.last_run_choices or "{}")
-        except (ValueError, TypeError):
+        except (ValueError, TypeError) as e:
+            logger.warning(f"静默异常[ValueError/TypeError] in get_run_choices: {e}")
             return {}
         return choices if isinstance(choices, dict) else {}
 
@@ -677,7 +686,8 @@ class Investigator:
             raw = getattr(self._model, "spells", "[]") or "[]"
         try:
             return list(ujson.loads(raw))
-        except (ValueError, TypeError):
+        except (ValueError, TypeError) as e:
+            logger.warning(f"静默异常[ValueError/TypeError] in get_spells: {e}")
             return []
 
     def add_spell(self, spell_id: str) -> None:
@@ -699,7 +709,8 @@ class Investigator:
         try:
             value = ujson.loads(raw)
             return value if isinstance(value, dict) else {}
-        except (ValueError, TypeError):
+        except (ValueError, TypeError) as e:
+            logger.warning(f"静默异常[ValueError/TypeError] in get_all_flags: {e}")
             return {}
 
     def get_flag(self, name: str):

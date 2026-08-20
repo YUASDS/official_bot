@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+from loguru import logger
 import random
 from typing import Optional
 
@@ -77,7 +78,8 @@ def _guest_met_flag(inv: Investigator) -> Optional[int]:
     """读当日守卫持久化镜像：flags `guest.met_day`（重启后仍生效）。"""
     try:
         return int(inv.get_flag("guest.met_day"))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError) as e:
+        logger.warning(f"静默异常[TypeError/ValueError] in _guest_met_flag: {e}")
         return None
 
 

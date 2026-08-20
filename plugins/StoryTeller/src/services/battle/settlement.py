@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from loguru import logger
 from typing import Optional
 
 from database.db import add_gold
@@ -40,7 +41,8 @@ class BattleSettlementMixin:
                     reward = (boss_cfg.get("奖励") or {}).get("胜利")
                     return reward if reward else None
             return None
-        except Exception:  # noqa: BLE001 - 奖励读取失败回退普通掉落
+        except Exception as e:  # noqa: BLE001 - 奖励读取失败回退普通掉落
+            logger.warning(f"静默异常[Exception] in _boss_victory_reward: {e}")
             return None
 
     def get_success_record_description(self, rank: int, skill_name: str = "") -> str:

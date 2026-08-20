@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from loguru import logger
 from typing import TYPE_CHECKING, Literal, Optional
 
 from ...models.item import Equipment
@@ -149,7 +150,8 @@ class BattleBaseMixin:
             return 10**9
         try:
             need = int(wc.get("回合", 0))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError) as e:
+            logger.warning(f"静默异常[TypeError/ValueError] in _hold_remaining: {e}")
             return 10**9
         return max(0, need - self._turn_counter)
 
@@ -346,7 +348,8 @@ class BattleBaseMixin:
                 spells_cast=getattr(self, "_stat_spells", {}),
                 fled=bool(getattr(self, "fled", False)),
             )
-        except Exception:  # noqa: BLE001 - 统计写后不理
+        except Exception as e:  # noqa: BLE001 - 统计写后不理
+            logger.warning(f"静默异常[Exception] in _log_battle: {e}")
             pass
 
     def _snapshot_run_ending(self, ending_id: str, variant: str = "") -> None:
@@ -355,5 +358,6 @@ class BattleBaseMixin:
             from ...services.stats_service import snapshot_run
 
             snapshot_run(self.investigator, ending_id, variant or None)
-        except Exception:  # noqa: BLE001 - 统计写后不理
+        except Exception as e:  # noqa: BLE001 - 统计写后不理
+            logger.warning(f"静默异常[Exception] in _snapshot_run_ending: {e}")
             pass

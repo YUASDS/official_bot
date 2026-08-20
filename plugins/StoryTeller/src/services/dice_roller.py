@@ -1,3 +1,4 @@
+from loguru import logger
 import random
 
 from .data_loader import data_loader
@@ -37,7 +38,8 @@ def _dice_thresholds() -> dict:
                 cfg.get("extreme_ratio", _DICE_DEFAULT_THRESHOLDS["extreme_ratio"])
             ),
         }
-    except (TypeError, ValueError):
+    except (TypeError, ValueError) as e:
+        logger.warning(f"静默异常[TypeError/ValueError] in _dice_thresholds: {e}")
         return dict(_DICE_DEFAULT_THRESHOLDS)
 
 

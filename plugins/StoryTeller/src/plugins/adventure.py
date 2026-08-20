@@ -184,11 +184,13 @@ def _new_chapter_guide() -> str:
             "ending.frozen_ended",
             default="结局已结算，庄园不再回应你的呼唤。",
         )
-    except Exception:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"静默异常[Exception] in _new_chapter_guide: {e}")
         first = "结局已结算，庄园不再回应你的呼唤。"
     try:
         body = data_loader.get_text("adventure.day40_new_chapter", default="")
-    except Exception:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"静默异常[Exception] in _new_chapter_guide: {e}")
         body = ""
     if not body:
         return first
@@ -642,7 +644,7 @@ async def _run_adventure(
                             inv.set_flag(boss_img[1], True)
                             inv.save()
             except Exception:  # noqa: BLE001 - 图片发送失败静默（零影响战斗）
-                logger.debug(f"BOSS image send failed for {user_id}")
+                logger.warning(f"BOSS image send failed for {user_id}")
 
         # 环境修正小节
         env_effects = ""
@@ -1169,7 +1171,8 @@ def _ending_ids_snapshot(user_id: str) -> dict[str, str]:
         return {}
     try:
         recs = ujson.loads(coll.endings or "[]")
-    except (ValueError, TypeError):
+    except (ValueError, TypeError) as e:
+        logger.warning(f"静默异常[ValueError/TypeError] in _ending_ids_snapshot: {e}")
         return {}
     out: dict[str, str] = {}
     if isinstance(recs, list):

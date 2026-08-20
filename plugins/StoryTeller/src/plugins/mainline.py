@@ -81,7 +81,8 @@ def _ng_plus(inv) -> int:
         return 0
     try:
         return int(collection.ng_plus or 0)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError) as e:
+        logger.warning(f"静默异常[TypeError/ValueError] in _ng_plus: {e}")
         return 0
 
 
@@ -120,7 +121,8 @@ def _opening_days() -> list[int]:
     for d in days:
         try:
             out.append(int(d))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError) as e:
+            logger.warning(f"静默异常[TypeError/ValueError] in _opening_days: {e}")
             continue
     return out
 

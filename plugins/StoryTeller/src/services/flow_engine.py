@@ -230,7 +230,8 @@ def _progress(inv: Investigator):
     """懒加载本局进度（条件求值用），失败回退 None（条件按空处理不拦截）。"""
     try:
         return ending_repo.ensure_progress(inv.qq, inv.day)
-    except Exception:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"静默异常[Exception] in _progress: {e}")
         return None
 
 

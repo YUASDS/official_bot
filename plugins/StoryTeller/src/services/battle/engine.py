@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from loguru import logger
 import random
 from typing import Optional
 
@@ -136,7 +137,8 @@ class BattleEngineMixin:
                 comp_text = comp["文案"].format(
                     damage=val, remaining=comp["剩余"]
                 )
-            except (KeyError, IndexError, ValueError):
+            except (KeyError, IndexError, ValueError) as e:
+                logger.warning(f"静默异常[KeyError/IndexError/ValueError] in _execute_monster_action: {e}")
                 comp_text = comp.get("文案", "")
             parts.append(comp_text)
             if comp["剩余"] <= 0:
@@ -380,7 +382,8 @@ class BattleEngineMixin:
         )
         try:
             line = tick_text.format(expr=expr, val=val, damage=val)
-        except (KeyError, IndexError, ValueError):
+        except (KeyError, IndexError, ValueError) as e:
+            logger.warning(f"静默异常[KeyError/IndexError/ValueError] in _apply_dot_ticks: {e}")
             line = tick_text
         if self.current_turn == "mon":
             self._apply_damage_to_monster(val, dmg_type="magic")
@@ -407,7 +410,8 @@ class BattleEngineMixin:
             return None
         try:
             need = int(self._win_condition.get("回合", 0))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError) as e:
+            logger.warning(f"静默异常[TypeError/ValueError] in _check_conditional_victory: {e}")
             need = 0
         if self._turn_counter < need:
             return None
@@ -510,7 +514,8 @@ class BattleEngineMixin:
         """周目联动写入点：跨周目行为记录（幂等首遇优先，写后不理防破坏战斗）。"""
         try:
             ending_repo.record_run_choice(self.investigator.qq, key, value)
-        except Exception:  # noqa: BLE001 - 记录失败不影响战斗
+        except Exception as e:  # noqa: BLE001 - 记录失败不影响战斗
+            logger.warning(f"静默异常[Exception] in _record_run_choice: {e}")
             pass
 
     def _handle_day40_defeat(self) -> str:
