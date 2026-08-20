@@ -630,6 +630,9 @@ async def _flow_start_battle(user_id: str, state: dict, bot: Bot, send) -> None:
     service.set_guest_texts(node.get("玩家文案") or flow.get("玩家文案") or {})
     if state.get("buff"):
         service.set_environment({"玩家": dict(state["buff"])})
+        tmp_hp = state["buff"].get("临时生命")
+        if isinstance(tmp_hp, (int, float)):
+            service.temp_hp += int(tmp_hp)
     state["battle"] = service
     state["phase"] = "battle"
     service.roll_initiative()
