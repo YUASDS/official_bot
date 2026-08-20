@@ -363,6 +363,40 @@ adventure_cmd = on_command(
 )
 
 
+async def _handle_san_zero(
+    battle,
+    inv,
+    user_id: str,
+    san_desc,
+    san_loss,
+    bot,
+    send,
+    show_cg: bool = True,
+) -> None:
+    """SAN 归零统一出口：登记 E06 + 清战场 + 标记完成 + 归零卡片 + E06 结局卡片（失败回退 md）。
+
+    三处调用（无奇遇/handle_combat 通道/handle_event_choice 通道）共用；
+    show_cg 默认 True 保持「无奇遇」路径原行为，其余通道显式传 False。
+    """
+    e06_result = check_san_zero(inv)
+    battle_manager.remove_battle(user_id)
+    inv.is_survive = False
+    inv.save()
+    _mark_adventure_done(user_id)
+    await send_sanity_zero(battle, inv, san_desc, san_loss, bot, send, show_cg=show_cg)
+    # E06 结局卡片（卡片优先，渲染失败回退 md 结局文案）
+    if not await _try_send_ending_card(
+        bot,
+        user_id,
+        "",
+        "E06",
+        note=str(e06_result.get("note") or ""),
+        inv=inv,
+        send=send,
+    ):
+        await send(md_message(f"\n{e06_result['message']}", bot, mention=user_id))
+
+
 async def _run_adventure(
     user_id: str, bot: Bot, send: Callable, finish: Callable
 ) -> None:
@@ -604,28 +638,9 @@ async def _run_adventure(
             run_sanity_and_madness(inv, monster)
         )
         if san_zero:
-            # 出口②：SAN 归零（永久疯狂）→ 登记 E06 + 清理战场残留（防 /行动 命中遗留 battle）
-            e06_result = check_san_zero(inv)
-            battle_manager.remove_battle(user_id)
-            inv.is_survive = False
-            inv.save()
-            _mark_adventure_done(user_id)
-            await send_sanity_zero(
-                service, inv, san_desc, san_loss, bot, send
+            await _handle_san_zero(
+                service, inv, user_id, san_desc, san_loss, bot, send
             )
-            # E06 结局卡片（卡片优先，渲染失败回退 md 结局文案）
-            if not await _try_send_ending_card(
-                bot,
-                user_id,
-                "",
-                "E06",
-                note=str(e06_result.get("note") or ""),
-                inv=inv,
-                send=send,
-            ):
-                await send(
-                    md_message(f"\n{e06_result['message']}", bot, mention=user_id)
-                )
             return
         if is_mad:
             service.set_madness(True, madness_duration)
@@ -923,34 +938,16 @@ async def handle_combat(event: Event, bot: Bot, msg: Message = CommandArg()):
             run_sanity_and_madness(battle.investigator, battle.monster)
         )
         if san_zero:
-            # 出口②：SAN 归零（永久疯狂）→ 登记 E06 + 清理战场残留（P0-1 防线）
-            e06_result = check_san_zero(battle.investigator)
-            battle_manager.remove_battle(user_id)
-            battle.investigator.is_survive = False
-            battle.investigator.save()
-            _mark_adventure_done(user_id)
-            await send_sanity_zero(
+            await _handle_san_zero(
                 battle,
                 battle.investigator,
+                user_id,
                 san_desc,
                 san_loss,
                 bot,
                 combat_cmd.send,
                 show_cg=False,
             )
-            # E06 结局卡片（卡片优先，渲染失败回退 md 结局文案）
-            if not await _try_send_ending_card(
-                bot,
-                user_id,
-                "",
-                "E06",
-                note=str(e06_result.get("note") or ""),
-                inv=battle.investigator,
-                send=combat_cmd.send,
-            ):
-                await combat_cmd.send(
-                    md_message(f"\n{e06_result['message']}", bot, mention=user_id)
-                )
             return
         if is_mad:
             battle.set_madness(True, madness_duration)
@@ -1414,35 +1411,16 @@ async def handle_event_choice(
         run_sanity_and_madness(battle.investigator, battle.monster)
     )
     if san_zero:
-        # 出口②：SAN 归零（永久疯狂）→ 登记 E06 + 清理战场残留（P0-1 防线）
-        e06_result = check_san_zero(battle.investigator)
-        battle_manager.remove_battle(user_id)
-        battle.investigator.is_survive = False
-        battle.investigator.save()
-        _mark_adventure_done(user_id)
-
-        await send_sanity_zero(
+        await _handle_san_zero(
             battle,
             battle.investigator,
+            user_id,
             san_desc,
             san_loss,
             bot,
             _send,
             show_cg=False,
         )
-        # E06 结局卡片（卡片优先，渲染失败回退 md 结局文案）
-        if not await _try_send_ending_card(
-            bot,
-            user_id,
-            group_openid,
-            "E06",
-            note=str(e06_result.get("note") or ""),
-            inv=battle.investigator,
-            send=_send,
-        ):
-            await _send(
-                md_message(f"\n{e06_result['message']}", bot, mention=user_id)
-            )
         return
     if is_mad:
         battle.set_madness(True, madness_duration)
