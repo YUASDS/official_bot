@@ -46,7 +46,7 @@ from ..services.ending_engine import (
 )
 from ..utils.active_battles import battle_manager
 from ..utils.buttons import _send_to_user, register_button_handler
-from ..utils.image_sender import render_pic, send_pic
+from ..utils.image_sender import render_pic, send_card_or_md, send_pic
 from ..utils.md_format import (
     build_keyboard,
     md_message,
@@ -326,16 +326,23 @@ async def _gm_send_round(
         if result and result[-1]:
             await send(md_message(f"\n{result[-1]}", bot, mention=user_id))
         return
-    img = await render_pic(battle_round_html(service, result))
-    if img is not None and await send_pic(bot, img, send):
-        text = service.get_action_section()
-    else:
-        text = "\n" + "\n\n".join(str(x) for x in result if x)
-    msg = md_message(text, bot, mention=user_id)
+    reply_md = "\n\n".join(str(x) for x in result if x)
     kb = _gm_battle_keyboard(service)
-    if kb is not None and not isinstance(msg, str):
-        msg.append(kb)
-    await send(msg)
+    fallback = md_message(f"\n{reply_md}", bot, mention=user_id)
+    if await send_card_or_md(
+        bot,
+        send,
+        battle_round_html(service, result),
+        fallback,
+        kb,
+        render=render_pic,
+        send_image=send_pic,
+    ):
+        # 图片成功：仍按现状发行动按钮条 + 键盘（保持既有「图片后跟按钮」体验）
+        msg = md_message(service.get_action_section(), bot, mention=user_id)
+        if kb is not None and not isinstance(msg, str):
+            msg.append(kb)
+        await send(msg)
 
 
 async def _gm_handle_battle_input(

@@ -47,7 +47,7 @@ from ..services.dice_roller import get_success_icon, roll_check_core, roll_dice
 from ..services.effect_keys import standard_effects
 from ..services.event_service import apply_event_effects
 from ..utils.active_battles import battle_manager
-from ..utils.image_sender import render_pic, send_pic
+from ..utils.image_sender import render_pic, send_card_or_md, send_pic
 from ..utils.md_format import (
     build_keyboard,
     md_message,
@@ -614,23 +614,27 @@ async def _flow_start_battle(user_id: str, state: dict, bot: Bot, send) -> None:
         service.get_action_section(),
     ]
     # 开场战报卡片优先（对齐普通冒险 battle_open_html；渲染/发送失败回退 md，行为不变）
-    img = await render_pic(
-        battle_open_html(service, "\n\n".join(x for x in battle_body if x))
+    kb = _flow_battle_keyboard(service)
+    fallback = md_message(
+        "\n\n".join(x for x in [f"**{t('flow.battle_title')}**", *battle_body] if x),
+        bot,
+        mention=user_id,
     )
-    if img is not None and await send_pic(bot, img, send):
+    if await send_card_or_md(
+        bot,
+        send,
+        battle_open_html(service, "\n\n".join(x for x in battle_body if x)),
+        fallback,
+        kb,
+        render=render_pic,
+        send_image=send_pic,
+    ):
         # 图片成功后：行动按钮单独一条（对齐 _flow_battle_input 模式）
         msg = md_message(service.get_action_section(), bot, mention=user_id)
-        kb = _flow_battle_keyboard(service)
         if kb is not None and not isinstance(msg, str):
             msg.append(kb)
         await send(msg)
         return
-    lines = [f"**{t('flow.battle_title')}**", *battle_body]
-    msg = md_message("\n\n".join(x for x in lines if x), bot, mention=user_id)
-    kb = _flow_battle_keyboard(service)
-    if kb is not None and not isinstance(msg, str):
-        msg.append(kb)
-    await send(msg)
 
 
 async def _flow_battle_input(
@@ -680,16 +684,23 @@ async def _flow_battle_input(
         await send(msg)
         return
     # 普通回合：battle_round_html 图片卡片优先，渲染/发送失败回退 md 战报（附行动按钮）
-    img = await render_pic(battle_round_html(service, result))
-    if img is not None and await send_pic(bot, img, send):
-        text = service.get_action_section()
-    else:
-        text = "\n" + "\n\n".join(str(x) for x in result if x)
-    msg = md_message(text, bot, mention=user_id)
+    reply_md = "\n\n".join(str(x) for x in result if x)
     kb = _flow_battle_keyboard(service)
-    if kb is not None and not isinstance(msg, str):
-        msg.append(kb)
-    await send(msg)
+    fallback = md_message(f"\n{reply_md}", bot, mention=user_id)
+    if await send_card_or_md(
+        bot,
+        send,
+        battle_round_html(service, result),
+        fallback,
+        kb,
+        render=render_pic,
+        send_image=send_pic,
+    ):
+        # 图片成功：仍按现状发行动按钮条 + 键盘（保持既有「图片后跟按钮」体验）
+        msg = md_message(service.get_action_section(), bot, mention=user_id)
+        if kb is not None and not isinstance(msg, str):
+            msg.append(kb)
+        await send(msg)
 
 
 async def _flow_battle_end(user_id: str, state: dict, bot: Bot, send) -> None:

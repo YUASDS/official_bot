@@ -40,3 +40,28 @@ async def send_pic(bot: Bot, img: Any, send: Callable) -> bool:
     except Exception as e:  # noqa: BLE001 - 图片发送失败应回退 md
         logger.warning(f"send image failed on {bt}: {e}")
     return False
+
+
+async def send_card_or_md(
+    bot: Bot,
+    send: Callable,
+    html: str,
+    fallback_msg,
+    kb=None,
+    render=render_pic,
+    send_image=send_pic,
+) -> bool:
+    """卡片优先：渲染 HTML 为图片发送成功返回 True；失败时发送 fallback_msg 返回 False。
+
+    fallback_msg 为已构造好的待发送消息（`md_message` 结果，可为消息对象或纯文本）；
+    kb 非空且消息非纯文本时追加到消息尾部。render / send_image 默认指向本模块的
+    render_pic / send_pic，调用方可注入自身名字以保持可打桩性。
+    """
+    img = await render(html)
+    if img is not None and await send_image(bot, img, send):
+        return True
+    msg = fallback_msg
+    if kb is not None and not isinstance(msg, str):
+        msg.append(kb)
+    await send(msg)
+    return False
