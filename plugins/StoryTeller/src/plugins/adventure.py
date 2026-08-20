@@ -397,6 +397,48 @@ async def _handle_san_zero(
         await send(md_message(f"\n{e06_result['message']}", bot, mention=user_id))
 
 
+async def _start_battle_after_event(
+    battle,
+    user_id: str,
+    event_reply: str,
+    san_desc,
+    madness_desc,
+    is_mad,
+    madness_duration,
+    bot,
+    send,
+) -> None:
+    """奇遇完成后统一战斗起步：怪物出场 → 理智检定(+疯狂) → 敏捷对比 → 战斗开始。
+
+    handle_combat 命令通道与 handle_event_choice 按钮通道共用（仅 send 回调不同）；
+    开场战报卡片（battle_open_html）优先，失败回退 md。san_zero 由调用方先行处理。
+    """
+    if is_mad:
+        battle.set_madness(True, madness_duration)
+    monster_intro = getattr(
+        battle.monster,
+        "出场",
+        data_loader.get_text(
+            "adventure.monster_intro_default", name=battle.monster.name
+        ),
+    )
+    warning = _danger_warning(battle.investigator.day)
+    event_block = f"{event_reply}\n\n{warning}" if warning else event_reply
+    reply = (
+        f"{event_block}\n\n"
+        f"{report_section(data_loader.get_text('battle.monster_intro_title'))}\n"
+        f"{monster_intro}\n\n"
+        f"{san_desc}{madness_desc}\n\n"
+        f"{battle.get_dex_compare_section()}\n\n"
+        f"{battle.start_turn()}"
+    )
+    img = await render_pic(battle_open_html(battle, reply))
+    if img is not None and await send_pic(bot, img, send):
+        await send(send_turn(battle, bot, battle.get_action_section()))
+        return
+    await send(send_turn(battle, bot, reply))
+
+
 async def _run_adventure(
     user_id: str, bot: Bot, send: Callable, finish: Callable
 ) -> None:
@@ -949,31 +991,17 @@ async def handle_combat(event: Event, bot: Bot, msg: Message = CommandArg()):
                 show_cg=False,
             )
             return
-        if is_mad:
-            battle.set_madness(True, madness_duration)
-
-        monster_intro = getattr(
-            battle.monster,
-            "出场",
-            data_loader.get_text(
-                "adventure.monster_intro_default", name=battle.monster.name
-            ),
+        await _start_battle_after_event(
+            battle,
+            user_id,
+            event_reply,
+            san_desc,
+            madness_desc,
+            is_mad,
+            madness_duration,
+            bot,
+            combat_cmd.send,
         )
-        warning = _danger_warning(battle.investigator.day)
-        event_block = f"{event_reply}\n\n{warning}" if warning else event_reply
-        reply = (
-            f"{event_block}\n\n"
-            f"{report_section(data_loader.get_text('battle.monster_intro_title'))}\n"
-            f"{monster_intro}\n\n"
-            f"{san_desc}{madness_desc}\n\n"
-            f"{battle.get_dex_compare_section()}\n\n"
-            f"{battle.start_turn()}"
-        )
-        img = await render_pic(battle_open_html(battle, reply))
-        if img is not None and await send_pic(bot, img, combat_cmd.send):
-            await combat_cmd.send(send_turn(battle, bot, battle.get_action_section()))
-            return
-        await combat_cmd.send(send_turn(battle, bot, reply))
         return
 
     # Normal combat flow
@@ -1422,32 +1450,18 @@ async def handle_event_choice(
             show_cg=False,
         )
         return
-    if is_mad:
-        battle.set_madness(True, madness_duration)
-
-    monster_intro = getattr(
-        battle.monster,
-        "出场",
-        data_loader.get_text(
-            "adventure.monster_intro_default", name=battle.monster.name
-        ),
+    await _start_battle_after_event(
+        battle,
+        user_id,
+        event_reply,
+        san_desc,
+        madness_desc,
+        is_mad,
+        madness_duration,
+        bot,
+        _send,
     )
-    warning = _danger_warning(battle.investigator.day)
-    event_block = f"{event_reply}\n\n{warning}" if warning else event_reply
-    reply = (
-        f"{event_block}\n\n"
-        f"{report_section(data_loader.get_text('battle.monster_intro_title'))}\n"
-        f"{monster_intro}\n\n"
-        f"{san_desc}{madness_desc}\n\n"
-        f"{battle.get_dex_compare_section()}\n\n"
-        f"{battle.start_turn()}"
-    )
-
-    img = await render_pic(battle_open_html(battle, reply))
-    if img is not None and await send_pic(bot, img, _send):
-        await _send(send_turn(battle, bot, battle.get_action_section()))
-        return
-    await _send(send_turn(battle, bot, reply))
+    return
 
 
 # --- 二周目选择器（day1 踏入主线 / 重游门扉） ---
