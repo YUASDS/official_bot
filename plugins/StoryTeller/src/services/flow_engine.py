@@ -41,7 +41,7 @@ from nonebot.adapters import Bot
 from ..models.monster import Monster
 from ..models.player import Investigator, ending_repo, investigator_repo
 from ..services.battle import BattleService
-from ..services.battle_cards import battle_round_html
+from ..services.battle_cards import battle_open_html, battle_round_html
 from ..services.data_loader import data_loader
 from ..services.dice_roller import get_success_icon, roll_dice
 from ..services.event_service import apply_event_effects
@@ -611,8 +611,7 @@ async def _flow_start_battle(user_id: str, state: dict, bot: Bot, send) -> None:
     intro = battle_cfg.get("开场", "")
     if not intro:
         intro = getattr(service.monster, "出场", "") or service.monster.名字
-    lines = [
-        f"**{t('flow.battle_title')}**",
+    battle_body = [
         intro,
         report_section(t("battle.monster_intro_title")),
         service.monster.名字,
@@ -620,6 +619,19 @@ async def _flow_start_battle(user_id: str, state: dict, bot: Bot, send) -> None:
         service.get_status_table(),
         service.get_action_section(),
     ]
+    # 开场战报卡片优先（对齐普通冒险 battle_open_html；渲染/发送失败回退 md，行为不变）
+    img = await render_pic(
+        battle_open_html(service, "\n\n".join(x for x in battle_body if x))
+    )
+    if img is not None and await send_pic(bot, img, send):
+        # 图片成功后：行动按钮单独一条（对齐 _flow_battle_input 模式）
+        msg = md_message(service.get_action_section(), bot, mention=user_id)
+        kb = _flow_battle_keyboard(service)
+        if kb is not None and not isinstance(msg, str):
+            msg.append(kb)
+        await send(msg)
+        return
+    lines = [f"**{t('flow.battle_title')}**", *battle_body]
     msg = md_message("\n\n".join(x for x in lines if x), bot, mention=user_id)
     kb = _flow_battle_keyboard(service)
     if kb is not None and not isinstance(msg, str):
