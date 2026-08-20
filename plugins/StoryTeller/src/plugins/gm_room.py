@@ -168,9 +168,7 @@ def _gm_battle_keyboard(service: BattleService):
     if not actions:
         return None
     token = service.get_turn_token()
-    rows = [[(a, f"gm_battle:{a}:{token}") for a in actions[:4]]]
-    if len(actions) > 4:
-        rows.append([(a, f"gm_battle:{a}:{token}") for a in actions[4:]])
+    rows = [[(a, f"gm_battle:{a}:{token}")] for a in actions]
     return build_keyboard(rows)
 
 
@@ -216,7 +214,9 @@ async def gm_room_enter(user_id: str, inv: Investigator, bot: Bot, send) -> None
         "battle": None,
     }
     t = data_loader.get_text
-    kb = build_keyboard([[(o["label"], f"gm_dlg1:{o['key']}") for o in _DLG1_OPTIONS]])
+    kb = build_keyboard(
+        [[(o["label"], f"gm_dlg1:{o['key']}")] for o in _DLG1_OPTIONS]
+    )
     msg = md_message(
         f"\n**{t('gm_room_v2.title')}**\n\n{t('gm_room_v2.enter')}\n\n"
         f"{t('gm_room_v2.dlg1_text')}",
@@ -240,7 +240,7 @@ async def _gm_advance_dlg1(user_id: str, state: dict, choice: str, bot: Bot, sen
     state["phase"] = "dlg2"
     reply = t(f"gm_room_v2.dlg1_reply_{key}")
     kb = build_keyboard(
-        [[(o["label"], f"gm_dlg2:{o['key']}") for o in _DLG2_OPTIONS]]
+        [[(o["label"], f"gm_dlg2:{o['key']}")] for o in _DLG2_OPTIONS]
     )
     msg = md_message(f"\n{reply}\n\n{t('gm_room_v2.dlg2_text')}", bot, mention=user_id)
     if kb is not None and not isinstance(msg, str):
