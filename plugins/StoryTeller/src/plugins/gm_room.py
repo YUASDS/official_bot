@@ -36,7 +36,7 @@ from ..models.item import Equipment
 from ..models.monster import Monster
 from ..models.player import Investigator, ending_repo, investigator_repo
 from ..services.battle import BattleService
-from ..services.battle_cards import battle_round_html
+from ..services.battle_cards import battle_open_html, battle_round_html
 from ..services.data_loader import data_loader
 from ..services.dice_roller import roll_dice
 from ..services.ending_engine import (
@@ -272,17 +272,35 @@ async def _gm_advance_dlg2(user_id: str, state: dict, choice: str, bot: Bot, sen
     state["battle"] = service
     service.roll_initiative()
 
-    lines = [
+    # 两段式开场：遭遇开始前（管理员台词/试炼规则）→ 文字；
+    # 遭遇开始后（守卫登场+属性+行动）→ 开场战斗卡片（render_pic 失败回退 md，行为同现状）。
+    pre_lines = [
         reply,
         f"**{t('gm_room_v2.trial_title')}**",
         t("gm_room_v2.trial_start"),
+    ]
+    await send(
+        md_message(
+            "\n" + "\n\n".join(x for x in pre_lines if x),
+            bot,
+            mention=user_id,
+        )
+    )
+
+    battle_lines = [
         report_section(t("battle.monster_intro_title")),
         guard.出场,
         service.get_dex_compare_section(),
         service.get_status_table(),
         service.get_action_section(),
     ]
-    msg = md_message("\n" + "\n\n".join(lines), bot, mention=user_id)
+    body = "\n" + "\n\n".join(x for x in battle_lines if x)
+    img = await render_pic(battle_open_html(service, body))
+    if img is not None and await send_pic(bot, img, send):
+        text = service.get_action_section()
+    else:
+        text = body
+    msg = md_message(text, bot, mention=user_id)
     kb = _gm_battle_keyboard(service)
     if kb is not None and not isinstance(msg, str):
         msg.append(kb)
