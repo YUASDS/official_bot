@@ -31,6 +31,7 @@ flow 默认仍为独立探索通道：不占用当日冒险、不推进 day、�
 
 from __future__ import annotations
 
+import random
 from pathlib import Path
 from typing import Optional
 
@@ -571,6 +572,20 @@ async def _flow_start_battle(user_id: str, state: dict, bot: Bot, send) -> None:
     node = flow_node(flow, state["node_id"])
     battle_cfg = node.get("战斗") or {}
     monster_id = str(battle_cfg.get("怪物", "45"))
+    # P1-E1/E2：守卫随机池与「@上次」复用（gm_room 迁移支持；缺省回退现有「怪物」字段，零行为变化）
+    if monster_id == "@上次":
+        # 复用本 flow 上一次选定守卫（gm_room 二轮再战同一守卫）
+        if state.get("guard_id"):
+            monster_id = str(state["guard_id"])
+        else:
+            logger.warning(f"flow battle 引用 @上次 但无已选守卫，回退缺省怪物 {monster_id}")
+            monster_id = "45"
+    else:
+        monster_list = battle_cfg.get("怪物列表")
+        if isinstance(monster_list, list) and monster_list:
+            monster_id = str(random.choice(monster_list))
+    # 记录本场选定守卫（供后续 `@上次` 引用）
+    state["guard_id"] = monster_id
     inv_model = investigator_repo.find_by_qq(user_id)
     if inv_model is None:
         await send(need_create_message(bot, mention=user_id))
