@@ -727,6 +727,8 @@ class BattleActionsMixin:
         damage_formula = self._get_player_damage_formula(weapon)
         expr, val = calc_dmg(
             damage_formula,
+            SuccessLevel.SUCCESS,
+            weapon.is_extreme_double,
             armor=self.monster.armor,
             dmg_type="physical",
             min_roll=self.monster.dice_suppress,

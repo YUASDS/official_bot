@@ -11,9 +11,10 @@ def calculate_damage(
     dmg_type: str = "physical",
     min_roll: bool = False,
 ) -> tuple[str, int]:
-    if min_roll:
-        # 骰子压制：骰子部分强制取最小值（4d6→4、3d6+1→4），固定 +N/ex 不受影响；
-        # 即使暴击/极难成功也取最小（贯穿语义 = 命运被压死）
+    if min_roll and is_extreme_double:
+        # 骰子压制：仅贯穿武器（ex=1 → is_extreme_double）的骰子部分强制取最小值
+        # （4d6→4、3d6+1→4），固定 +N 不受影响；即使暴击/极难成功也取最小。
+        # 普通武器（无 ex）在 dice_suppress 下不被压制，走下方正常判定（暴击/困难/普攻）。
         expr, val = _roll_min(damage)
     else:
         is_critical = success_level > SuccessLevel.HARD_SUCCESS
