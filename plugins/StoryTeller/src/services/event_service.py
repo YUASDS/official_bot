@@ -100,6 +100,20 @@ def apply_event_effects(inv: Investigator, user_id: str, effects: dict) -> str:
                 source="event",
             )
             changes.append(f"💪 {sk_name} {sk_delta:+d}")
+    if "随机属性" in effects:
+        from .effect_keys import RANDOM_ATTR_POOL
+
+        n = int(effects["随机属性"])
+        attr = random.choice(RANDOM_ATTR_POOL)
+        before = inv.get_skill(attr, 0)
+        inv.set_skill(attr, before + n)
+        changes.append(f"💪 {attr} +{n}")
+    if "梦之碎片" in effects:
+        from ..models.player import ending_repo as _ending_repo
+
+        n = int(effects["梦之碎片"])
+        _ending_repo.add_dream_fragment(user_id, n)
+        changes.append(f"🌙 梦之碎片 ×{n}")
     inv.save()
     return " ｜ ".join(changes)
 

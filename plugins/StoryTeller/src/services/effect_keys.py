@@ -3,8 +3,10 @@
 from typing import Any
 
 STANDARD_EFFECT_KEYS: frozenset[str] = frozenset(
-    {"san", "hp", "金币", "物品", "技能"}
+    {"san", "hp", "金币", "物品", "技能", "随机属性", "梦之碎片", "助力"}
 )
+
+RANDOM_ATTR_POOL: list[str] = ["力量", "体质", "敏捷", "体型", "外貌"]
 
 
 def standard_effects(effects: dict[str, Any]) -> dict[str, Any]:
