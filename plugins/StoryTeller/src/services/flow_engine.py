@@ -528,7 +528,15 @@ async def _flow_handle_choice(
             return
         node_id, option_input = parts[0], parts[1]
         if node_id != state["node_id"]:
-            return  # 旧按钮 / 已过期节点
+            # 旧按钮 / 已过期节点：不静默丢弃，给玩家明确反馈（避免「点了没反应」）
+            await send(
+                md_message(
+                    f"\n{data_loader.get_text('flow.stale_step')}",
+                    bot,
+                    mention=user_id,
+                )
+            )
+            return
     flow = get_flow(state["flow_id"])
     node = flow_node(flow, state["node_id"])
     option = next(
