@@ -529,9 +529,13 @@ async def _flow_handle_choice(
         node_id, option_input = parts[0], parts[1]
         if node_id != state["node_id"]:
             # 旧按钮 / 已过期节点：不静默丢弃，给玩家明确反馈（避免「点了没反应」）
+            cur_node = flow_node(get_flow(state["flow_id"]), state["node_id"])
+            cur_title = (
+                cur_node.get("标题") if cur_node else state["node_id"]
+            )
             await send(
                 md_message(
-                    f"\n{data_loader.get_text('flow.stale_step')}",
+                    f"\n{data_loader.get_text('flow.stale_step', node=cur_title)}",
                     bot,
                     mention=user_id,
                 )
