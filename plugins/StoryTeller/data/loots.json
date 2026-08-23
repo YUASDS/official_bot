@@ -213,7 +213,13 @@
             ]
         }
     ],
-    "pools": {
+    "pool_upat": {
+    "star_color": [50, 100],
+    "mirror_final": [50, 100],
+    "hidden_jk": [30, 60],
+    "hidden_qi": [30, 60]
+  },
+  "pools": {
         "star_color": [
             {
                 "物品": "600",

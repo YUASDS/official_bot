@@ -137,8 +137,8 @@
   "adventure": {
     "player_dead": "当前调查员已死亡。请使用复活道具。",
     "player_dead_price": "当前调查员已死亡。复活道具「古圣者的遗愿」售价 {price} 乌帕（你当前持有 {gold} 乌帕）。{enough}",
-    "resurrect_price_enough": "金币充足，输入 /复活 或点击下方按钮使用。",
-    "resurrect_price_not_enough": "金币不足，可先冒险积攒，或留意奇遇「雾中游商」。",
+    "resurrect_price_enough": "乌帕充足，输入 /复活 或点击下方按钮使用。",
+    "resurrect_price_not_enough": "乌帕不足，可先冒险积攒，或留意奇遇「雾中游商」。",
     "in_battle": "你正在战斗中！请继续战斗。",
     "daily_done": "今日冒险已完成，请明天再来。",
     "daily_done_buy": "📜 购买冒险卷（{price} 乌帕）可立即再次冒险，购买后自动开始。",

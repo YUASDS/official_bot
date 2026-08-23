@@ -158,6 +158,12 @@ class DataLoader:
             return None
         return ((self.loots_data or {}).get("pools") or {}).get(str(name))
 
+    def get_loot_upat(self, name: str | None) -> list | None:
+        """命名池乌帕覆盖（loots.json `pool_upat.池名: [min, max]`），无则 None。"""
+        if not name:
+            return None
+        return ((self.loots_data or {}).get("pool_upat") or {}).get(str(name))
+
     def get_trigger(self, tid: str) -> dict[str, Any]:
         """按 id 读取每日彩蛋触发配置（reply_data.json `triggers` 段）。
 

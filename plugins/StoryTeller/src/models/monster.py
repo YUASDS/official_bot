@@ -392,8 +392,10 @@ class Monster:
         day 保留（签名兼容，金币不再随天成长）。
         """
         t = data_loader.get_text
+        pool = data_loader.get_loot_pool(self._data.get("loots"))
         tier = data_loader.get_loot_tier(self.hp, boss=boss)
-        upat = (tier or {}).get("乌帕") or [5, 10]
+        # 乌帕优先取命名池映射「pool_upat.池名: [min, max]」（手动精调覆盖档位），无则档位
+        upat = data_loader.get_loot_upat(self._data.get("loots")) or (tier or {}).get("乌帕")
         if not isinstance(upat, list) or len(upat) != 2:
             upat = [5, 10]
         try:
@@ -403,7 +405,6 @@ class Monster:
             gold_min, gold_max = 5, 10
         gold = random.randint(min(gold_min, gold_max), max(gold_min, gold_max))
 
-        pool = data_loader.get_loot_pool(self._data.get("loots"))
         if not pool:
             pool = (tier or {}).get("pool")
         item_id = _weighted_choice(pool)

@@ -76,7 +76,7 @@ def apply_event_effects(inv: Investigator, user_id: str, effects: dict) -> str:
         with gold_source("event"):
             add_gold(user_id, actual)
         if actual:
-            changes.append(f"🪙 金币 {actual:+d}")
+            changes.append(f"🪙 乌帕 {actual:+d}")
     if "物品" in effects:
         item = _Equipment(effects["物品"])
         inv.add_item_to_inventory(effects["物品"], 1)
