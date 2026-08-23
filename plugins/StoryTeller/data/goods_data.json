@@ -884,5 +884,14 @@
         "type": "纪念品",
         "part": "misc",
         "cross_run": true
+     },
+    "605": {
+        "visible": false,
+        "name": "失效的骰盅",
+        "type": "饰品",
+        "part": "饰品",
+        "price": 0,
+        "des": "一只封死的骰盅，缝隙里塞满旧蜡。摇它，听不见骰子响——只有一阵沉闷的、像骨头碾过骨头的声响。",
+        "effect": {"触发": "进入战斗", "条件": {}, "效果": {"type": "suppress_enemy"}}
     }
 }

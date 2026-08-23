@@ -207,16 +207,27 @@ class BattleActionsMixin:
         return monster_text, player_text
 
     def _monster_damage_roll(self, monster_action: dict, level: int) -> tuple[str, int]:
-        """@description 掷怪物伤害：基础伤害骰 + 环境「怪物·伤害」加成，返回 (表达式, 总值)。"""
-        expr, val = calc_dmg(
-            monster_action["damage"],
-            level,
-            monster_action.get("ex", False),
+        """@description 掷怪物伤害：基础伤害骰 + 环境「怪物·伤害」加成，返回 (表达式, 总值)。
+
+        饰品 605「失效的骰盅」（suppress_enemy）：怪物伤害骰全压制（use_min，
+        每颗骰取 1，4d6→4），环境伤害加成同压——每次现读装备（支持战斗中换装）。
+        """
+        suppress = any(
+            self.investigator.get_equipped_id(slot) == "605"
+            for slot in ("饰品", "饰品2")
         )
+        if suppress:
+            expr, val = roll_dice(monster_action["damage"], use_min=True)
+        else:
+            expr, val = calc_dmg(
+                monster_action["damage"],
+                level,
+                monster_action.get("ex", False),
+            )
         dmg_mod = self.environment.get("怪物", {}).get("伤害", "")
         if not dmg_mod:
             return expr, val
-        extra_expr, extra = roll_dice(dmg_mod)
+        extra_expr, extra = roll_dice(dmg_mod, use_min=True) if suppress else roll_dice(dmg_mod)
         return _append_damage_modifier(expr, dmg_mod, extra_expr), val + extra
 
     def _get_player_damage_formula(self, weapon: Equipment, include_db: bool = True) -> str:
