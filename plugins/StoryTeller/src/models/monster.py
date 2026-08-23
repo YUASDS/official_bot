@@ -66,6 +66,32 @@ class MonsterRepository:
 monster_repo = MonsterRepository()
 
 
+def _weighted_choice(pool: list | None) -> Optional[str]:
+    """归一化权重抽取：池条目 {物品, 权重}，按权重占比随机选 1 件（返回物品 id）。
+
+    空池 / 全非法权重 → None（不掉物品）；权重取 ≥1 数值（bool 除外）。
+    """
+    if not pool:
+        return None
+    entries: list[dict[str, Any]] = []
+    total = 0
+    for entry in pool:
+        w = (entry or {}).get("权重")
+        if isinstance(w, bool) or not isinstance(w, (int, float)) or w <= 0:
+            continue
+        entries.append(entry)
+        total += w
+    if not entries or total <= 0:
+        return None
+    roll = random.uniform(0, total)
+    cum = 0
+    for entry in entries:
+        cum += entry.get("权重", 0)
+        if roll <= cum:
+            return str(entry.get("物品"))
+    return str(entries[-1].get("物品"))
+
+
 class Monster:
     """Represents a monster entity."""
 
@@ -355,22 +381,35 @@ class Monster:
             action["counterattack"] = action.get("attack", t("monster.default_action"))
         return action
 
-    def generate_loot(self, day: int = 1):
+    def generate_loot(self, day: int = 1, boss: bool = False):
         """Generate loot for this monster. Returns (gold, dropped_item, message).
 
-        day 用于金币下限：随天数成长 max(5, day/2)~乌帕上限。
+        战利品按 hp 分档（data/loots.json，Monster 无需手写配置）：
+        - 乌帕：档位 `乌帕: [min, max]` 区间随机（废弃手写 `奖励.乌帕`）；
+        - 物品：命名池（`loots` 字段）或按 hp 档位池，归一化权重抽 1 件；
+          无池/池空 → 不掉物品（仅乌帕）。
+        `boss=True` 直接取 BOSS 档（末档，38/48 等 hp 不足 80 的 BOSS 用）。
+        day 保留（签名兼容，金币不再随天成长）。
         """
         t = data_loader.get_text
-        reward_data = self._data.get("奖励", {})
-        gold_max = reward_data.get("乌帕", 10)
-        low = max(5, day // 2)
-        gold = random.randint(min(low, gold_max), gold_max)
+        tier = data_loader.get_loot_tier(self.hp, boss=boss)
+        upat = (tier or {}).get("乌帕") or [5, 10]
+        if not isinstance(upat, list) or len(upat) != 2:
+            upat = [5, 10]
+        try:
+            gold_min, gold_max = int(upat[0]), int(upat[1])
+        except (TypeError, ValueError) as e:
+            logger.warning(f"静默异常[TypeError/ValueError] in generate_loot: {e}")
+            gold_min, gold_max = 5, 10
+        gold = random.randint(min(gold_min, gold_max), max(gold_min, gold_max))
 
-        items = reward_data.get("物品", [])
+        pool = data_loader.get_loot_pool(self._data.get("loots"))
+        if not pool:
+            pool = (tier or {}).get("pool")
+        item_id = _weighted_choice(pool)
         dropped_item = None
         message = ""
-        if items:
-            item_id = random.choice(items)
+        if item_id:
             from .item import Equipment
 
             dropped_item = Equipment(item_id)
@@ -382,6 +421,7 @@ class Monster:
                     gold=gold,
                 )
             else:
+                dropped_item = None
                 message = t("monster.loot_gold", gold=gold)
         else:
             message = t("monster.loot_gold", gold=gold)
@@ -389,10 +429,15 @@ class Monster:
         return gold, dropped_item, message
 
     def half_loot_gold(self) -> int:
-        """侦查失败保底：怪物基础乌帕的一半（向下取整）。"""
-        reward_data = self._data.get("奖励", {})
-        gold_max = reward_data.get("乌帕", 10)
-        return int(gold_max) // 2
+        """侦查失败保底：档位乌帕上限的一半（向下取整）。"""
+        tier = data_loader.get_loot_tier(self.hp)
+        upat = (tier or {}).get("乌帕") or [5, 10]
+        try:
+            gold_max = int(upat[1])
+        except (TypeError, ValueError) as e:
+            logger.warning(f"静默异常[TypeError/ValueError] in half_loot_gold: {e}")
+            gold_max = 10
+        return gold_max // 2
 
     def take_damage(self, amount: int) -> int:
         """Apply damage to monster."""

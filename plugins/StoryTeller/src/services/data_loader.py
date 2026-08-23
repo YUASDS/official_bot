@@ -46,6 +46,7 @@ class DataLoader:
             self.npc_data = self._load_json(base_path / "npc_data.json")
             self.display_data = self._load_json(base_path / "display_data.json")
             self.weights_data = self._load_json(base_path / "weights.json")
+            self.loots_data = self._load_json(base_path / "loots.json")
             self.boss_weights_data = self._load_json(base_path / "boss_weights.json")
             self._validate_monster_data()
         except Exception as e:
@@ -63,6 +64,7 @@ class DataLoader:
             self.npc_data = {}
             self.display_data = {}
             self.weights_data = {}
+            self.loots_data = {}
             self.boss_weights_data = {}
             return
         # 配置全量校验（fail-fast / warn 双模式，见 config_validator 文档）：
@@ -128,6 +130,33 @@ class DataLoader:
         """
         cfg = self.reply_data.get("triggers") or []
         return cfg or list(_DEFAULT_TRIGGERS)
+
+    def get_loot_tier(self, hp: int, boss: bool = False) -> dict | None:
+        """按 hp 匹配战利品档位（loots.json tiers，含边界）。
+
+        档位按 min_hp/max_hp 升序排列；max_hp 为 null 表示无上限（BOSS 档）。
+        未匹配（hp 超全档上限）落最后档；`boss=True` 直接取末档（BOSS 档，
+        38/48 等 hp 不足 80 的 BOSS 怪物显式指定）。无配置返回 None（零回归）。
+        """
+        tiers = (self.loots_data or {}).get("tiers") or []
+        if not tiers:
+            return None
+        if boss:
+            return tiers[-1]
+        for tier in tiers:
+            max_hp = tier.get("max_hp")
+            if max_hp is None or hp <= max_hp:
+                return tier
+        return tiers[-1]
+
+    def get_loot_pool(self, name: str | None) -> list | None:
+        """命名掉落池（loots.json `pools` 段，特殊怪 `loots: "池名"` 覆盖层级）。
+
+        未配置/池不存在返回 None（调用方回退按 hp 档位池）。
+        """
+        if not name:
+            return None
+        return ((self.loots_data or {}).get("pools") or {}).get(str(name))
 
     def get_trigger(self, tid: str) -> dict[str, Any]:
         """按 id 读取每日彩蛋触发配置（reply_data.json `triggers` 段）。

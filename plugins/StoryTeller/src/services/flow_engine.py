@@ -47,6 +47,7 @@ from ..services.data_loader import data_loader
 from ..services.dice_roller import get_success_icon, roll_check_core, roll_dice
 from ..services.effect_keys import standard_effects
 from ..services.event_service import apply_event_effects
+from ..services.stats_service import gold_source
 from ..utils.active_battles import battle_manager
 from ..utils.image_sender import render_pic, send_card_or_md, send_pic
 from ..utils.md_format import (
@@ -766,6 +767,26 @@ async def _flow_battle_input(
         await send(msg)
 
 
+def _flow_battle_loot(inv: Investigator, user_id: str, service: BattleService) -> str:
+    """flow 战斗胜利战利品：按怪物 hp 落档抽取并实发（乌帕 + 归一化权重 1 件）。
+
+    GM 房间（flow_id="gm_room"）隔离不掉落，由调用方在胜利分支门控。
+    返回战利品行（monster.loot_item 文案）；未抽中/无档位返回空串。
+    """
+    gold, dropped_item, loot_text = service.monster.generate_loot(inv.day)
+    if gold > 0:
+        from database.db import add_gold
+
+        with gold_source("battle", ref_id=f"monster:{service.monster.id}"):
+            add_gold(user_id, gold)
+    if dropped_item:
+        from ..services.ending_engine import register_relic_obtained
+
+        inv.add_item_to_inventory(dropped_item.id, 1)
+        register_relic_obtained(inv, dropped_item.id)
+    return f"> {loot_text}" if loot_text else ""
+
+
 async def _flow_battle_end(user_id: str, state: dict, bot: Bot, send) -> None:
     """战斗结束：胜利/战败应用分支效果并按「下一步」推进（默认结束收尾）。"""
     flow = get_flow(state["flow_id"])
@@ -792,6 +813,16 @@ async def _flow_battle_end(user_id: str, state: dict, bot: Bot, send) -> None:
                     f"{reply}\n\n"
                     f"**{t('adventure.event_effect_title')}**\n> {summary}"
                 )
+            # 战利品（loots.json 按 hp 分档）：GM 房间隔离不掉落，其余 flow 战斗
+            # 胜利归一化抽取 1 件 + 乌帕，战利品行追加在胜利回复尾部（与节点效果共存）
+            loot_line = (
+                _flow_battle_loot(inv, user_id, service)
+                if state.get("flow_id") != "gm_room"
+                else ""
+            )
+            if loot_line:
+                reply = f"{reply}\n\n{loot_line}" if reply else loot_line
+                inv.save()
         await send(md_message(f"\n{reply}", bot, mention=user_id))
         nxt = win.get("下一步", "结束")
     else:

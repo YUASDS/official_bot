@@ -32,6 +32,7 @@ class BattleSettlementMixin:
         """隐藏 BOSS 胜利奖励（boss_data.json 奖励.胜利 段驱动，经 boss_framework 注册表）。
 
         注册表键为 boss id（qiren/jk），按 `怪物id` 匹配当前怪物；无匹配返回 None（普通掉落）。
+        当前仅消费 信物/文本 段（物品/乌帕 已废弃，掉落走 generate_loot BOSS 档）。
         """
         try:
             from ..boss_framework import boss_registry  # 函数内导入（防循环）
@@ -78,15 +79,20 @@ class BattleSettlementMixin:
         bonus_text = ""
         boss_reward = self._boss_victory_reward()
         if boss_reward is not None:
-            # 隐藏 BOSS（boss_data.json 奖励段驱动）：乌帕 + 物品全给 + 信物首杀不重复
-            gold = int(boss_reward.get("乌帕") or 0)
+            # 隐藏 BOSS（boss_data.json 奖励段驱动）：走 generate_loot（BOSS 档池，
+            # 乌帕随档位 + 归一化权重 1 件），废弃手写「物品」；信物段保留首杀语义
+            # （已持有不重复发放）
+            gold, dropped_item, _loot_text = self.monster.generate_loot(
+                self._battle_day, boss=True
+            )
             if gold:
                 with gold_source("battle", ref_id=f"{self.monster.id}_boss_reward"):
                     add_gold(self.investigator.qq, gold)
             item_names: list[str] = []
-            for item_id in boss_reward.get("物品") or []:
-                self.investigator.add_item_to_inventory(str(item_id), 1)
-                item_names.append(Equipment(str(item_id)).name)
+            if dropped_item:
+                self.investigator.add_item_to_inventory(dropped_item.id, 1)
+                register_relic_obtained(self.investigator, dropped_item.id)
+                item_names.append(dropped_item.name)
             equipments, _ = self.investigator.get_equipments()
             for relic_id in boss_reward.get("信物") or []:
                 if equipments.get(str(relic_id), 0) <= 0:

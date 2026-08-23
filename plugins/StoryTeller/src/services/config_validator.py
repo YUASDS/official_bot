@@ -49,6 +49,7 @@ DATA_FILES: tuple[str, ...] = (
     "mainline_config.json",
     "weights.json",
     "boss_weights.json",
+    "loots.json",
     "boss/",
     "worlds/",
 )
@@ -1156,6 +1157,80 @@ class ConfigValidator:
                         "已建固定怪未登记 _SPECIAL_MONSTER_IDS（应为明确语义怪，非每日池）",
                     )
 
+    def validate_loots(self) -> None:
+        """loots.json 校验（战利品系统）：档位区间不重叠、物品 id 存在、权重 ≥1、乌帕区间 min≤max。
+
+        tiers 按 min_hp 升序排列（首档 min_hp ≥ 1，末档 max_hp 可为 null=无上限）；
+        每个档位 `乌帕: [min, max]`（min≤max）与 `pool: [{物品, 权重}]`；命名池
+        `pools` 段同样逐条校验物品引用与权重。
+        """
+        file = "loots.json"
+        loots = self.data.get(file, {})
+        if not isinstance(loots, dict) or not loots:
+            return
+        tiers = loots.get("tiers")
+        if not isinstance(tiers, list) or not tiers:
+            self._err(file, "tiers", "应为非空数组（按 hp 升序的档位列表）")
+            return
+        prev_max: int | None = None
+        for i, tier in enumerate(tiers):
+            key = f"tiers[{i}]"
+            if not self._require_dict(file, key, tier):
+                continue
+            min_hp = tier.get("min_hp")
+            max_hp = tier.get("max_hp")
+            if isinstance(min_hp, bool) or not isinstance(min_hp, int):
+                self._err(file, f"{key}.min_hp", f"应为 ≥1 整数，实际 {min_hp!r}")
+                min_hp = None
+            elif min_hp < 1:
+                self._err(file, f"{key}.min_hp", f"应 ≥1，实际 {min_hp!r}")
+            if max_hp is not None and (
+                isinstance(max_hp, bool) or not isinstance(max_hp, int)
+            ):
+                self._err(file, f"{key}.max_hp", f"应为整数或 null，实际 {max_hp!r}")
+                max_hp = None
+            if isinstance(min_hp, int) and isinstance(max_hp, int) and min_hp > max_hp:
+                self._err(file, key, f"min_hp > max_hp（{min_hp} > {max_hp}）")
+            if isinstance(min_hp, int) and prev_max is not None and min_hp <= prev_max:
+                self._err(file, key, f"档位区间与上一档重叠（min_hp {min_hp} ≤ 上档 max_hp {prev_max}）")
+            if isinstance(max_hp, int):
+                prev_max = max_hp
+            upat = tier.get("乌帕")
+            if not isinstance(upat, list) or len(upat) != 2 or any(
+                isinstance(v, bool) or not isinstance(v, int) for v in upat
+            ):
+                self._err(file, f"{key}.乌帕", f"应为 [min, max] 整数区间，实际 {upat!r}")
+            elif upat[0] > upat[1]:
+                self._err(file, f"{key}.乌帕", f"min > max（{upat[0]} > {upat[1]}）")
+            self._check_loot_pool(file, f"{key}.pool", tier.get("pool"))
+        pools = loots.get("pools") or {}
+        if not isinstance(pools, dict):
+            self._err(file, "pools", f"应为 dict（命名池），实际 {type(pools).__name__}")
+            return
+        for pname, pool in pools.items():
+            self._check_loot_pool(file, f"pools.{pname}", pool)
+
+    def _check_loot_pool(self, file: str, key: str, pool: Any) -> None:
+        """掉落池条目校验：{物品: 存在, 权重: ≥1 整数}。"""
+        if pool is None:
+            return
+        if not isinstance(pool, list):
+            self._err(file, key, f"应为数组，实际 {type(pool).__name__}")
+            return
+        for j, entry in enumerate(pool):
+            ekey = f"{key}[{j}]"
+            if not isinstance(entry, dict):
+                self._err(file, ekey, "池条目应为 dict（物品/权重）")
+                continue
+            iid = entry.get("物品")
+            if iid is None:
+                self._err(file, ekey, "缺少 物品 字段")
+            else:
+                self._check_items_ref(file, f"{ekey}.物品", iid)
+            w = entry.get("权重")
+            if isinstance(w, bool) or not isinstance(w, int) or w < 1:
+                self._err(file, f"{ekey}.权重", f"权重应为 ≥1 整数，实际 {w!r}")
+
     # --- 汇总入口 ---
     def validate_all(self) -> list[str]:
         """运行全部校验，返回错误清单（含已收集错误）。"""
@@ -1175,6 +1250,7 @@ class ConfigValidator:
         self.validate_shop()
         self.validate_spell()
         self.validate_weights()
+        self.validate_loots()
         self.validate_mainline_config()
         return self.errors
 
