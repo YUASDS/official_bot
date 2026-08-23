@@ -384,6 +384,19 @@ class ConfigValidator:
                 in_daily = mid in self._checkpoint_flat()
                 if mid_num > 48 and not in_daily and mid not in _SPECIAL_MONSTER_IDS:
                     self._err(file, mid, "ID > 48 的预留段怪物必须登记进 check_point 每日池")
+            # 战利品手动覆盖（loots 系统）：`loots` 字段必须指向 loots.json `pools` 命名池
+            loots_ref = m.get("loots")
+            if loots_ref is not None:
+                if not isinstance(loots_ref, str) or not loots_ref:
+                    self._err(file, f"{mid}.loots", "应为非空字符串（loots.json pools 池名）")
+                else:
+                    pools = (self.data.get("loots.json") or {}).get("pools") or {}
+                    if loots_ref not in pools:
+                        self._err(
+                            file,
+                            f"{mid}.loots",
+                            f"引用的命名池 {loots_ref!r} 不存在于 loots.json pools",
+                        )
             # 攻击表 damage 字段（与 _validate_monster_data 同源，升级为校验）
             for act_name, act in (m.get("攻击") or {}).items():
                 if isinstance(act, dict):
