@@ -3730,47 +3730,6 @@
         "奖励": {
             "乌帕": 50,
             "物品": []
-        },
-        "卡片": {
-            "滤镜": "saturate(1.3)",
-            "主题色": "#2a3a5a",
-            "暗色": true
-        },
-        "高危": true,
-        "ai": {
-            "攻击": [
-                {
-                    "动作": "终结吐息",
-                    "type": "ranged",
-                    "skill": 58,
-                    "damage": "1d6",
-                    "ex": 0,
-                    "attack": "苍白吐息涌出",
-                    "attack_succ": "$骰子=$伤害",
-                    "attack_crit": "$骰子=$伤害",
-                    "attack_false": "吐息偏折",
-                    "attack_fumble": "吐息过猛冻滞自身",
-                    "attack_fumble_effect": {
-                        "自伤": 5
-                    },
-                    "counterattack": "第二次吐息",
-                    "counter_succ": "$骰子=$伤害",
-                    "counter_false": "被收住"
-                },
-                {
-                    "动作": "终末装甲突",
-                    "type": "melee",
-                    "skill": 54,
-                    "damage": "1d4+2",
-                    "ex": 0,
-                    "attack": "百米冲锋碾来",
-                    "attack_succ": "$骰子=$伤害",
-                    "attack_false": "擦身掠过",
-                    "counterattack": "转身再冲",
-                    "counter_succ": "$骰子=$伤害",
-                    "counter_false": "落空"
-                }
-            ]
         }
     },
     "61": {
@@ -3826,50 +3785,6 @@
         "奖励": {
             "乌帕": 25,
             "物品": []
-        },
-        "卡片": {
-            "滤镜": "saturate(0.8)",
-            "主题色": "#5a5a5a",
-            "暗色": true
-        },
-        "高危": false,
-        "ai": {
-            "攻击": [
-                {
-                    "动作": "石腕扫击",
-                    "type": "melee",
-                    "skill": 58,
-                    "damage": "1d8",
-                    "ex": 0,
-                    "attack": "石腕横扫",
-                    "attack_succ": "$骰子=$伤害",
-                    "attack_crit": "$骰子=$伤害",
-                    "attack_false": "扫空",
-                    "attack_fumble": "撞门自伤",
-                    "attack_fumble_effect": {
-                        "自伤": 3
-                    },
-                    "counterattack": "转身再扫",
-                    "counter_succ": "$骰子=$伤害",
-                    "counter_false": "避开"
-                },
-                {
-                    "动作": "门缝低语",
-                    "type": "magic",
-                    "skill": 54,
-                    "damage": "1d3",
-                    "法术效果": {
-                        "type": "san",
-                        "骰子": "1d3"
-                    },
-                    "attack": "门缝低语涌来",
-                    "attack_succ": "$骰子=$伤害，心智受扰",
-                    "attack_false": "低语掠过",
-                    "counterattack": "低语再涌",
-                    "counter_succ": "$骰子=$伤害",
-                    "counter_false": "纹丝不动"
-                }
-            ]
         }
     },
     "62": {
@@ -3924,49 +3839,6 @@
         "奖励": {
             "乌帕": 25,
             "物品": []
-        },
-        "卡片": {
-            "滤镜": "saturate(0.7)",
-            "主题色": "#6a8a5a",
-            "暗色": true
-        },
-        "高危": false,
-        "ai": {
-            "攻击": [
-                {
-                    "动作": "啃咬矿光",
-                    "type": "melee",
-                    "skill": 60,
-                    "damage": "1d6",
-                    "ex": 0,
-                    "吸收": {
-                        "类型": "hp",
-                        "骰子": "1d4"
-                    },
-                    "attack": "锥形口器咬来",
-                    "attack_succ": "$骰子=$伤害",
-                    "attack_false": "咬空",
-                    "counterattack": "绕到暗角",
-                    "counter_succ": "$骰子=$伤害",
-                    "counter_false": "避开"
-                },
-                {
-                    "动作": "覆潮吞噬",
-                    "type": "melee",
-                    "skill": 55,
-                    "damage": "1d4+1",
-                    "吸收": {
-                        "类型": "hp",
-                        "骰子": "1d4"
-                    },
-                    "attack": "暗潮涌来",
-                    "attack_succ": "$骰子=$伤害",
-                    "attack_false": "转向更亮处",
-                    "counterattack": "背后重涌",
-                    "counter_succ": "$骰子=$伤害",
-                    "counter_false": "落空"
-                }
-            ]
         }
     },
     "63": {
@@ -4024,52 +3896,6 @@
         "奖励": {
             "乌帕": 30,
             "物品": []
-        },
-        "卡片": {
-            "滤镜": "saturate(1.3)",
-            "主题色": "#7a4a9a",
-            "暗色": true
-        },
-        "高危": false,
-        "ai": {
-            "攻击": [
-                {
-                    "动作": "虚空抽打",
-                    "type": "melee",
-                    "skill": 63,
-                    "damage": "1d6+1",
-                    "ex": 0,
-                    "attack": "紫光触须抽来",
-                    "attack_succ": "$骰子=$伤害",
-                    "attack_crit": "$骰子=$伤害",
-                    "attack_false": "抽空",
-                    "attack_fumble": "自绞一绞",
-                    "attack_fumble_effect": {
-                        "自伤": 3
-                    },
-                    "counterattack": "回抽",
-                    "counter_succ": "$骰子=$伤害",
-                    "counter_false": "缩回裂隙"
-                },
-                {
-                    "动作": "紫光汲取",
-                    "type": "magic",
-                    "skill": 58,
-                    "damage": "1d4",
-                    "吸收": {
-                        "类型": "属性",
-                        "目标": "敏捷",
-                        "骰子": "1d3",
-                        "持久": false
-                    },
-                    "attack": "紫光尖贴肤",
-                    "attack_succ": "$骰子=$伤害，敏捷被抽去",
-                    "attack_false": "紫光偏折",
-                    "counterattack": "重新贴上",
-                    "counter_succ": "$骰子=$伤害",
-                    "counter_false": "落空"
-                }
-            ]
         }
     },
     "64": {
@@ -4133,51 +3959,6 @@
         "奖励": {
             "乌帕": 30,
             "物品": []
-        },
-        "卡片": {
-            "滤镜": "saturate(0.9) hue-rotate(10deg)",
-            "主题色": "#8a6a3a",
-            "暗色": true
-        },
-        "高危": true,
-        "ai": {
-            "攻击": [
-                {
-                    "动作": "纸页翻飞",
-                    "type": "magic",
-                    "skill": 58,
-                    "damage": "1d4+1",
-                    "ex": 0,
-                    "attack": "纸页旋切",
-                    "attack_succ": "$骰子=$伤害",
-                    "attack_crit": "$骰子=$伤害",
-                    "attack_false": "擦过",
-                    "attack_fumble": "自缠",
-                    "attack_fumble_effect": {
-                        "自伤": 4
-                    },
-                    "counterattack": "重新聚拢",
-                    "counter_succ": "$骰子=$伤害",
-                    "counter_false": "散开"
-                },
-                {
-                    "动作": "禁忌之诵",
-                    "type": "magic",
-                    "skill": 50,
-                    "damage": "1d3",
-                    "法术效果": {
-                        "type": "san",
-                        "骰子": "1d3"
-                    },
-                    "attack": "蠕动的文字覆来",
-                    "attack_succ": "$骰子=$伤害",
-                    "attack_false": "掠过",
-                    "counterattack": "翻向新页",
-                    "counter_succ": "$骰子=$伤害",
-                    "counter_false": "不被打断",
-                    "ex": 0
-                }
-            ]
         }
     },
     "65": {
@@ -4228,45 +4009,6 @@
         "奖励": {
             "乌帕": 35,
             "物品": []
-        },
-        "卡片": {
-            "滤镜": "saturate(0.85)",
-            "主题色": "#8a7a52",
-            "暗色": true
-        },
-        "高危": true,
-        "ai": {
-            "攻击": [
-                {
-                    "动作": "诵经侵染",
-                    "type": "magic",
-                    "skill": 58,
-                    "damage": "1d4",
-                    "法术效果": {
-                        "type": "san",
-                        "骰子": "1d4"
-                    },
-                    "attack": "诵经侵染",
-                    "attack_succ": "$骰子=$伤害",
-                    "attack_false": "掠过",
-                    "counterattack": "念诵再跌宕",
-                    "counter_succ": "$骰子=$伤害",
-                    "counter_false": "不受影响"
-                },
-                {
-                    "动作": "香灰推压",
-                    "type": "melee",
-                    "skill": 56,
-                    "damage": "1d6",
-                    "ex": 0,
-                    "attack": "浊浪推压",
-                    "attack_succ": "$骰子=$伤害",
-                    "attack_false": "扬起一阵",
-                    "counterattack": "背后再压",
-                    "counter_succ": "$骰子=$伤害",
-                    "counter_false": "落空"
-                }
-            ]
         }
     },
     "66": {
@@ -4324,51 +4066,6 @@
         "奖励": {
             "乌帕": 50,
             "物品": []
-        },
-        "卡片": {
-            "滤镜": "saturate(1.4)",
-            "主题色": "#3a2a5a",
-            "暗色": true
-        },
-        "高危": true,
-        "ai": {
-            "攻击": [
-                {
-                    "动作": "群响叠加",
-                    "type": "magic",
-                    "skill": 60,
-                    "damage": "1d4+1",
-                    "ex": 0,
-                    "attack": "千百声音叠加",
-                    "attack_succ": "$骰子=$伤害",
-                    "attack_crit": "$骰子=$伤害",
-                    "attack_false": "四面荡开",
-                    "attack_fumble": "自乱",
-                    "attack_fumble_effect": {
-                        "自伤": 5
-                    },
-                    "counterattack": "反扑",
-                    "counter_succ": "$骰子=$伤害",
-                    "counter_false": "聚拢"
-                },
-                {
-                    "动作": "残响回响",
-                    "type": "magic",
-                    "skill": 56,
-                    "damage": "1d4",
-                    "法术效果": {
-                        "type": "san",
-                        "骰子": "1d3"
-                    },
-                    "attack": "认知被读走",
-                    "attack_succ": "$骰子=$伤害，神智受穿",
-                    "attack_false": "擦过",
-                    "counterattack": "再度贴近",
-                    "counter_succ": "$骰子=$伤害",
-                    "counter_false": "静立",
-                    "ex": 0
-                }
-            ]
         }
     },
     "73": {
@@ -4420,46 +4117,6 @@
         "奖励": {
             "乌帕": 25,
             "物品": []
-        },
-        "卡片": {
-            "滤镜": "saturate(0.9)",
-            "主题色": "#5a7a8a",
-            "暗色": true
-        },
-        "高危": false,
-        "ai": {
-            "攻击": [
-                {
-                    "动作": "亦步亦趋",
-                    "type": "melee",
-                    "skill": 62,
-                    "damage": "1d6",
-                    "ex": 1,
-                    "attack": "复刻你的动作",
-                    "attack_succ": "$骰子=$伤害",
-                    "attack_crit": "$骰子=$伤害",
-                    "attack_false": "慢半拍扑空",
-                    "attack_fumble": "学岔自绊",
-                    "attack_fumble_effect": {
-                        "自伤": 3
-                    },
-                    "counterattack": "复刻反击",
-                    "counter_succ": "$骰子=$伤害",
-                    "counter_false": "闪开"
-                },
-                {
-                    "动作": "冰冷同距",
-                    "type": "magic",
-                    "skill": 58,
-                    "damage": "1d4",
-                    "attack": "冰凉的指尖贴来",
-                    "attack_succ": "$骰子=$伤害",
-                    "attack_false": "虚晃",
-                    "counterattack": "欺近再压",
-                    "counter_succ": "$骰子=$伤害",
-                    "counter_false": "退开"
-                }
-            ]
         }
     },
     "74": {
@@ -4516,51 +4173,6 @@
         "奖励": {
             "乌帕": 25,
             "物品": []
-        },
-        "卡片": {
-            "滤镜": "saturate(1.1)",
-            "主题色": "#3a6a7a",
-            "暗色": true
-        },
-        "高危": false,
-        "ai": {
-            "攻击": [
-                {
-                    "动作": "湿冷浸透",
-                    "type": "magic",
-                    "skill": 58,
-                    "damage": "1d6",
-                    "法术效果": {
-                        "type": "迟缓",
-                        "骰子": "1d2",
-                        "持久": false
-                    },
-                    "attack": "凉水泼溅",
-                    "attack_succ": "$骰子=$伤害，动作变慢",
-                    "attack_false": "只溅起一阵",
-                    "counterattack": "湿冷再缠",
-                    "counter_succ": "$骰子=$伤害",
-                    "counter_false": "被逼退"
-                },
-                {
-                    "动作": "湖底拽引",
-                    "type": "melee",
-                    "skill": 60,
-                    "damage": "1d6",
-                    "ex": 1,
-                    "attack": "湿手拽衣袖",
-                    "attack_succ": "$骰子=$伤害",
-                    "attack_crit": "$骰子=$伤害",
-                    "attack_false": "拽空",
-                    "attack_fumble": "自跌",
-                    "attack_fumble_effect": {
-                        "自伤": 3
-                    },
-                    "counterattack": "换向再拽",
-                    "counter_succ": "$骰子=$伤害",
-                    "counter_false": "被挣开"
-                }
-            ]
         }
     },
     "75": {
