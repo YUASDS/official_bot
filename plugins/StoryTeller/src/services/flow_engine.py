@@ -490,10 +490,14 @@ async def render_flow_node(user_id: str, state: dict, bot: Bot, send) -> None:
         options = node.get("选项") or []
         if options:
             rows, locked = _flow_option_rows(state, node, options, inv)
-            # 锁定项：条件未满足，不进按钮，正文追加灰字行「◽ {输入}」（不标条件未满足）
-            if locked:
+            single = len(rows) == 1 and bool(locked)
+            # 单行道：仅一个可点方向 → 全隐藏灰字锁定项，标题改为指引文案（不再「你的抉择」）
+            if not single and locked:
                 lines.append("\n".join(f"◽ {label}" for label in locked))
-            lines.append(f"**{t('flow.option_title')}**")
+            if single:
+                lines.append(t("flow.single_step", next=rows[0][0][0]))
+            else:
+                lines.append(f"**{t('flow.option_title')}**")
             msg = md_message(
                 "\n\n".join(x for x in lines if x), bot, mention=user_id
             )
