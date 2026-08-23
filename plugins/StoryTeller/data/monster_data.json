@@ -3420,47 +3420,6 @@
         "奖励": {
             "乌帕": 25,
             "物品": []
-        },
-        "卡片": {
-            "滤镜": "saturate(1.2)",
-            "主题色": "#4a4458",
-            "暗色": true
-        },
-        "高危": false,
-        "ai": {
-            "攻击": [
-                {
-                    "动作": "环绕扑咬",
-                    "type": "melee",
-                    "skill": 56,
-                    "damage": "1d6+1",
-                    "ex": 1,
-                    "attack": "无数条阴影手臂同时朝你抓来",
-                    "attack_succ": "$骰子=$伤害",
-                    "attack_crit": "$骰子=$伤害",
-                    "attack_false": "扑空",
-                    "attack_fumble": "用力过猛纠缠自伤",
-                    "attack_fumble_effect": {
-                        "自伤": 3
-                    },
-                    "counterattack": "卷土重来",
-                    "counter_succ": "$骰子=$伤害",
-                    "counter_false": "落空"
-                },
-                {
-                    "动作": "绞杀之舞",
-                    "type": "melee",
-                    "skill": 50,
-                    "damage": "1d6",
-                    "ex": 0,
-                    "attack": "螺旋绞索收紧",
-                    "attack_succ": "$骰子=$伤害",
-                    "attack_false": "绞索落空",
-                    "counterattack": "重新围攻",
-                    "counter_succ": "$骰子=$伤害",
-                    "counter_false": "落空"
-                }
-            ]
         }
     },
     "68": {
@@ -3513,47 +3472,6 @@
         "奖励": {
             "乌帕": 30,
             "物品": []
-        },
-        "卡片": {
-            "滤镜": "saturate(0.9)",
-            "主题色": "#6a6258",
-            "暗色": true
-        },
-        "高危": false,
-        "ai": {
-            "攻击": [
-                {
-                    "动作": "重甲撞击",
-                    "type": "melee",
-                    "skill": 58,
-                    "damage": "1d6+2",
-                    "ex": 1,
-                    "attack": "铁墙般碾来",
-                    "attack_succ": "$骰子=$伤害",
-                    "attack_crit": "$骰子=$伤害",
-                    "attack_false": "撞偏",
-                    "attack_fumble": "失去平衡自伤",
-                    "attack_fumble_effect": {
-                        "自伤": 4
-                    },
-                    "counterattack": "转身再撞",
-                    "counter_succ": "$骰子=$伤害",
-                    "counter_false": "侧身躲开"
-                },
-                {
-                    "动作": "断后一锤",
-                    "type": "melee",
-                    "skill": 52,
-                    "damage": "1d8",
-                    "ex": 0,
-                    "attack": "巨拳砸落",
-                    "attack_succ": "$骰子=$伤害",
-                    "attack_false": "砸偏",
-                    "counterattack": "回身一锤",
-                    "counter_succ": "$骰子=$伤害",
-                    "counter_false": "落空"
-                }
-            ]
         }
     },
     "69": {
@@ -3606,47 +3524,6 @@
         "奖励": {
             "乌帕": 30,
             "物品": []
-        },
-        "卡片": {
-            "滤镜": "saturate(1.1)",
-            "主题色": "#3a5a6a",
-            "暗色": true
-        },
-        "高危": false,
-        "ai": {
-            "攻击": [
-                {
-                    "动作": "影袭先手",
-                    "type": "melee",
-                    "skill": 62,
-                    "damage": "1d6+2",
-                    "ex": 1,
-                    "attack": "贴背短刃",
-                    "attack_succ": "$骰子=$伤害",
-                    "attack_crit": "$骰子=$伤害",
-                    "attack_false": "掠空",
-                    "attack_fumble": "踏空跌出",
-                    "attack_fumble_effect": {
-                        "自伤": 3
-                    },
-                    "counterattack": "反手一刀",
-                    "counter_succ": "$骰子=$伤害",
-                    "counter_false": "落空"
-                },
-                {
-                    "动作": "追逐利爪",
-                    "type": "melee",
-                    "skill": 56,
-                    "damage": "1d6+1",
-                    "ex": 0,
-                    "attack": "如影随形利爪",
-                    "attack_succ": "$骰子=$伤害",
-                    "attack_false": "撕空",
-                    "counterattack": "再扑",
-                    "counter_succ": "$骰子=$伤害",
-                    "counter_false": "落空"
-                }
-            ]
         }
     },
     "70": {
@@ -3699,47 +3576,6 @@
         "奖励": {
             "乌帕": 40,
             "物品": []
-        },
-        "卡片": {
-            "滤镜": "saturate(1.0)",
-            "主题色": "#7a6a52",
-            "暗色": true
-        },
-        "高危": true,
-        "ai": {
-            "攻击": [
-                {
-                    "动作": "守关一击",
-                    "type": "melee",
-                    "skill": 60,
-                    "damage": "1d6+1",
-                    "ex": 1,
-                    "attack": "凝聚重击劈落",
-                    "attack_succ": "$骰子=$伤害",
-                    "attack_crit": "$骰子=$伤害",
-                    "attack_false": "劈偏",
-                    "attack_fumble": "凝聚过久反震自伤",
-                    "attack_fumble_effect": {
-                        "自伤": 5
-                    },
-                    "counterattack": "再一记守关一击",
-                    "counter_succ": "$骰子=$伤害",
-                    "counter_false": "被卸掉"
-                },
-                {
-                    "动作": "关门怒喝",
-                    "type": "melee",
-                    "skill": 55,
-                    "damage": "1d6",
-                    "ex": 0,
-                    "attack": "穿云怒喝",
-                    "attack_succ": "$骰子=$伤害",
-                    "attack_false": "擦过",
-                    "counterattack": "反手一掌",
-                    "counter_succ": "$骰子=$伤害",
-                    "counter_false": "落空"
-                }
-            ]
         }
     },
     "71": {
@@ -4772,42 +4608,6 @@
         "奖励": {
             "乌帕": 20,
             "物品": []
-        },
-        "卡片": {
-            "滤镜": "saturate(0.8)",
-            "主题色": "#5a5a7a",
-            "暗色": true
-        },
-        "高危": false,
-        "ai": {
-            "攻击": [
-                {
-                    "动作": "群影贴靠",
-                    "type": "melee",
-                    "skill": 56,
-                    "damage": "1d4+2",
-                    "ex": 0,
-                    "attack": "群影贴靠",
-                    "attack_succ": "$骰子=$伤害",
-                    "attack_false": "贴空",
-                    "counterattack": "换向围来",
-                    "counter_succ": "$骰子=$伤害",
-                    "counter_false": "避开"
-                },
-                {
-                    "动作": "镜影叠掌",
-                    "type": "magic",
-                    "skill": 52,
-                    "damage": "1d6",
-                    "ex": 0,
-                    "attack": "多手齐按",
-                    "attack_succ": "$骰子=$伤害",
-                    "attack_false": "探空",
-                    "counterattack": "再度齐探",
-                    "counter_succ": "$骰子=$伤害",
-                    "counter_false": "缩回"
-                }
-            ]
         }
     },
     "76": {
@@ -4860,47 +4660,6 @@
         "奖励": {
             "乌帕": 30,
             "物品": []
-        },
-        "卡片": {
-            "滤镜": "saturate(0.95)",
-            "主题色": "#5a6a7a",
-            "暗色": true
-        },
-        "高危": true,
-        "ai": {
-            "攻击": [
-                {
-                    "动作": "同源还击",
-                    "type": "melee",
-                    "skill": 58,
-                    "damage": "1d6+1",
-                    "ex": 1,
-                    "attack": "复刻你的架势",
-                    "attack_succ": "$骰子=$伤害",
-                    "attack_crit": "$骰子=$伤害",
-                    "attack_false": "慢半拍扑空",
-                    "attack_fumble": "被骗撞墙",
-                    "attack_fumble_effect": {
-                        "自伤": 3
-                    },
-                    "counterattack": "回敬一记",
-                    "counter_succ": "$骰子=$伤害",
-                    "counter_false": "避开"
-                },
-                {
-                    "动作": "镜墙推挤",
-                    "type": "melee",
-                    "skill": 54,
-                    "damage": "1d6",
-                    "ex": 0,
-                    "attack": "镜墙压来",
-                    "attack_succ": "$骰子=$伤害",
-                    "attack_false": "停住",
-                    "counterattack": "重整再压",
-                    "counter_succ": "$骰子=$伤害",
-                    "counter_false": "退后"
-                }
-            ]
         }
     },
     "77": {
@@ -4956,50 +4715,6 @@
         "奖励": {
             "乌帕": 30,
             "物品": []
-        },
-        "卡片": {
-            "滤镜": "saturate(0.9)",
-            "主题色": "#6a6a6a",
-            "暗色": true
-        },
-        "高危": true,
-        "ai": {
-            "攻击": [
-                {
-                    "动作": "旧路重演",
-                    "type": "melee",
-                    "skill": 60,
-                    "damage": "1d6+1",
-                    "ex": 1,
-                    "attack": "三类残影轮番出手",
-                    "attack_succ": "$骰子=$伤害",
-                    "attack_crit": "$骰子=$伤害",
-                    "attack_false": "激起一阵风",
-                    "attack_fumble": "自乱阵脚",
-                    "attack_fumble_effect": {
-                        "自伤": 4
-                    },
-                    "counterattack": "换一套路数",
-                    "counter_succ": "$骰子=$伤害",
-                    "counter_false": "残影淡去"
-                },
-                {
-                    "动作": "海盐灰渍",
-                    "type": "magic",
-                    "skill": 56,
-                    "damage": "1d4+1",
-                    "法术效果": {
-                        "type": "san",
-                        "骰子": "1d3"
-                    },
-                    "attack": "海盐与灰落进视野",
-                    "attack_succ": "$骰子=$伤害，读到路的结局",
-                    "attack_false": "一闪而过",
-                    "counterattack": "再扬灰",
-                    "counter_succ": "$骰子=$伤害",
-                    "counter_false": "退去凝实"
-                }
-            ]
         }
     },
     "78": {
@@ -5052,47 +4767,6 @@
         "奖励": {
             "乌帕": 40,
             "物品": []
-        },
-        "卡片": {
-            "滤镜": "saturate(1.0)",
-            "主题色": "#6a7a8a",
-            "暗色": true
-        },
-        "高危": true,
-        "ai": {
-            "攻击": [
-                {
-                    "动作": "割裂碾撞",
-                    "type": "melee",
-                    "skill": 60,
-                    "damage": "1d6+1",
-                    "ex": 1,
-                    "attack": "碎片漩涡撞来",
-                    "attack_succ": "$骰子=$伤害",
-                    "attack_crit": "$骰子=$伤害",
-                    "attack_false": "擦过",
-                    "attack_fumble": "自迸碎屑",
-                    "attack_fumble_effect": {
-                        "自伤": 4
-                    },
-                    "counterattack": "再撞一轮",
-                    "counter_succ": "$骰子=$伤害",
-                    "counter_false": "散开"
-                },
-                {
-                    "动作": "刃光切割",
-                    "type": "ranged",
-                    "skill": 56,
-                    "damage": "1d6+2",
-                    "ex": 0,
-                    "attack": "碎片齐飞",
-                    "attack_succ": "$骰子=$伤害",
-                    "attack_false": "划过",
-                    "counterattack": "再度齐射",
-                    "counter_succ": "$骰子=$伤害",
-                    "counter_false": "嵌进地面"
-                }
-            ]
         }
     },
     "79": {
@@ -5105,12 +4779,12 @@
         "体格": "0",
         "id": "79",
         "名字": "艾兹薇尔",
-        "hp": 130,
-        "装甲": "5",
+        "hp": 45,
+        "装甲": "2",
         "dice_suppress": true,
         "攻击": {
             "先机一线": {
-                "skill": 96,
+                "skill": 65,
                 "damage": "3d6",
                 "ex": 1,
                 "attack_succ": "$骰子=$伤害，它抢先半拍击中你，你连自己怎么挨的都来不及想",
@@ -5126,7 +4800,7 @@
                 "attack": "艾兹薇尔与你同步抬手的每一次，都比你快那决定性命的一线"
             },
             "三影相随": {
-                "skill": 92,
+                "skill": 75,
                 "damage": "2d6",
                 "法术效果": {
                     "type": "san",
@@ -5166,17 +4840,17 @@
                     "skill": 96,
                     "damage": "3d6",
                     "ex": 1,
-                    "attack": "抢先那一线",
-                    "attack_succ": "$骰子=$伤害",
-                    "attack_crit": "$骰子=$伤害",
-                    "attack_false": "慢一瞬被闪过",
-                    "attack_fumble": "抢进招架自伤",
+                    "attack_succ": "$骰子=$伤害，它抢先半拍击中你，你连自己怎么挨的都来不及想",
+                    "attack_crit": "$骰子=$伤害，它赶在你招架前连进两下，三百二十七面镜子里全是同样的画面",
+                    "attack_false": "它那一线比你慢了一瞬，被你闪过",
+                    "attack_fumble": "艾兹薇尔抢先太过，反把自己推进你的招架里",
                     "attack_fumble_effect": {
                         "自伤": 5
                     },
-                    "counterattack": "反手再抢先",
+                    "counterattack": "它借势反手，那一线再度抢先",
                     "counter_succ": "$骰子=$伤害",
-                    "counter_false": "被绕开"
+                    "counter_false": "你抢先半步，绕开了那一线",
+                    "attack": "艾兹薇尔与你同步抬手的每一次，都比你快那决定性命的一线"
                 },
                 {
                     "动作": "三影相随",
@@ -5185,14 +4859,14 @@
                     "damage": "2d6",
                     "法术效果": {
                         "type": "san",
-                        "骰子": "1d4"
+                        "骰子": "3d4"
                     },
-                    "attack": "三影齐落",
-                    "attack_succ": "$骰子=$伤害，认出旧路",
-                    "attack_false": "身侧一闪",
-                    "counterattack": "换位再压",
-                    "counter_succ": "$骰子=$伤害，劈碎一影",
-                    "counter_false": "退回凝实"
+                    "attack_succ": "$骰子=$伤害，三道光影同时落下，你认出它们，都是你曾走成的路",
+                    "attack_false": "三道光影只在它身侧一闪，没有触及你",
+                    "counterattack": "三影交换位置，再度朝你压来",
+                    "counter_succ": "$骰子=$伤害，你劈碎一道光影",
+                    "counter_false": "三影退回它身后，重新凝实",
+                    "attack": "深蓝、银灰、透明的三道光影绕它游走，随时替它接下你，也随时替它出手"
                 }
             ]
         }
