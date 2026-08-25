@@ -66,7 +66,7 @@ KNOWN_SKILLS: frozenset[str] = frozenset(
 
 # 结局 ID 集合（ending_data.endings 的合法键）
 _ENDING_KEYS: frozenset[str] = frozenset(
-    {f"E{i:02d}" for i in range(1, 11)}
+    {f"E{i:02d}" for i in range(1, 14)}
 )
 
 # 物品 type 合法值（goods_data）

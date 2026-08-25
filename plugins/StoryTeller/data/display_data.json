@@ -110,6 +110,39 @@
             "text": "#d0d0d8",
             "text_soft": "#a0a0a8",
             "text_dim": "#6e6e76"
+        },
+        "E11": {
+            "icon": "🌌",
+            "accent": "#7ad0e8",
+            "border": "#3a7a9a",
+            "bg_top": "#0e1a24",
+            "bg_mid": "#12242e",
+            "bg_bottom": "#0a141c",
+            "text": "#d8eef8",
+            "text_soft": "#a8ccd8",
+            "text_dim": "#5a8292"
+        },
+        "E12": {
+            "icon": "🕳️",
+            "accent": "#8a5ac8",
+            "border": "#5a3a8a",
+            "bg_top": "#120e1c",
+            "bg_mid": "#181226",
+            "bg_bottom": "#0c0814",
+            "text": "#d8c8e8",
+            "text_soft": "#a888b8",
+            "text_dim": "#6a547e"
+        },
+        "E13": {
+            "icon": "🪞",
+            "accent": "#8ac8c8",
+            "border": "#4a8a8a",
+            "bg_top": "#0e1a1c",
+            "bg_mid": "#122426",
+            "bg_bottom": "#0a1416",
+            "text": "#d8f0ee",
+            "text_soft": "#a8cccc",
+            "text_dim": "#5a8282"
         }
     },
     "ending_variant_accents": {

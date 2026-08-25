@@ -819,6 +819,13 @@ async def _flow_battle_end(user_id: str, state: dict, bot: Bot, send) -> None:
                 )
             # 战利品（loots.json 按 hp 分档）：GM 房间隔离不掉落，其余 flow 战斗
             # 胜利归一化抽取 1 件 + 乌帕，战利品行追加在胜利回复尾部（与节点效果共存）
+            _end_id = (win.get("效果") or {}).get("结局")
+            if _end_id:
+                from ..plugins.adventure import _try_send_ending_card
+
+                await _try_send_ending_card(
+                    bot, user_id, "", str(_end_id), inv=inv, send=send
+                )
             loot_line = (
                 _flow_battle_loot(inv, user_id, service)
                 if state.get("flow_id") != "gm_room"
