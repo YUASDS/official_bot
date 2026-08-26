@@ -890,7 +890,13 @@ async def _finish_flow(user_id: str, state: dict, bot: Bot, send) -> None:
             inv.set_flag(f"flow.{flow_id}.done", 1)
         if tail.get("restore_hp"):
             inv.restore_hp()
-        if tail.get("skip_daily"):
+        if flow_id.startswith("mainline."):
+            # 主线分支节点 flow 收尾钩子：补占日（_skip_daily 推 day+1）+ 计数 + 清 entered。
+            # 开幕插曲（mainline.opening）经 ml.line/entered 守卫在钩子内部自然跳过（零影响）。
+            from ..plugins import mainline as _ml
+
+            _ml.mainline_finish(inv, inv.day)
+        elif tail.get("skip_daily"):
             from ..services.daily_service import _skip_daily
 
             _skip_daily(user_id, inv)

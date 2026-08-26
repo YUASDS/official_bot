@@ -36,6 +36,12 @@ def _mark_adventure_done(user_id: str) -> None:
     write_json()
 
 
+def _clear_adventure_done(user_id: str) -> None:
+    """清除今日冒险已完成标记（中断悬挂恢复用：还当日冒险资格，防已 done 拦截重进）。"""
+    add_data(user_id, "adventure_done", False)
+    write_json()
+
+
 def _skip_daily(user_id: str, inv: Investigator) -> None:
     """统一「跳过今日」：解除冒险态 + day+1（day40 冻结）+ 落库。
 

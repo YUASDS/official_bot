@@ -58,6 +58,7 @@ from .mainline import (
     SELECTOR_SIGNAL,
     apply_selector_choice,
     pick_mainline_monster,
+    recover_hung_mainline_entry,
     selector_chosen_text,
     selector_copy,
     try_mainline_daily,
@@ -448,6 +449,9 @@ async def _run_adventure(
         if inv_model is None:
             await finish(need_create_message(bot, mention=user_id))
         inv = Investigator(inv_model)
+        # 主线分支节点悬挂恢复：进入 → flow 完成间进程重启 → 清 entered/当日冒险标记，
+        # 还当日重进资格（须在 _adventure_done_today 门之前，否则已 done 会拦截当日重进）。
+        recover_hung_mainline_entry(user_id, inv)
         if not inv.is_survive:
             t = data_loader.get_text
             from database.db import get_info

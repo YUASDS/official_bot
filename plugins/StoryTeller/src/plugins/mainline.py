@@ -295,6 +295,68 @@ def mark_branch_node(inv, day, save: bool = True) -> None:
         inv.save()
 
 
+def mainline_finish(inv, day: int | None = None) -> None:
+    """分支节点 flow 收尾钩子（flow_engine._finish_flow 对 branch flow 调）：延迟补占日。
+
+    进入分支时只 _mark_adventure_done + 置 `ml.<line>.entered.<day>`（不推 day、不计数）；
+    本钩子在此 flow 完成（胜利/战败均算）时统一补帐：
+    - `_skip_daily`（推 day+1，day40 冻结语义保持）
+    - `_mark_adventure_done` + `check_daily`
+    - `mark_branch_node`（节点计数 +1 + `ml.<line>.node.<day>` 置位）
+    - 清 `ml.<line>.entered.<day>`
+
+    仅处理带 entered 标记的分支占用 flow（无 entered → 跳过，防开幕插曲 mainline.opening /
+    测试直驱 dispatch 等非占用路径误占日双推）；开幕插曲走即时占日语义，不经此钩子。
+    """
+    line = inv.get_flag("ml.line")
+    if not line:
+        return
+    day = int(day) if day is not None else int(inv.day)
+    if not inv.get_flag(f"ml.{line}.entered.{day}"):
+        return
+    from ..services.daily_service import _mark_adventure_done, _skip_daily
+    from ..services.ending_engine import check_daily
+
+    _skip_daily(inv.qq, inv)
+    _mark_adventure_done(inv.qq)
+    check_daily(inv)
+    mark_branch_node(inv, day)
+    inv.clear_flag(f"ml.{line}.entered.{day}")
+    inv.save()
+
+
+def recover_hung_mainline_entry(user_id: str, inv) -> bool:
+    """今日冒险入口悬挂检测恢复：清误留的占用标记，还当日重进资格。
+
+    条件（三者同时）视为悬挂：
+    - `ml.<line>.entered.<day>` 存在
+    - `ml.<line>.node.<day>` 不存在（该日节点未完成计数）
+    - 该用户无进行中 mainline flow（flow_states 无 mainline 态——进程重启后即清空）
+
+    恢复：清 `entered.<day>` + 清当日 `mark_adventure_done`（恢复当日冒险资格），
+    玩家再次 /今日冒险 即分支命中、重进同一节点。返回是否曾悬挂并恢复。
+    """
+    line = inv.get_flag("ml.line")
+    if not line:
+        return False
+    day = int(inv.day)
+    if not inv.get_flag(f"ml.{line}.entered.{day}"):
+        return False
+    if inv.get_flag(f"ml.{line}.node.{day}"):
+        return False
+    from ..services.flow_engine import flow_states
+
+    active = flow_states.get(user_id)
+    if active and str(active.get("flow_id", "")).startswith("mainline."):
+        return False  # flow 进行中，非悬挂
+    from ..services.daily_service import _clear_adventure_done
+
+    inv.clear_flag(f"ml.{line}.entered.{day}")
+    inv.save()
+    _clear_adventure_done(user_id)
+    return True
+
+
 def register_mainline_ending(inv, ending_id: str, line: str | None = None) -> None:
     """结局钩子：分支终局达成 → 登记独立结局（ending_repo.add_ending）并置 ml.<line>.done。
 
@@ -408,7 +470,16 @@ async def try_mainline_daily(
     - False：不接管（走既有 乱入/普通冒险，零回归）。
 
     顺序：选择器(day1) → opt_out 短路 → 分流判定(resolve_branch) → 开幕插曲(opening)
-        → 分支节点(branch)。命中分支/开幕 → 占日(day+1) + 走对应 flow。
+        → 分支节点(branch)。命中分支/开幕 → 走对应 flow。
+
+    分支节点命中 = **延迟占日**：进入时只 `_mark_adventure_done`（防同日并行其他冒险）+
+    置 `ml.<line>.entered.<day>`，**不推 day、不计数**——flow 完成时由
+    `mainline_finish` 统一补占日（_skip_daily day+1）+ 计数 + 清 entered。
+    （flow 未建时回退立即占日 + 计数，防悬挂重进死循环。）
+
+    入口开头先做**中断悬挂恢复**（`recover_hung_mainline_entry`）：flow 战斗途中进程重启
+    → flow_states 清空 → 该日节点既未计数也未推 day → 清 entered + 清当日冒险标记，
+    玩家当日可重进同一节点。
     """
     # 幂等解锁检查：真实主流程每次入口置位 ml.unlocked（读结局数 ng_plus >= 门槛）。
     # 缺此调用会导致旗标恒空——选择器/开幕/分支永不触发（线上 bug：多周目无选择器按钮）。
@@ -417,6 +488,8 @@ async def try_mainline_daily(
         return SELECTOR_SIGNAL
     if inv.get_flag("ml.opt_out"):
         return False
+
+    recover_hung_mainline_entry(user_id, inv)
 
     resolved = resolve_branch(inv, inv.day)
     if resolved:
@@ -430,13 +503,22 @@ async def try_mainline_daily(
         return True
 
     if branch_available(inv, inv.day):
+        from ..services.daily_service import _mark_adventure_done
+
         line = inv.get_flag("ml.line")
         node_day = inv.day
-        _occupy_day(user_id, inv)
-        mark_branch_node(inv, node_day, save=False)
+        # 延迟占日：只占当日冒险资格 + 置 entered 标记；不推 day、不计数（flow 完成时补）。
+        _mark_adventure_done(user_id)
+        inv.set_flag(f"ml.{line}.entered.{node_day}", True)
         inv.save()
-        if not await _start_mainline_flow(user_id, f"mainline.{line}", bot, send):
-            await _fallback_branch_message(user_id, line, bot, send)
+        if await _start_mainline_flow(user_id, f"mainline.{line}", bot, send):
+            return True
+        # flow 未建（批1b 骨架）：回退为立即占日 + 计数 + 清 entered，防悬挂重进死循环。
+        _occupy_day(user_id, inv)
+        mark_branch_node(inv, node_day)
+        inv.clear_flag(f"ml.{line}.entered.{node_day}")
+        inv.save()
+        await _fallback_branch_message(user_id, line, bot, send)
         return True
 
     return False
