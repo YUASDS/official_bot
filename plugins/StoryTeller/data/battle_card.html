@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { width:440px; background:#0e0c08; padding:14px; }
+  .card {
+    background: linear-gradient(165deg,#1c1610 0%,#241a12 45%,#150d06 100%);
+    border:1px solid #6b4a2a; border-radius:14px; padding:26px 20px;
+    color:#e8d9b8; font-family:'Noto Serif SC','Microsoft YaHei',serif;
+    box-shadow:0 0 24px rgba(107,74,42,.25) inset;
+    text-align:center;
+  }
+  .seal { font-size:34px; color:#c9a86a; letter-spacing:8px; font-weight:900; text-shadow:0 0 18px rgba(201,168,106,.35); }
+  .meta { color:#a88f6a; font-size:15px; margin-top:8px; letter-spacing:3px; }
+  .bar { height:1px; background:linear-gradient(90deg,transparent,#c9a86a,transparent); margin:16px 0; }
+  .quote { text-align:left; }
+  .quote p {
+    font-size:15px; line-height:1.9; color:#d8c8a8; margin:10px 0;
+    text-indent:2em; border-left:3px solid rgba(201,168,106,.35);
+    padding-left:12px;
+  }
+  .effects { text-align:left; margin-top:14px; }
+  .e-title { color:#d9b87c; font-size:14px; font-weight:900; letter-spacing:3px; margin-bottom:6px; }
+  .e-row {
+    background:rgba(201,168,106,.06); border:1px solid rgba(201,168,106,.18);
+    border-radius:6px; padding:5px 10px; font-size:14px; margin-top:5px;
+    color:#f3e3c0;
+  }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="seal">🕯️ __TITLE__</div>
+  <div class="meta">📅 第 __DAY__ 日</div>
+  <div class="bar"></div>
+  <div class="quote">
+    __ANOMALY__
+  </div>
+  __EFFECTS__
+</div>
+</body>
+</html>

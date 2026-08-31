@@ -33,5 +33,17 @@ nonebot.load_plugins("plugins")
 logger.info("nonebot加载完成")
 
 
+@driver.on_startup
+async def _warmup_browser():
+    """启动时预热 Chromium 浏览器，避免首次图片渲染等待。"""
+    try:
+        from util.browser import get_browser
+
+        await get_browser()
+        logger.info("Chromium Browser warmed up")
+    except Exception as e:  # noqa: BLE001 - 预热失败不应阻塞启动
+        logger.warning(f"Chromium Browser warmup failed: {type(e).__name__} {e}")
+
+
 if __name__ == "__main__":
     nonebot.run()

@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { width:440px; background:#0e0c08; padding:14px; }
+  .card {
+    background:
+      radial-gradient(ellipse at 50% 0%, rgba(201,160,160,.08) 0%, transparent 60%),
+      linear-gradient(160deg,#1c1610 0%,#241a12 55%,#181008 100%);
+    border:1px solid #6b4a2a; border-radius:14px; padding:24px 20px;
+    color:#e8d9b8; font-family:'Noto Serif SC','Microsoft YaHei',serif;
+    box-shadow:0 0 24px rgba(107,74,42,.25) inset; text-align:center;
+  }
+  .seal {
+    font-size:30px; color:#c9a0a0; letter-spacing:10px; font-weight:900;
+    text-shadow:0 0 20px rgba(201,160,160,.45), 0 0 40px rgba(120,80,80,.3);
+  }
+  .victim { color:#c9a86a; font-size:14px; margin-top:10px; letter-spacing:2px; }
+  .bar { height:1px; background:linear-gradient(90deg,transparent,#c9a86a,transparent); margin:14px 0; }
+  .ending {
+    font-size:15px; line-height:1.9; color:#d8c8a8; text-align:left;
+    background:rgba(201,168,106,.04); border-left:3px solid #6b4a2a;
+    padding:10px 12px; margin:4px 0;
+  }
+  .rambles { margin-top:14px; }
+  .ram-title { color:#a88f6a; font-size:12px; letter-spacing:6px; margin-bottom:8px; }
+  .ram {
+    color:#b39b7f; font-style:italic; font-size:14px; line-height:1.9;
+    letter-spacing:1px; padding:0 8px;
+  }
+  .ram::before { content:"“"; }
+  .ram::after { content:"”"; }
+  .stats { display:flex; justify-content:center; gap:14px; margin:14px 0 4px; }
+  .stat {
+    background:rgba(201,168,106,.06); border:1px solid rgba(201,168,106,.18);
+    border-radius:8px; padding:6px 14px; font-size:14px;
+  }
+  .stat .k { color:#a88f6a; } .stat .v { color:#f3e3c0; font-weight:900; font-size:16px; }
+  .hint { color:#a88f6a; font-size:13px; margin-top:10px; }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="seal">🌀 心智·崩塌</div>
+  <div class="victim">__VICTIM__</div>
+  <div class="bar"></div>
+  <div class="ending">__ENDING__</div>
+  <div class="rambles">
+    <div class="ram-title">✧ 疯狂呓语 ✧</div>
+    <div class="ram">__RAMBLE__</div>
+  </div>
+  <div class="bar"></div>
+  <div class="stats">
+    <div class="stat"><div class="k">🧠 SAN</div><div class="v">__SAN__</div></div>
+    <div class="stat"><div class="k">❤️ HP</div><div class="v">__HP__</div></div>
+    <div class="stat"><div class="k">📅 存活</div><div class="v">第 __DAY__ 天</div></div>
+  </div>
+  <div class="hint">__HINT__</div>
+</div>
+</body>
+</html>
