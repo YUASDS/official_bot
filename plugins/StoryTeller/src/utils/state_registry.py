@@ -1,4 +1,3 @@
-from loguru import logger
 """统一用户状态注册表。
 
 背景（架构债 P2）：各插件/服务各自持有 `user_id -> dict` 状态（guest/gm_room/npc/
@@ -9,6 +8,8 @@ qiren/flow/event/door），清理时需逐个 try/except import（character._cle
 清理统一走 `clear_user_state(user_id)` 遍历注册表。新状态只需一行注册，
 清理处零改动；插件不再互相 import 对方的状态 dict。
 """
+
+from loguru import logger
 
 _state_stores: list[dict] = []
 

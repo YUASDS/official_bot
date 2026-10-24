@@ -1,14 +1,19 @@
-import json
-import math
-import httpx
+import os
 
 from loguru import logger
-from peewee import SqliteDatabase, Model, CharField, IntegerField, DoesNotExist
+from peewee import (
+    CharField,
+    DoesNotExist,
+    IntegerField,
+    IntegrityError,
+    Model,
+    SqliteDatabase,
+)
 
-COIN_NAME = "乌帕"
-
+# 测试通过 STORYTELLER_USER_DB_PATH 指向临时库，避免污染生产 userData.db。
+USER_DB_PATH = os.environ.get("STORYTELLER_USER_DB_PATH", "./database/userData.db")
 db = SqliteDatabase(
-    "./database/userData.db",
+    USER_DB_PATH,
     timeout=30,
     pragmas={"journal_mode": "wal", "busy_timeout": 30000},
 )
@@ -20,7 +25,7 @@ class BaseModel(Model):
 
 
 class User(BaseModel):
-    user_id = CharField()
+    user_id = CharField(unique=True)
     is_sign = IntegerField(default=0)
     sign_num = IntegerField(default=0)
     english_answer = IntegerField(default=0)
@@ -49,14 +54,32 @@ class User_info:
 
 
 db.create_tables([User], safe=True)
+# 旧库补唯一索引（新库由 unique=True 保证；已有等价唯一索引时跳过）。
+try:
+    has_unique_user_id = False
+    for row in db.execute_sql("PRAGMA index_list('user_info')").fetchall():
+        if not row[2]:
+            continue
+        cols = db.execute_sql(f'PRAGMA index_info("{row[1]}")').fetchall()
+        if [c[2] for c in cols] == ["user_id"]:
+            has_unique_user_id = True
+            break
+    if not has_unique_user_id:
+        db.execute_sql(
+            "CREATE UNIQUE INDEX user_info_user_id_uniq ON user_info(user_id)"
+        )
+except Exception as e:  # noqa: BLE001 - 旧库重复数据不应阻断启动
+    logger.warning(f"user_info.user_id 唯一索引创建失败: {type(e).__name__} {e}")
 
 
 def init_user(user_id: str):
     user = User.select().where(User.user_id == user_id)
     if not user.exists():
-        p = User(user_id=user_id, gold=0)
-        p.save()
-        logger.info(f"已初始化{user_id}")
+        try:
+            User.create(user_id=user_id, gold=0)
+            logger.info(f"已初始化{user_id}")
+        except IntegrityError:
+            logger.debug(f"init_user 并发创建已存在: {user_id}")
 
 
 def Decorator(func):
@@ -90,39 +113,12 @@ def add_Decorator(func):
     return init
 
 
-def Updata_Decorator(func):
-    async def init(*args, **kwargs):
-        try:
-            if s := await func(*args, **kwargs):
-                return s
-            if args:
-                init_user(args[0])
-            if kwargs:
-                init_user(kwargs["user_id"])
-            return await func(*args, **kwargs)
-        except ValueError as e:
-            logger.error(f"Updata_Decorator error in {func.__name__}: {e}")
-            return 0
-
-    return init
-
-
-@Decorator
-async def is_sign(user_id: str):
-    user: User = User.get(user_id=user_id)
-    if user.is_sign:
-        return False
-    p = User.update(is_sign=1, sign_num=User.sign_num + 1).where(
-        User.user_id == user_id
-    )
-    p.execute()
-    return True
-
-
 @Decorator
 def get_info(user_id: str):
-    # sourcery skip: inline-immediately-returned-variable
-    user: User_info = User.get(user_id=user_id)
+    # 旧库若曾有重复 user_id，取最早一行并告警，避免 MultipleObjectsReturned 炸主流程。
+    user = User.select().where(User.user_id == user_id).order_by(User.id).first()
+    if user is None:
+        raise DoesNotExist
     return user
 
 
@@ -164,7 +160,10 @@ def add_gold(user_id: str, num: int):
 @Decorator
 def reduce_gold(user_id: str, num: int, force: bool = False):
     init_user(user_id)
-    gold_num = User.get(user_id=user_id).gold
+    user = User.select().where(User.user_id == user_id).order_by(User.id).first()
+    if user is None:
+        return False
+    gold_num = user.gold
     if gold_num < num:
         if not force:
             return False
@@ -177,15 +176,6 @@ def reduce_gold(user_id: str, num: int, force: bool = False):
     if result:
         _record_gold_ledger(user_id, delta)
     return result
-
-
-async def trans_all_gold(from_user_id: str, to_user_id: str) -> int:
-    init_user(from_user_id)
-    init_user(to_user_id)
-    from_user_gold = User.get(user_id=from_user_id).gold
-    await reduce_gold(from_user_id, from_user_gold)
-    add_gold(to_user_id, from_user_gold)
-    return from_user_gold
 
 
 async def reset_sign():
@@ -202,22 +192,6 @@ async def all_sign_num():
 async def give_all_gold(num: int):
     User.update(gold=User.gold + num).execute()
     return
-
-
-def ladder_rent_collection():
-    user_list = User.select().where(User.gold >= 1000).order_by(User.gold.desc())
-    total_rent = 0
-    for user in user_list:
-        # user: User
-        leadder_rent = 1 - (math.floor(user.gold / 1000) / 100)
-        User.update(gold=user.gold * leadder_rent).where(
-            User.user_id == user.user_id
-        ).execute()
-        gold = User.get(User.user_id == user.user_id).gold
-        total_rent += user.gold - gold
-        logger.info(f"{user.user_id} 被收取 {user.gold - gold} {COIN_NAME}")
-
-    return total_rent
 
 
 def set_all_user_gold(gold: int):

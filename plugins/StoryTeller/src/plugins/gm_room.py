@@ -33,6 +33,7 @@ from ..services.ending_engine import (
 from ..services.flow_engine import flow_states, render_flow_node, start_flow
 from ..utils.active_battles import battle_manager
 from ..utils.md_format import build_keyboard, md_message, need_create_message
+from ..utils.state_registry import register_state_store
 
 
 # 触发配置：读 reply_data.json `triggers` 段（id "gm_room"），缺省回退现状 10/39/d100/1（零行为）
@@ -40,12 +41,11 @@ def _gm_trigger() -> dict:
     return data_loader.get_trigger("gm_room")
 
 
-# 当次冒险「梦醒前的余韵」旗标：V2 不再使用，保留定义以兼容旧引用（adventure 导入）
-gm_afterglow: dict[str, bool] = {}
 
 # 当日守卫（game-day）：user_id -> 已进入 GM 房间的当日 day。
 # 内存 dict 为快路径；持久化镜像写 inv.flags `gm_room.met_day`，读时双读。
 _gm_met_day: dict[str, int] = {}
+register_state_store(_gm_met_day)
 
 
 def _gm_met_flag(inv: Investigator) -> Optional[int]:

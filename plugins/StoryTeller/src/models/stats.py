@@ -9,8 +9,7 @@
 
 from __future__ import annotations
 
-from contextlib import suppress
-
+from loguru import logger
 from peewee import BooleanField, CharField, IntegerField, TextField
 
 from .player import BaseModel
@@ -144,9 +143,10 @@ class DailyStat(BaseModel):
 
 if _BASE_DB.is_closed():
     _BASE_DB.connect()
-# 建表失败绝不影响插件加载（统计写后不理，写入时异常同样被吞）
-with suppress(Exception):
+try:
     _BASE_DB.create_tables(
         [RunStats, BattleLog, GoldLedger, EventLog, GrowthLog, DailyStat],
         safe=True,
     )
+except Exception as e:  # noqa: BLE001 - 建表失败不阻断插件加载，但必须可见
+    logger.warning(f"统计表创建失败: {type(e).__name__} {e}")

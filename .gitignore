@@ -140,7 +140,18 @@ dmypy.json
 
 .vscode
 
-test
+# 测试源码纳入版本管理；仅忽略生成物/大体积产物
+test/archive/
+test/balance_sim/
+test/logs/
+test/img/
+test/.pytest_cache/
+test/**/__pycache__/
+test/*.pyc
+test/scan_silent_result.txt
+test/poetry.lock
+test/pyproject.toml
+test/requirements.txt
 logs
 .env.prod
 *.db

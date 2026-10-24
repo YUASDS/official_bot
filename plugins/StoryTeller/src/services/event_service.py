@@ -18,6 +18,7 @@ _EVENT_CHANCE = 0.4
 # 随机事件去重（D5）：近 _RECENT_RECORD_DAYS 天已触发事件不重复（user_id -> 事件 key 队列）
 _RECENT_RECORD_DAYS = 3
 _recent_events: dict[str, list[str]] = {}
+register_state_store(_recent_events)
 
 # State for active random events (user_id -> event context)
 event_states: dict[str, dict] = {}
@@ -281,15 +282,21 @@ def event_option_rows(
     labels: list[str],
     options: list[dict],
     locks: Optional[list[bool]] = None,
+    token: int | None = None,
 ) -> list[list[tuple[str, str]]]:
-    """事件选项按钮行：条件未满足的选项锁定（禁点回调 event_locked），每行 3 个。"""
+    """事件选项按钮行：条件未满足的选项锁定（禁点回调 event_locked），每行 3 个。
+
+    token 写入按钮 payload 的第三段（button_data 解析为独立 token），用于拒绝旧事件的
+    残留按钮：新事件 token 不同，旧消息点击不会作用到当前事件。
+    """
     locks = locks or []
+    suffix = f":{token}" if token is not None else ""
     return [
         [
             (
-                (labels[i], f"event_locked:{opt['输入']}")
+                (labels[i], f"event_locked:{opt['输入']}{suffix}")
                 if i < len(locks) and locks[i]
-                else (labels[i], f"event:{opt['输入']}")
+                else (labels[i], f"event:{opt['输入']}{suffix}")
             )
             for i, opt in enumerate(options[j : j + 3], j)
         ]

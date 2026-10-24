@@ -40,6 +40,10 @@ class BattleEngineMixin:
             self.available_actions = self._player_actions()
         return self.available_actions.get(self.current_turn, [])
 
+    def refresh_available_actions(self) -> None:
+        """装备变化后刷新行动缓存（战斗中换装/换枪后按钮与命令校验同步）。"""
+        self.available_actions = self._player_actions()
+
     def start_turn(self) -> str:
         """开场战报：状态表 + 濒危一刻 + 行动抉择。"""
         self.roll_initiative()
@@ -201,7 +205,7 @@ class BattleEngineMixin:
         spell = data_loader.spell_data.get(spell_id, {})
         name = spell.get("name", spell_id)
 
-        spell_texts = self.monster.法术文案
+        spell_texts = getattr(self.monster, "法术文案", {})
         cast_text = (
             spell_texts.get(spell_id, "") if isinstance(spell_texts, dict) else ""
         ) or spell.get("des", "")

@@ -330,7 +330,7 @@ def _flow_check_block(inv: Investigator, user_id: str, check: dict) -> str:
 
 
 def _flow_grant_souvenir(user_id: str, item_id: str) -> str:
-    """纪念品首发放：未持有才发、已持有幂等跳过（对齐 guest._guest_grant_souvenir）。
+    """纪念品首发放：未持有才发、已持有幂等跳过（flow 内统一实现）。
 
     判定键一致（`equipments.get(id, 0) > 0` 则跳过），存量已持玩家重通关不重发。
     返回物品名；未发放（已持有 / 无角色 / 缺 id）返回空字符串。

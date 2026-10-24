@@ -258,6 +258,7 @@ class BattleActionsMixin:
                 investigator_repo.equip_item(self.investigator.qq, "101")
                 fallback = self._t("battle.weapon_fallback")
         self.investigator.update_equipment()
+        self.refresh_available_actions()
         self._update_gun_status()
         return fallback
 

@@ -178,7 +178,10 @@ class Monster:
     def __getattr__(self, name):
         if name.startswith("_") or name in self.__dict__:
             raise AttributeError(name)
-        return self._data.get(name, "")
+        data = self.__dict__.get("_data") or {}
+        if name in data:
+            return data[name]
+        raise AttributeError(name)
 
     def get_action(self, turn: str) -> dict[str, Any]:
         """获取怪物在此回合的行动详情（整场战斗固定一次，保证技能/文本/伤害一致）。"""
@@ -198,7 +201,8 @@ class Monster:
             return self._battle_action
 
         chosen_action_key = random.choice(list(attack_options.keys()))
-        action = attack_options[chosen_action_key]
+        # 复制一份再补默认字段，避免修改 data_loader 共享的怪物配置。
+        action = dict(attack_options[chosen_action_key])
         if "counterattack" not in action:
             action["counterattack"] = action.get("desc", t("monster.default_action"))
         if "attack" not in action:

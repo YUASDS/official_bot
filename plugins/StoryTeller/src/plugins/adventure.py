@@ -53,7 +53,7 @@ from ..services.resurrect import do_resurrect
 from ..services.sanity import run_sanity_and_madness
 from .jk import hidden_should_trigger
 from .guest import guest_enter, guest_should_trigger
-from .gm_room import gm_afterglow, gm_room_enter, gm_room_should_trigger
+from .gm_room import gm_room_enter, gm_room_should_trigger
 from .mainline import (
     SELECTOR_SIGNAL,
     apply_selector_choice,
@@ -88,7 +88,7 @@ from ..utils.md_format import (
 from ..services.daily_service import (
     _adventure_done_today,
     _mark_adventure_done,
-    _skip_daily,
+    _skip_daily as _skip_daily,  # noqa: F401 - 保留旧调用方/测试 re-export
     door_states,
 )
 
@@ -97,14 +97,6 @@ from ..services.daily_service import (
 def _loop_linkage(key: str) -> dict:
     """读取 loop_linkage 子段（缺省空 dict）。"""
     return (data_loader.reply_data.get("loop_linkage") or {}).get(key) or {}
-
-
-def _black_moon_environment() -> str | None:
-    """启专属环境名：已由 environment_data.json 的「入池:false」标记承载（普通池排除）。
-
-    此函数保留仅为语义查询；实际过滤逻辑见 pick_random_environment（按入池标记）。
-    """
-    return None
 
 
 def _hound_weight(inv: Investigator) -> dict | None:
@@ -335,28 +327,8 @@ async def _dispatch_daily_triggers(
         elif kind == "gm_room":
             if gm_room_should_trigger(inv):
                 await gm_room_enter(user_id, inv, bot, send)
-                gm_afterglow[user_id] = True
                 return True
     return False
-
-
-def _jk_image() -> dict:
-    """JK 形象图配置（boss_data「jk」图片段，缺省回退 reply_data boss_image，零行为）。
-
-    保留供旧调用方/测试读取配置；实际发送由 boss_framework.boss_image_for_monster 统一消费。
-    """
-    img = (get_boss("jk") or {}).get("图片") or {}
-    if img.get("路径"):
-        return {"path": img["路径"], "flag": img.get("flag") or "jk.img_shown"}
-    return (data_loader.reply_data.get("boss_image") or {}).get("jk") or {}
-
-
-def _jk_image_path() -> str:
-    return str(_jk_image().get("path", "resources/images/jk.jpg"))
-
-
-def _jk_image_flag() -> str:
-    return str(_jk_image().get("flag", "jk.img_shown"))
 
 
 adventure_cmd = on_command(
@@ -595,10 +567,6 @@ async def _run_adventure(
         _apply_hound_hesitation(service, inv, monster_id)
         # 伙伴助战：好感度满解锁的 NPC 伙伴注入（泛化 506 骨哨助战，纯战斗内状态）
         inject_companion(service, inv)
-        # 梦醒前的余韵：GM 房间彩蛋当日自动注入战斗强化（全技能+30/伤害翻倍/+25临时生命）
-        if gm_afterglow.pop(user_id, False):
-            service.apply_dream_buff()
-
         inv.is_adventure = True
         inv.save()
 
@@ -632,8 +600,10 @@ async def _run_adventure(
         event_data = None if forced else pick_random_event(inv)
         if event_data:
             battle_manager.add_battle(user_id, service)
+            event_token = random.randint(1, 2**31 - 1)
             event_states[user_id] = {
                 "event": event_data,
+                "token": event_token,
             }
 
             from database.db import get_info
@@ -650,7 +620,9 @@ async def _run_adventure(
             # 事件选项按钮（商品选项显示价格 / 乌帕不足；条件未满足置灰锁定；每行 3 个）
             options = event_data["选项"]
             locks = [event_option_locked(opt, inv, progress) for opt in options]
-            event_kb = build_keyboard(event_option_rows(labels, options, locks))
+            event_kb = build_keyboard(
+                event_option_rows(labels, options, locks, token=event_token)
+            )
 
             # 奇遇 CG 卡片（全平台）+ 选项按钮；图片失败回退文本
             card_html = battle_card_html(service, event_desc=event_data["描述"])
@@ -1062,15 +1034,33 @@ async def handle_combat(event: Event, bot: Bot, msg: Message = CommandArg()):
                 await _cleanup_battle(user_id, battle)
                 await _present_door_choice(user_id, battle, bot, combat_cmd.send)
             return
+        if battle.current_turn != "inv":
+            await combat_cmd.finish(
+                md_message(
+                    f"\n{data_loader.get_text('battle.not_player_turn', default='现在不是你的回合，无法更换装备。')}",
+                    bot,
+                    mention=user_id,
+                )
+            )
         ok, msg_text = investigator_repo.equip_item(user_id, item_id)
-        if ok:
-            battle.investigator.update_equipment()
-            if battle.current_turn == "inv":
-                battle._update_gun_status()
-            prompt = battle._get_next_turn_prompt()
-            await combat_cmd.send(send_turn(battle, bot, f"{msg_text}\n\n{prompt}"))
-        else:
+        if not ok:
             await combat_cmd.send(md_message(msg_text, bot, mention=user_id))
+            return
+        before = _ending_ids_snapshot(user_id)
+        battle.investigator.update_equipment()
+        battle.refresh_available_actions()
+        battle._update_gun_status()
+        # 战斗内换装消耗玩家回合：与格斗/射击/急救一致走 _end_turn 推进。
+        await send_combat_result(
+            battle, bot, (msg_text, battle._end_turn()), send=combat_cmd.send
+        )
+        if battle.fight_is_over():
+            await _send_new_battle_endings(
+                bot, user_id, "", battle, before,
+                _ending_ids_snapshot(user_id), combat_cmd.send,
+            )
+            await _cleanup_battle(user_id, battle)
+            await _present_door_choice(user_id, battle, bot, combat_cmd.send)
         return
 
     before = _ending_ids_snapshot(user_id)
@@ -1365,6 +1355,10 @@ async def handle_event_locked(
     token: int | None = None,
 ) -> None:
     """条件未满足的事件选项：禁点提示（不消费 event_states，可另选其他选项）。"""
+    ev_state = event_states.get(user_id)
+    state_token = ev_state.get("token") if ev_state else None
+    if ev_state and state_token is not None and token != state_token:
+        return  # 旧事件残留按钮：静默忽略
     await _send_to_user(
         bot,
         user_id,
@@ -1385,7 +1379,21 @@ async def handle_event_choice(
     token: int | None = None,
 ) -> None:
     """按钮触发奇遇事件选择。"""
-    ev_state = event_states.pop(user_id, None)
+    ev_state = event_states.get(user_id)
+    state_token = ev_state.get("token") if ev_state else None
+    if ev_state and state_token is not None and token != state_token:
+        await _send_to_user(
+            bot,
+            user_id,
+            md_message(
+                f"\n{data_loader.get_text('adventure.event_stale', default='该选项已过期，请使用最新消息中的选项。')}",
+                bot,
+                mention=user_id,
+            ),
+            group_openid,
+        )
+        return
+    event_states.pop(user_id, None)
     battle = battle_manager.get_battle(user_id)
     if not ev_state or not battle:
         await _send_to_user(

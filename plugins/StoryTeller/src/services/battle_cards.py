@@ -1,6 +1,7 @@
 """战报卡片渲染：把战斗状态渲染为 HTML 卡片（入场 CG / 开场 / 回合 / 结算 / SAN 崩塌）。"""
 
 from loguru import logger
+import html as html_lib
 import random
 import ujson
 from pathlib import Path
@@ -380,7 +381,7 @@ def round_status_html(service: BattleService) -> str:
     """回合卡片状态条（HP/SAN/弹药/MP/临时生命 chips）。"""
     inv = service.investigator
     chips = [
-        f'<div class="chip"><span class="k">{_chip_icon("inv")} {inv.name}</span> '
+        f'<div class="chip"><span class="k">{_chip_icon("inv")} {html_lib.escape(str(inv.name))}</span> '
         f'<span class="v">HP {service.hp_record["inv"]}/{inv.get_max_hp()}</span>'
         f"</div>",
         f'<div class="chip"><span class="k">{_chip_icon("san")} SAN</span> '
@@ -594,7 +595,7 @@ def battle_card_html(
 
     html = _CARD_TEMPLATE.read_text(encoding="utf-8")
     html = (
-        html.replace("__TITLE__", title)
+        html.replace("__TITLE__", html_lib.escape(str(title)))
         .replace("__DAY__", str(inv.day))
         .replace("__ANOMALY__", "\n".join(anomaly_lines))
         .replace("__EFFECTS__", effects)
@@ -662,7 +663,7 @@ def end_card_html(service: BattleService) -> str:
     html = (
         html.replace("__ICON__", icon)
         .replace("__CLS__", cls)
-        .replace("__TITLE__", title)
+        .replace("__TITLE__", html_lib.escape(str(title)))
         .replace("__ENDING__", ending)
         .replace("__HP__", f"{d['hp']}/{d['max_hp']}")
         .replace("__SAN__", f"{d['san']}")
@@ -683,7 +684,7 @@ def sanity_zero_card_html(inv: Investigator, san_loss: int = 0) -> str:
     ramble = random.choice(rambles) if rambles else ""
     return (
         _MAD_END_TEMPLATE.read_text(encoding="utf-8")
-        .replace("__VICTIM__", t("madness.victim", name=inv.name))
+        .replace("__VICTIM__", t("madness.victim", name=html_lib.escape(str(inv.name))))
         .replace("__RAMBLE__", ramble)
         .replace("__SAN__", san_label)
         .replace("__HP__", f"{inv.hp}/{inv.get_max_hp()}")

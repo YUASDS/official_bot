@@ -18,10 +18,8 @@ from typing import Any, Optional
 
 import ujson
 
-from util.DaylyRecord import register_daily_rollover
-
 from ..models.monster import monster_repo
-from ..models.player import Investigator, InvestigatorModel, ending_repo
+from ..models.player import Investigator, ending_repo
 from ..utils.md_format import report_quote, report_section
 from .data_loader import data_loader
 from .stats_service import snapshot_run
@@ -38,8 +36,6 @@ _ENDING_TEXT_DEFAULT = {
         "⚠️ 第 40 天怪物池异常：应为守门人（36），请检查 check_point.json。"
     ),
     "ending.relic_first": "🎒 信物收集里程碑：首次获得 {names}。",
-    "ending.e10_tick": "庄园已 3 日无人踏入，门窗缓缓合拢。",
-    "ending.e10_trigger": "你已连续 3 日未踏入庄园，黎明前的长眠降临。",
 }
 
 
@@ -384,33 +380,6 @@ def mark_mirror_defeated(inv: Investigator) -> None:
         progress.save()
 
 
-# --- 出口④：每日轮转钩子（0 点）→ E10 ---
-def daily_rollover() -> list[str]:
-    """每日 0 点轮转钩子：对所有存活调查员调用 check_daily(reset=False)，
-    累加连续未冒险天数（inactive_days），连续 3 日未冒险登记 E10 黎明前的长眠。
-
-    返回 E10 结局消息（含玩家名），供运营侧广播/日志；既有冻结拦截不重复上报。
-    """
-    msgs: list[str] = []
-    for model in InvestigatorModel.select():
-        inv = Investigator(model)
-        if not inv.is_survive:
-            continue
-        before = ending_repo.get_progress(inv.qq)
-        _logs, block = check_daily(inv, reset=False)
-        if not block:
-            continue
-        after = ending_repo.get_progress(inv.qq)
-        # 仅当本次轮转新结算终局（E10）才上报；冻结拦截（frozen_ended/frozen_door）不提示
-        if after is not None and (before is None or not before.ended) and after.ended:
-            msgs.append(f"{inv.name}：{block}")
-    return msgs
-
-
-# 注册 E10 每日轮转钩子（0 点自动执行；幂等，重复导入不重复注册）
-register_daily_rollover(daily_rollover)
-
-
 # --- 出口④：每日推进检查 ---
 def check_daily(
     inv: Investigator, reset: bool = True
@@ -419,7 +388,7 @@ def check_daily(
 
     reset=True（每日开局进行冒险）：inactive_days 清零、day 同步与累计存活天数、
     信物收集里程碑日志、day==40 守卫、结局/门扉冻结拦截。
-    reset=False（自然日轮转未冒险）：inactive_days 累加，≥3 触发 E10。
+    reset=False（自然日轮转）：仅累加 inactive_days；E10 挂机结局已按 D10 决策移除。
 
     返回 (日志行, 拦截消息)；拦截消息非 None 时调用方应阻止本次冒险。
     """
@@ -437,20 +406,8 @@ def check_daily(
         )
 
     if not reset:
+        # D10 决策：E10 挂机结局已移除，仅保留连续未冒险天数统计（供运营/统计读取）。
         progress.inactive_days += 1
-        if progress.inactive_days >= 3 and inv.is_survive:
-            progress.ended = True
-            progress.save()
-            ending_repo.add_ending(inv.qq, "E10", run=progress.run_id)
-            # 统计二期：E10 周目快照（写后不理）
-            snapshot_run(inv, "E10", progress=progress)
-            return (
-                [_text("ending.e10_tick", _ENDING_TEXT_DEFAULT["ending.e10_tick"])],
-                _ending_result_text(
-                    "E10",
-                    note="你已连续 3 日未踏入庄园，黎明前的长眠降临。",
-                ),
-            )
         progress.save()
         return logs, None
 
@@ -890,6 +847,16 @@ def reroll_door_choice(inv: Investigator) -> Optional[str]:
         collection.endings = ujson.dumps(records, ensure_ascii=False)
         collection.ng_plus = len({r.get("id") for r in records if r.get("id")})
         collection.save()
+    # 删除本局 run_stats：否则 snapshot_run 因“已有 ending_id”拒绝覆盖，
+    # /周目回顾 会一直显示被重掷掉的旧门扉结局。
+    try:
+        from ..models.stats import RunStats
+
+        RunStats.delete().where(
+            (RunStats.qq == str(inv.qq)) & (RunStats.run_id == int(run))
+        ).execute()
+    except Exception as e:  # noqa: BLE001 - 统计清理失败不影响重掷
+        logger.warning(f"reroll 清理 run_stats 失败: {type(e).__name__} {e}")
     # 恢复进度表为待抉择状态
     progress.ended = False
     progress.door_choice = ""

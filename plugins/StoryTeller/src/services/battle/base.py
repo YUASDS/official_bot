@@ -257,10 +257,14 @@ class BattleBaseMixin:
     def _update_gun_status(self):
         gun_id = self.investigator.get_equipped_id("远程")
         if gun_id:
-            self.gun = Equipment(gun_id)
-            if self.gun.is_valid:
-                self.bullet = self.gun.bullet
-                self.max_bullet = self.gun.max_bullet
+            gun = Equipment(gun_id)
+            if gun.is_valid:
+                prev_id = self.gun.id if self.gun is not None else None
+                # 同一把枪保留当前弹药（防换装同枪免费补弹）；换枪才读取新枪弹夹。
+                if prev_id != gun_id:
+                    self.bullet = gun.bullet
+                    self.max_bullet = gun.max_bullet
+                self.gun = gun
             else:
                 self.gun = None
         else:

@@ -148,6 +148,7 @@ def _fx_immune_death(
     if fx.get("消耗"):
         self.investigator.break_equipped_item(item.part)
         self.investigator.update_equipment()
+        self.refresh_available_actions()
     return [line]
 
 

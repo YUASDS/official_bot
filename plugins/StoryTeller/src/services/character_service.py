@@ -3,12 +3,14 @@
 from typing import Any
 
 from ..models.player import CreateInvestigator, InvestigatorFormatter
+from ..utils.state_registry import register_state_store
 from .data_loader import data_loader
 
 _t = data_loader.get_text
 
 # --- State storage ---
 user_states: dict[str, Any] = {}
+register_state_store(user_states)
 
 
 def build_create_reply(user_id: str, name: str) -> str:

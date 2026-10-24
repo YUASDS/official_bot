@@ -1,52 +1,76 @@
-import os
+import asyncio
+from pathlib import Path
+from typing import Optional
 
 from loguru import logger
-from typing import Optional
-from playwright._impl._errors import Error
-from playwright.async_api import Browser, async_playwright
+from playwright.async_api import BrowserContext, async_playwright
+
+_HERE = Path(__file__).parent
+PATH_TO_EXTENSION = _HERE / "extension" / "ad"
+USER_DATA_DIR = _HERE / "data"
+
+_browser: Optional[BrowserContext] = None
+_playwright = None
+_lock: Optional[asyncio.Lock] = None
 
 
-path_to_extension = "./util/browser/extension/ad"
-user_data_dir = "./util/browser/data"
+def _get_lock() -> asyncio.Lock:
+    global _lock
+    if _lock is None:
+        _lock = asyncio.Lock()
+    return _lock
 
 
-_browser: Browser = None
-
-
-async def init() -> Browser:
-    global _browser
-    browser = await async_playwright().start()
-    _browser = await browser.chromium.launch_persistent_context(
-        user_data_dir,
-        headless=True,
-        args=[
-            f"--disable-extensions-except={path_to_extension}",
-            f"--load-extension={path_to_extension}",
-        ],
-        device_scale_factor=1.25,
-    )
+async def init() -> BrowserContext:
+    """启动持久化 Chromium（无扩展时自动跳过扩展参数）。"""
+    global _browser, _playwright
+    if _browser is not None:
+        return _browser
+    _playwright = await async_playwright().start()
+    args: list[str] = []
+    if PATH_TO_EXTENSION.is_dir():
+        args.extend(
+            [
+                f"--disable-extensions-except={PATH_TO_EXTENSION}",
+                f"--load-extension={PATH_TO_EXTENSION}",
+            ]
+        )
+    else:
+        logger.debug(f"浏览器扩展目录不存在，跳过加载: {PATH_TO_EXTENSION}")
+    try:
+        _browser = await _playwright.chromium.launch_persistent_context(
+            str(USER_DATA_DIR),
+            headless=True,
+            args=args,
+            device_scale_factor=1.25,
+        )
+    except Exception:
+        await _playwright.stop()
+        _playwright = None
+        raise
     return _browser
 
 
-async def get_browser() -> Browser:
-    return _browser or await init()
+async def get_browser() -> BrowserContext:
+    async with _get_lock():
+        if _browser is None:
+            await init()
+        assert _browser is not None
+        return _browser
 
 
-# try:
-#     await get_browser()
-#     logger.info("Chromium Browser initialized")
-# except Error as e:
-#     if str(e).startswith("Extension doesn't exist at"):
-#         logger.warning("未找到适应版本的 Chromium，正在自动安装...")
-#         os.system("playwright install chromium")
-#         try:
-#             get_browser()
-#         except Error as e:
-#             logger.error(f"Chromium 安装失败 {str(e)}，请手动执行 playwright install chromium 安装")
-#             exit(1)
-#     else:
-#         logger.error(f"Chromium 初始化失败 {str(e)}，未知错误")
-#         exit(1)
-# except Exception as e:
-#     logger.error(f"Chromium 初始化失败 {type(e)} {str(e)}，未知错误")
-#     exit(1)
+async def close() -> None:
+    """关闭浏览器与 Playwright 驱动（on_shutdown 调用）。"""
+    global _browser, _playwright
+    if _browser is not None:
+        try:
+            await _browser.close()
+        except Exception as e:  # noqa: BLE001 - 关闭失败不阻断退出
+            logger.warning(f"Chromium context 关闭失败: {type(e).__name__} {e}")
+        _browser = None
+    if _playwright is not None:
+        try:
+            await _playwright.stop()
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"Playwright 停止失败: {type(e).__name__} {e}")
+        _playwright = None

@@ -23,7 +23,7 @@ async def handle_shop(event: Event, bot: Bot) -> None:
     # 商品「购买」按钮（QQ 平台）
     kb_rows = []
     row = []
-    for item_id, price in items.items():
+    for item_id in items:
         item = Equipment(item_id)
         if not item.is_valid:
             continue
@@ -53,6 +53,14 @@ async def handle_buy(event: Event, bot: Bot, msg: Message = CommandArg()) -> Non
 
     item_id = args[0]
     quantity = int(args[1]) if len(args) > 1 and args[1].isdigit() else 1
+    if quantity <= 0:
+        await buy_cmd.finish(
+            md_message(
+                f"\n{_t('shop.invalid_quantity', default='购买数量必须大于 0。')}",
+                bot,
+                mention=user_id,
+            )
+        )
 
     items = shop_service.get_todays_shop("seed")
     ok, res = shop_service.buy_item(user_id, item_id, quantity, items)

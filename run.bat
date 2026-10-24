@@ -1,15 +1,12 @@
 @echo off
 cd /d %~dp0
-set PYTHON_EXE=E:\anaconda3\python.exe
+set PYTHON_EXE=E:\anaconda3\envs\official_bot\python.exe
 set PID_FILE=%~dp0bot.pid
 
 :: ====== GitHub 源及镜像 ======
 set GIT_ORIGIN=https://github.com/YUASDS/official_bot.git
 set GIT_MIRROR1=https://gitclone.com/github.com/YUASDS/official_bot.git
 set GIT_MIRROR2=https://gh-proxy.com/https://github.com/YUASDS/official_bot.git
-
-git config --global http.sslVerify false
-
 
 :start
 call :try_fetch
@@ -38,15 +35,19 @@ if %errorlevel% equ 0 ( exit /b 0 )
 exit /b 1
 
 :check_behind
+set "BEHIND=0"
 for /f %%i in ('git rev-list HEAD...@{u} --count 2^>nul') do set BEHIND=%%i
 if not defined BEHIND set BEHIND=0
 
 if %BEHIND% GTR 0 (
     echo [%date% %time%] Update found! Pulling changes...
-    if exist "%PID_FILE%" (
-        call :killbot
+    if exist "%PID_FILE%" call :killbot
+    git -c http.timeout=30 pull --ff-only 2>nul
+    if errorlevel 1 (
+        echo [%date% %time%] Pull failed, starting current version.
+        set "UPDATE_BACKOFF=1"
+        goto :runbot
     )
-    git -c http.timeout=30 pull 2>nul
     echo [%date% %time%] Update complete, restarting...
     goto start
 )
@@ -63,6 +64,12 @@ for /f "tokens=2" %%a in ('tasklist /fi "WINDOWTITLE eq official_bot" /fo list 2
 :wait_loop
 timeout /t 60 /nobreak >nul
 
+if defined UPDATE_BACKOFF (
+    echo [%date% %time%] Previous pull failed, retry in 10 minutes...
+    timeout /t 600 /nobreak >nul
+    set "UPDATE_BACKOFF="
+)
+
 tasklist /fi "WINDOWTITLE eq official_bot" 2>nul | find "python.exe" >nul
 if errorlevel 1 (
     echo [%date% %time%] Bot has stopped, restarting...
@@ -75,13 +82,19 @@ if %errorlevel% neq 0 (
     goto wait_loop
 )
 
+set "BEHIND=0"
 for /f %%i in ('git rev-list HEAD...@{u} --count 2^>nul') do set BEHIND=%%i
 if not defined BEHIND set BEHIND=0
 
 if %BEHIND% GTR 0 (
     echo [%date% %time%] Update found! Stopping bot...
     call :killbot
-    git -c http.timeout=30 pull 2>nul
+    git -c http.timeout=30 pull --ff-only 2>nul
+    if errorlevel 1 (
+        echo [%date% %time%] Pull failed, restarting current version.
+        set "UPDATE_BACKOFF=1"
+        goto :runbot
+    )
     echo [%date% %time%] Update complete, restarting...
     goto start
 )

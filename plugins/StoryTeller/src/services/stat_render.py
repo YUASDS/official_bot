@@ -24,11 +24,19 @@ _t = data_loader.get_text
 # 展示配置段（display_data.json `stat`，缺失回退默认）
 _DISPLAY_STAT = get_display_config().get("stat") or {}
 
-# 结局图鉴总数（E01~E10，对齐 stats-design.md A3）
+# 结局图鉴总数：以 ending_data.order 为唯一数据源（E01-E09 + E11-E13 = 12）；
+# display_data 的 total_endings 仅作无 order 时的兜底，避免 12 个结局显示成 x/10。
 _TOTAL_ENDINGS_DEFAULT = 10
 _total_endings_cfg = _DISPLAY_STAT.get("total_endings")
+_order_count = len((data_loader.ending_data or {}).get("order") or [])
 TOTAL_ENDINGS = (
-    _total_endings_cfg if isinstance(_total_endings_cfg, int) else _TOTAL_ENDINGS_DEFAULT
+    _order_count
+    if _order_count
+    else (
+        _total_endings_cfg
+        if isinstance(_total_endings_cfg, int)
+        else _TOTAL_ENDINGS_DEFAULT
+    )
 )
 
 # run_stats.door_choice 存储终局 id（_finish_door 落 end_id）或空 → 展示标签
@@ -42,7 +50,6 @@ _DOOR_LABELS_DEFAULT = {
     "E07": "墓园拾骨",
     "E08": "驻足旁观",
     "E09": "见证·庄园",
-    "E10": "长眠",
 }
 _DOOR_LABELS = dict(_DOOR_LABELS_DEFAULT)
 _door_labels_cfg = _DISPLAY_STAT.get("door_labels")

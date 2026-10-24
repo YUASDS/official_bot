@@ -15,7 +15,11 @@ def do_resurrect(user_id: str) -> str:
     出口②（E06）永久疯狂：san_zero_hit + ended 落库后拒绝复活（任何复活手段都无法唤回）。
     """
     t = data_loader.get_text
-    inv = Investigator.load(user_id)
+    # 禁止 Investigator.load 的副作用：无角色时不得随机生成调查员
+    inv_model = investigator_repo.find_by_qq(user_id)
+    if inv_model is None:
+        return t("character.need_create", default="请先创建调查员。")
+    inv = Investigator(inv_model)
     if inv.is_survive:
         return t("adventure.resurrect_alive")
 
@@ -25,7 +29,7 @@ def do_resurrect(user_id: str) -> str:
         return t("adventure.resurrect_blocked")
 
     equipments, _ = inv.get_equipments()
-    if RESURRECT_ITEM_ID not in equipments:
+    if int(equipments.get(RESURRECT_ITEM_ID, 0) or 0) <= 0:
         return t("adventure.resurrect_none")
 
     investigator_repo.remove_item_from_inventory(user_id, RESURRECT_ITEM_ID, 1)

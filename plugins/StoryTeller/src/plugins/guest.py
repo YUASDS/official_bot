@@ -36,10 +36,12 @@ from ..services.flow_engine import (
 )
 from ..utils.buttons import _send_to_user
 from ..utils.md_format import md_message
+from ..utils.state_registry import register_state_store
 
 # --- 兼容导出（薄壳）：活跃流程态 = flow_engine 状态机 ---
 guest_active = flow_states
 _guest_met_day: dict[str, int] = {}
+register_state_store(_guest_met_day)
 
 
 def _guest_trigger() -> dict:

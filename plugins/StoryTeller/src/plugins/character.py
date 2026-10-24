@@ -1,4 +1,5 @@
 from loguru import logger
+import re
 import ujson
 
 from nonebot import on_command
@@ -17,7 +18,7 @@ from ..services.character_cards import (
     choose_success_card_html,
     create_done_card_html,
 )
-from ..services.character_info import build_info_message, send_info_flow
+from ..services.character_info import send_info_flow
 from ..services.character_service import (
     build_create_reply,
     choose_reply,
@@ -39,6 +40,12 @@ from ..utils.md_format import (
 from ..utils.state_registry import clear_user_state
 
 _t = data_loader.get_text
+
+
+def _safe_player_name(raw: str) -> str:
+    """玩家名输入清洗：去 HTML/Markdown 标签字符、控制符并限制长度。"""
+    value = re.sub(r"[<>\r\n\t`]", "", str(raw)).strip()
+    return value[:24]
 
 
 def _build_legacy_summary(qq: str) -> str:
@@ -272,7 +279,7 @@ def _cleanup_ended_state(user_id: str) -> None:
 @create_cmd.handle()
 async def handle_create(event: Event, bot: Bot, msg: Message = CommandArg()):
     user_id = event.get_user_id()
-    name = msg.extract_plain_text().strip()
+    name = _safe_player_name(msg.extract_plain_text())
     if not name:
         await create_cmd.finish(
             md_message(
@@ -389,7 +396,7 @@ async def handle_skill(event: Event, bot: Bot, msg: Message = CommandArg()):
 
     inv = ci.create_investigator(user_id, name)
     attrs = InvestigatorFormatter.format_investigator_info(name, ci.select)
-    del user_states[user_id]
+    user_states.pop(user_id, None)
 
     # 创建完成图片卡片 + 今日冒险按钮；图片失败回退 md
     img = await render_pic(create_done_card_html(ci, name))

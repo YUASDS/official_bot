@@ -18,7 +18,6 @@ from typing import Any, Optional
 
 from nonebot import on_command
 from nonebot.adapters import Bot, Event
-from nonebot.exception import FinishedException
 
 from ..models.player import Investigator, investigator_repo
 from ..services.data_loader import data_loader
@@ -34,7 +33,9 @@ from ..utils.state_registry import register_state_store
 npc_states: dict[str, dict] = {}
 register_state_store(npc_states)
 # 每日互斥守卫：user_id -> 已触发 NPC 的当日 day（一天最多一次 NPC 彩蛋）
+# 内存快路径 + inv.flags `npc.met_day` 持久镜像（重启后同 game-day 不二次触发）。
 _npc_met_day: dict[str, int] = {}
+register_state_store(_npc_met_day)
 
 
 def npc_registry() -> dict:
@@ -60,12 +61,22 @@ def npc_available(inv: Investigator, npc: dict) -> bool:
     return eval_option_condition(cond, inv)
 
 
+def _npc_met_flag(inv: Investigator) -> Optional[int]:
+    """读当日守卫持久化镜像：flags `npc.met_day`（重启后仍生效）。"""
+    try:
+        value = inv.get_flag("npc.met_day")
+        return int(value) if value is not None else None
+    except (TypeError, ValueError) as e:
+        logger.warning(f"静默异常[TypeError/ValueError] in _npc_met_flag: {e}")
+        return None
+
+
 def npc_should_trigger(inv: Investigator) -> Optional[str]:
     """每日开局概率触发：对已解锁 NPC 按配置顺序掷骰，命中返回第一个 NPC id（无则 None）。
 
-    当天已触发过（_npc_met_day 守卫）或 day40 冻结不再触发（解锁条件 max 已排除）。
+    当天已触发过（_npc_met_day 内存 + npc.met_day flags 双读）或 day40 冻结不再触发。
     """
-    if _npc_met_day.get(inv.qq) == inv.day:
+    if _npc_met_day.get(inv.qq) == inv.day or _npc_met_flag(inv) == inv.day:
         return None
     for npc_id, npc in npc_registry().items():
         if not npc_available(inv, npc):
@@ -122,6 +133,8 @@ async def npc_send_dialogue(
     kb = build_keyboard(_option_rows(npc, node))
     npc_states[user_id] = {"npc_id": npc_id, "node_id": node.get("id")}
     _npc_met_day[user_id] = inv.day
+    inv.set_flag("npc.met_day", inv.day)
+    inv.save()
     msg = md_message(
         f"\n{npc.get('标题', '')}\n\n{npc.get('出场', '')}\n\n{node.get('对话', '')}",
         bot,
@@ -237,7 +250,16 @@ async def _handle_npc_choice(user_id: str, npc_id: str, option_input: str, bot: 
         )
         return
     reply = apply_npc_choice(inv, user_id, npc, node, option)
-    await send(md_message(f"\n{reply}", bot, mention=user_id))
+    # NPC 彩蛋接管当日：完成选择后推进 day（<40 冻结语义与 _skip_daily 一致）。
+    # 未选择直接 /今日冒险 时，adventure 会清掉 npc_states 并正常进入战斗。
+    from ..services.daily_service import _mark_adventure_done, _skip_daily
+
+    _skip_daily(user_id, inv)
+    _mark_adventure_done(user_id)
+    day_passed = data_loader.get_text(
+        "npc.day_passed", default="夜幕落下，今日已过。"
+    )
+    await send(md_message(f"\n{reply}\n\n> {day_passed}", bot, mention=user_id))
 
 
 async def handle_npc_button(

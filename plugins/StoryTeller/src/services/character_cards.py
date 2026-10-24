@@ -1,6 +1,7 @@
 """创建流程与调查员档案的 HTML 卡片渲染（模板 → HTML 字符串）。"""
 
 from pathlib import Path
+import html as html_lib
 
 from ..models.item import Equipment
 from ..models.player import CreateInvestigator, Investigator, InvestigatorFormatter
@@ -77,7 +78,7 @@ def choose_success_card_html(ci: CreateInvestigator, name: str) -> str:
         "选择成功",
         panels,
         _t("character.skill_alloc_hint", points=ci.skill_point),
-        meta=_t("character.name_label", name=name),
+        meta=_t("character.name_label", name=html_lib.escape(str(name))),
     )
 
 
@@ -90,7 +91,7 @@ def create_done_card_html(ci: CreateInvestigator, name: str) -> str:
         _t("character.create_done_title"),
         panels,
         _t("character.create_done_hint"),
-        meta=_t("character.name_label", name=name),
+        meta=_t("character.name_label", name=html_lib.escape(str(name))),
     )
 
 
@@ -187,7 +188,7 @@ def info_card_html(inv: Investigator, gold: int) -> str:
     survival = _t("character.dead") if not inv.is_survive else _t("character.survive")
     html = _CARD_TEMPLATE.read_text(encoding="utf-8")
     return (
-        html.replace("__NAME__", inv.name)
+        html.replace("__NAME__", html_lib.escape(str(inv.name)))
         .replace("__STATUS__", survival)
         .replace("__DAY__", str(inv.day))
         .replace("__GOLD__", str(gold))

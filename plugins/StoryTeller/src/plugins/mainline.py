@@ -272,6 +272,10 @@ def branch_available(inv, day) -> bool:
         return False
     if inv.get_flag(f"ml.{line}.done"):
         return False
+    # 十幕已走完（含 day37 终局战失败）：不再排分支节点，避免 day40 无选项软锁。
+    # 终局胜利会由 register_mainline_ending 置 ended 冻结；失败则回归 day40 门扉兜底。
+    if int(inv.get_flag(f"ml.{line}.node") or 0) >= 10:
+        return False
     offset = _branch_day_offset(inv, day)
     if offset < 0:
         return False
@@ -358,15 +362,34 @@ def recover_hung_mainline_entry(user_id: str, inv) -> bool:
 
 
 def register_mainline_ending(inv, ending_id: str, line: str | None = None) -> None:
-    """结局钩子：分支终局达成 → 登记独立结局（ending_repo.add_ending）并置 ml.<line>.done。
+    """结局钩子：分支终局达成 → 结束本局 + 登记独立结局 + 周目快照。
 
-    读 ending_repo（表 B 结局收集，跨周目）；line 缺省取 ml.line。幂等（add_ending 去重）。
+    - 置 `ml.<line>.done` 阻止后续分支；
+    - 置表 A `ended=True`：主线终局是正式结局，必须冻结本局（否则 day40 还能再走门扉拿到
+      第二个结局，/迈向新篇 也无法开启）；
+    - 表 B 登记结局并写 run_stats（否则 E11/E12/E13 不出现在 /周目回顾）。
     """
     line = line or inv.get_flag("ml.line")
     if line:
         inv.set_flag(f"ml.{line}.done", True)
-    ending_repo.add_ending(inv.qq, ending_id)
+
+    progress = ending_repo.ensure_progress(inv.qq, inv.day)
+    try:
+        from ..services.ending_engine import knowledge
+
+        progress.knowledge = knowledge(inv)
+    except Exception as e:  # noqa: BLE001 - 知识度仅展示用
+        logger.warning(f"mainline ending knowledge failed: {type(e).__name__} {e}")
+    progress.ended = True
+    progress.save()
+    ending_repo.add_ending(inv.qq, ending_id, run=progress.run_id)
     inv.save()
+    try:
+        from ..services.stats_service import snapshot_run
+
+        snapshot_run(inv, ending_id, progress=progress)
+    except Exception as e:  # noqa: BLE001 - 统计写后不理
+        logger.warning(f"mainline ending snapshot failed: {type(e).__name__} {e}")
 
 
 # --- 二周目选择器（day1 踏入主线 / 重游门扉） ---
@@ -507,6 +530,11 @@ async def try_mainline_daily(
 
         line = inv.get_flag("ml.line")
         node_day = inv.day
+        # 首发分支初始化节点计数：dispatch 条件用 0..9 精确匹配；
+        # get_flag 缺失返回 None，若不落 0 会让 d1 条件（node==0）永远不满足。
+        if inv.get_flag(f"ml.{line}.node") is None:
+            inv.set_flag(f"ml.{line}.node", 0)
+            inv.save()
         # 延迟占日：只占当日冒险资格 + 置 entered 标记；不推 day、不计数（flow 完成时补）。
         _mark_adventure_done(user_id)
         inv.set_flag(f"ml.{line}.entered.{node_day}", True)

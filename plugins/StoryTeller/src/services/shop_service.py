@@ -1,16 +1,11 @@
 import random
-import sys
-from pathlib import Path
 
 from database.db import add_gold, reduce_gold
+from util.DaylyRecord import add_data, get_data, write_json
 
 from ..models.item import Equipment
 from ..services.data_loader import data_loader
 from ..services.stats_service import gold_source
-
-# Import DaylyRecord for daily persistence
-sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent.parent))
-from util.DaylyRecord import add_data, get_data, write_json
 
 
 class ShopService:
@@ -50,6 +45,12 @@ class ShopService:
         t = data_loader.get_text
         if item_id not in shop_items:
             return False, t("shop.item_not_on_sale")
+        try:
+            quantity = int(quantity)
+        except (TypeError, ValueError):
+            return False, t("shop.invalid_quantity", default="购买数量必须大于 0。")
+        if quantity <= 0:
+            return False, t("shop.invalid_quantity", default="购买数量必须大于 0。")
 
         price = shop_items[item_id]
         total_cost = price * quantity

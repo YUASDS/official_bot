@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from loguru import logger
-import contextlib
+import os
 import re
 from datetime import datetime
 from pathlib import Path
@@ -30,10 +30,28 @@ from .item import Equipment
 _EQUIPPABLE_PARTS = {"近战", "远程", "防具", "饰品"}
 
 
+def _add_column_if_missing(db: Any, table: str, column: str, ddl: str) -> None:
+    """幂等补列：先查 PRAGMA，缺列才 ALTER；失败记录告警而不是静默吞掉。"""
+    try:
+        rows = db.execute_sql(f'PRAGMA table_info("{table}")').fetchall()
+        columns = {str(row[1]) for row in rows}
+    except Exception as e:  # noqa: BLE001 - 表不存在/库锁定
+        logger.warning(f"迁移检查失败 {table}.{column}: {type(e).__name__} {e}")
+        return
+    if column in columns:
+        return
+    try:
+        db.execute_sql(f'ALTER TABLE "{table}" ADD COLUMN {ddl}')
+        logger.info(f"数据库迁移：{table} 新增列 {column}")
+    except Exception as e:  # noqa: BLE001 - 迁移失败必须可见
+        logger.warning(f"数据库迁移失败 {table}.{column}: {type(e).__name__} {e}")
+
+
 # --- Database Model ---
 class BaseModel(Model):
     class Meta:
-        db_path = Path(__file__).parent.parent.parent / "inv.db"
+        _env_db = os.environ.get("STORYTELLER_DB_PATH")
+        db_path = Path(_env_db) if _env_db else Path(__file__).parent.parent.parent / "inv.db"
         database = SqliteDatabase(
             db_path,
             timeout=30,
@@ -158,29 +176,33 @@ class InvestigatorRepository:
             db.connect()
         db.create_tables([InvestigatorModel, InventoryItemModel], safe=True)
         self._migrate(db)
+        # 清理历史 quantity=0 漏洞行（零数量物品可被装备/复活/消耗）
+        try:
+            removed = (
+                InventoryItemModel.delete()
+                .where(InventoryItemModel.quantity <= 0)
+                .execute()
+            )
+            if removed:
+                logger.warning(f"已清理 {removed} 条非正数量背包记录")
+        except Exception as e:  # noqa: BLE001 - 清理失败不应阻断启动
+            logger.warning(f"清理非正数量背包记录失败: {type(e).__name__} {e}")
         self.db = db
 
     @staticmethod
     def _migrate(db: Any) -> None:
         """旧库补充新增列（spells / 克苏鲁神话 / flags）。"""
-        with contextlib.suppress(Exception):
-            db.execute_sql(
-                "ALTER TABLE investigators ADD COLUMN spells TEXT DEFAULT '[]'"
-            )
-        with contextlib.suppress(Exception):
-            db.execute_sql(
-                "ALTER TABLE investigators ADD COLUMN 克苏鲁神话 INTEGER DEFAULT 0"
-            )
-        with contextlib.suppress(Exception):
-            db.execute_sql(
-                "ALTER TABLE investigators ADD COLUMN flags TEXT DEFAULT '{}'"
-            )
+        _add_column_if_missing(db, "investigators", "spells", "spells TEXT DEFAULT '[]'")
+        _add_column_if_missing(
+            db, "investigators", "克苏鲁神话", "克苏鲁神话 INTEGER DEFAULT 0"
+        )
+        _add_column_if_missing(db, "investigators", "flags", "flags TEXT DEFAULT '{}'")
 
     def find_by_qq(self, qq: str) -> Optional[InvestigatorModel]:
         try:
             return InvestigatorModel.get(InvestigatorModel.qq == qq)
         except DoesNotExist as e:
-            logger.warning(f"静默异常[DoesNotExist] in find_by_qq: {e}")
+            logger.debug(f"find_by_qq miss: {e}")
             return None
 
     def create_and_save(
@@ -221,6 +243,15 @@ class InvestigatorRepository:
     def add_item_to_inventory(
         self, inv_model: InvestigatorModel, item_id: str, quantity: int = 1
     ) -> None:
+        try:
+            quantity = int(quantity)
+        except (TypeError, ValueError):
+            logger.warning(f"add_item_to_inventory 非法数量: {quantity!r}")
+            return
+        if quantity <= 0:
+            # 历史漏洞：商店 quantity=0 会创建零数量背包行，随后可被装备/消耗。
+            logger.warning(f"add_item_to_inventory 拒绝非正数量: item={item_id} qty={quantity}")
+            return
         with self.db.atomic():
             existing_item = (
                 InventoryItemModel.select()
@@ -249,6 +280,13 @@ class InvestigatorRepository:
         inv = self.find_by_qq(qq)
         if not inv:
             return False
+        try:
+            quantity = int(quantity)
+        except (TypeError, ValueError):
+            return False
+        if quantity <= 0:
+            logger.warning(f"remove_item_from_inventory 拒绝非正数量: item={item_id} qty={quantity}")
+            return False
 
         with self.db.atomic():
             item = (
@@ -260,6 +298,10 @@ class InvestigatorRepository:
                 .first()
             )
             if item:
+                if int(item.quantity or 0) <= 0:
+                    # 清理历史漏洞产生的零/负数量行，且不视为持有
+                    item.delete_instance()
+                    return False
                 if item.quantity <= quantity:
                     item.delete_instance()
                 else:
@@ -299,7 +341,10 @@ class InvestigatorRepository:
             )
             .first()
         )
-        if not item_record:
+        if not item_record or int(item_record.quantity or 0) <= 0:
+            if item_record is not None:
+                # 清理历史漏洞产生的零/负数量行
+                item_record.delete_instance()
             return False, t("player.item_not_found")
         item = Equipment(item_id)
         part = item.part
@@ -335,24 +380,38 @@ class EndingRepository:
 
     @staticmethod
     def _migrate(db: Any) -> None:
-        """旧库补充新增列（梦之碎片 / 周目联动 last_run_choices）。"""
-        with contextlib.suppress(Exception):
-            db.execute_sql(
-                "ALTER TABLE ending_collection ADD COLUMN dream_fragments "
-                "INTEGER DEFAULT 0"
-            )
-        with contextlib.suppress(Exception):
-            db.execute_sql(
-                "ALTER TABLE ending_collection ADD COLUMN last_run_choices "
-                "TEXT DEFAULT '{}'"
-            )
+        """旧库补列：表 A 全字段 + 表 B 全字段（缺列才 ALTER，失败可见）。"""
+        columns = (
+            ("ending_collection", "total_runs", "INTEGER DEFAULT 0"),
+            ("ending_collection", "total_days", "INTEGER DEFAULT 0"),
+            ("ending_collection", "endings", "TEXT DEFAULT '[]'"),
+            ("ending_collection", "ng_plus", "INTEGER DEFAULT 0"),
+            ("ending_collection", "collection", "TEXT DEFAULT '{}'"),
+            ("ending_collection", "dream_fragments", "INTEGER DEFAULT 0"),
+            ("ending_collection", "last_run_choices", "TEXT DEFAULT '{}'"),
+            ("ending_progress", "run_id", "INTEGER DEFAULT 1"),
+            ("ending_progress", "day", "INTEGER DEFAULT 1"),
+            ("ending_progress", "boss36_defeated", "INTEGER DEFAULT 0"),
+            ("ending_progress", "dead_once", "INTEGER DEFAULT 0"),
+            ("ending_progress", "refought", "INTEGER DEFAULT 0"),
+            ("ending_progress", "mirror_defeated", "INTEGER DEFAULT 0"),
+            ("ending_progress", "fled_day40", "INTEGER DEFAULT 0"),
+            ("ending_progress", "san_zero_hit", "INTEGER DEFAULT 0"),
+            ("ending_progress", "inactive_days", "INTEGER DEFAULT 0"),
+            ("ending_progress", "items_first", "TEXT DEFAULT '[]'"),
+            ("ending_progress", "knowledge", "INTEGER DEFAULT 0"),
+            ("ending_progress", "door_choice", "TEXT DEFAULT ''"),
+            ("ending_progress", "ended", "INTEGER DEFAULT 0"),
+        )
+        for table, column, ddl in columns:
+            _add_column_if_missing(db, table, column, ddl)
 
     # --- 表 B（账号级）---
     def get_collection(self, qq: str) -> Optional[EndingCollectionModel]:
         try:
             return EndingCollectionModel.get(EndingCollectionModel.qq == qq)
         except DoesNotExist as e:
-            logger.warning(f"静默异常[DoesNotExist] in get_collection: {e}")
+            logger.debug(f"get_collection miss: {e}")
             return None
 
     def ensure_collection(self, qq: str) -> EndingCollectionModel:
@@ -388,7 +447,7 @@ class EndingRepository:
         try:
             return EndingProgressModel.get(EndingProgressModel.qq == qq)
         except DoesNotExist as e:
-            logger.warning(f"静默异常[DoesNotExist] in get_progress: {e}")
+            logger.debug(f"get_progress miss: {e}")
             return None
 
     def ensure_progress(self, qq: str, day: int) -> EndingProgressModel:
@@ -901,7 +960,7 @@ class CreateInvestigator:
         if not match or not str.isdigit(match[-1]):
             return False, t("character.skill_set_error")
         a = iter(match)
-        match_dic = dict(zip(a, a))
+        match_dic = dict(zip(a, a, strict=False))
         for key in match_dic:
             # 数值 token 必须为纯数字（负数/小数等非法输入直接拒绝，避免 int() 崩溃）
             if not str.isdigit(match_dic[key]):
@@ -935,6 +994,19 @@ class CreateInvestigator:
     def create_investigator(self, qq: str, name: str) -> Investigator:
         if not self.select:
             raise ValueError("尚未选择调查员模板。")
+        name = re.sub(r"[<>\r\n\t`]", "", str(name)).strip()[:24] or "调查员"
+        # 新周目从干净状态开始：清在途 flow/event/npc/door/battle 与当日冒险完成标记
+        from ..utils.active_battles import battle_manager
+        from ..utils.state_registry import clear_user_state
+
+        clear_user_state(qq)
+        battle_manager.remove_battle(qq)
+        try:
+            from ..services.daily_service import _clear_adventure_done
+
+            _clear_adventure_done(qq)
+        except Exception as e:  # noqa: BLE001 - 每日标记清理失败不阻断建号
+            logger.warning(f"清理当日冒险标记失败: {type(e).__name__} {e}")
         inherited = investigator_repo.collect_inherited_scrolls(qq)
         # 周目继承：先以 qq 查表 B 建行、total_runs += 1，再重建表 A（新周目清空）
         ending_repo.new_run(qq)

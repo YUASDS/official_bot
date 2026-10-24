@@ -1,8 +1,9 @@
-"""flow 探索命令插件：/探索 <flow_id|名字> 触发统一流程引擎（flow_engine）。
+"""flow 探索命令插件（GM 专用）：/探索 <flow_id|名字> 触发统一流程引擎（flow_engine）。
 
+- `/探索` 仅 MASTER 可用：普通玩家必须通过每日冒险互斥链进入 guest/gm_room/mainline，
+  防止绕过触发门、skip_daily 占日与内容顺序（历史漏洞）。
 - `/探索` 启动一个 flow（纯配置驱动，见 data/flow_data.json / src/services/flow_engine.py），
   进入后通过 `/行动 <选项输入>` 或按钮推进；战斗节点复用 BattleService（is_gm_room 隔离）。
-- 本批次为独立探索通道：不占用当日冒险、不推进 day、不触发结局判定（后续批次再接每日互斥链）。
 """
 
 from __future__ import annotations
@@ -24,11 +25,19 @@ from ..services.flow_engine import (
 )
 from ..utils.buttons import _send_to_user, register_button_handler
 from ..utils.md_format import md_message, need_create_message
+from .gm import is_master
 
 
 async def _handle_explore(user_id: str, ref: str, bot: Bot, send, finish) -> None:
-    """/探索 入口：查角色 → 校验未在探索中 → 解析 flow → 启动 + 渲染首节点。"""
+    """/探索 入口（GM 专用）：校验权限 → 查角色 → 校验未在探索中 → 解析 flow。
+
+    历史漏洞：/探索 可绕过 gm_room/guest/mainline 的触发门与 skip_daily 占日逻辑。
+    现仅允许 MASTER 使用，普通玩家入口统一走每日冒险互斥链。
+    """
     t = data_loader.get_text
+    if not is_master(user_id):
+        await finish(md_message(f"\n{t('gm.denied')}", bot, mention=user_id))
+        return
     inv_model = investigator_repo.find_by_qq(user_id)
     if inv_model is None:
         await finish(need_create_message(bot, mention=user_id))

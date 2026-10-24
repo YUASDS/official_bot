@@ -1,4 +1,11 @@
 {
+  "career": {
+    "title": "🗂 生涯",
+    "runs": "累计周目",
+    "endings": "结局图鉴",
+    "relics": "信物图鉴",
+    "days": "累计存活天数"
+  },
   "report": {
     "section": "【{title}】",
     "rule": "---",

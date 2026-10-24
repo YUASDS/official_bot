@@ -8,6 +8,9 @@ from loguru import logger
 
 Separator = "\n------------------\n"
 
+# 缺失文案键只告警一次，避免刷屏；返回 key 作为可见兜底（不静默变成空串）。
+_MISSING_TEXT_WARNED: set[str] = set()
+
 # 每日彩蛋互斥链缺省触发器（唯一数据定义：reply_data.json `triggers` 段缺失时的回退，
 # 顺序 = 现状链 hidden[jk/qiren] → guest → npc → gm_room；各插件只读，不各自定义）。
 _DEFAULT_TRIGGERS = [
@@ -50,23 +53,9 @@ class DataLoader:
             self.boss_weights_data = self._load_json(base_path / "boss_weights.json")
             self._validate_monster_data()
         except Exception as e:
+            # 数据加载失败必须阻止启动：带空数据运行会产生大量隐性错误。
             logger.exception(f"Failed to load game data: {e}")
-            self.reply_data = {}
-            self.goods_data = {}
-            self.check_point = {}
-            self.monster_data = {}
-            self.shop_data = {}
-            self.environment_data = {}
-            self.event_data = {}
-            self.spell_data = {}
-            self.text_data = {}
-            self.ending_data = {}
-            self.npc_data = {}
-            self.display_data = {}
-            self.weights_data = {}
-            self.loots_data = {}
-            self.boss_weights_data = {}
-            return
+            raise
         # 配置全量校验（fail-fast / warn 双模式，见 config_validator 文档）：
         # 所有 JSON 加载成功后统一校验一次；fail 模式抛错阻止启动（不在上面的
         # except 内，避免被吞掉导致数据被清空后仍继续运行）。
@@ -186,6 +175,9 @@ class DataLoader:
             section, sub = key.split(".", 1)
             value = self.text_data.get(section, {}).get(sub)
         if value is None:
+            if key not in _MISSING_TEXT_WARNED:
+                _MISSING_TEXT_WARNED.add(key)
+                logger.warning(f"缺少文案键: {key}（将回退 default/key）")
             value = default if default else key
         if kwargs:
             try:
