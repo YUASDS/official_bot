@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { width:440px; background:#0e0c08; padding:14px; }
+  .card {
+    background: linear-gradient(165deg,#1c1610 0%,#241a12 45%,#150d06 100%);
+    border:1px solid #6b4a2a; border-radius:14px; padding:26px 20px;
+    color:#e8d9b8; font-family:'Noto Serif SC','Microsoft YaHei',serif;
+    box-shadow:0 0 24px rgba(107,74,42,.25) inset; text-align:center;
+  }
+  .round { font-size:15px; color:#a88f6a; letter-spacing:3px; }
+  .title {
+    font-size:26px; color:#c9a86a; letter-spacing:6px; font-weight:900;
+    text-shadow:0 0 18px rgba(201,168,106,.35); margin-top:4px;
+  }
+  .bar { height:1px; background:linear-gradient(90deg,transparent,#c9a86a,transparent); margin:14px 0; }
+  .body { text-align:left; }
+  .sec { color:#d9b87c; font-size:15px; font-weight:900; letter-spacing:3px; margin:14px 0 6px; }
+  h2 { color:#e8c97a; font-size:18px; margin:10px 0 4px; letter-spacing:2px; }
+  h3 { color:#d9b87c; font-size:15px; margin:10px 0 4px; letter-spacing:2px; }
+  .tbl { width:100%; border-collapse:collapse; margin:6px 0; }
+  .tbl th { color:#c9a86a; font-size:13px; padding:4px 6px; border-bottom:1px solid rgba(201,168,106,.25); text-align:left; }
+  .tbl td { font-size:13.5px; padding:5px 6px; border-bottom:1px solid rgba(201,168,106,.08); }
+  .quote {
+    background:rgba(201,168,106,.04); border-left:3px solid #6b4a2a;
+    padding:8px 12px; margin:6px 0; font-size:14.5px; line-height:1.8; color:#d8c8a8;
+  }
+  p { font-size:14.5px; line-height:1.8; color:#d8c8a8; margin:6px 0; }
+  code { background:rgba(201,168,106,.12); border-radius:4px; padding:1px 5px; font-size:12.5px; color:#f3e3c0; }
+  .rule { height:1px; background:linear-gradient(90deg,transparent,#6b4a2a,transparent); margin:8px 0; }
+  .status { display:flex; flex-wrap:wrap; justify-content:center; gap:8px; margin:12px 0 4px; }
+  .chip {
+    background:rgba(201,168,106,.06); border:1px solid rgba(201,168,106,.18);
+    border-radius:8px; padding:5px 12px; font-size:13px;
+  }
+  .chip .k { color:#a88f6a; } .chip .v { color:#f3e3c0; font-weight:900; }
+  .hint { color:#a88f6a; font-size:13px; margin-top:8px; letter-spacing:1px; }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="round">⚔️ 第 __ROUND__ 轮</div>
+  <div class="title">__TITLE__</div>
+  <div class="bar"></div>
+  <div class="body">__BODY__</div>
+  <div class="bar"></div>
+  <div class="status">__STATUS__</div>
+  <div class="hint">__HINT__</div>
+</div>
+</body>
+</html>

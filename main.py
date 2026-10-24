@@ -1,5 +1,3 @@
-import os
-
 import nonebot
 from loguru import logger
 from pathlib import Path
@@ -26,11 +24,32 @@ logger.add(
 )
 logger.info("Bot is starting...")
 
-ignore = ["__init__.py", "__pycache__"]
-
 nonebot.load_plugins("plugins")
 
 logger.info("nonebot加载完成")
+
+
+@driver.on_startup
+async def _warmup_browser():
+    """启动时预热 Chromium 浏览器，避免首次图片渲染等待。"""
+    try:
+        from util.browser import get_browser
+
+        await get_browser()
+        logger.info("Chromium Browser warmed up")
+    except Exception as e:  # noqa: BLE001 - 预热失败不应阻塞启动
+        logger.warning(f"Chromium Browser warmup failed: {type(e).__name__} {e}")
+
+
+@driver.on_shutdown
+async def _close_browser():
+    """关闭 Playwright/Chromium，避免残留子进程。"""
+    try:
+        from util.browser import close
+
+        await close()
+    except Exception as e:  # noqa: BLE001 - 退出清理失败不阻塞
+        logger.warning(f"Chromium Browser shutdown failed: {type(e).__name__} {e}")
 
 
 if __name__ == "__main__":

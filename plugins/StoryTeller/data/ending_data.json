@@ -1,0 +1,409 @@
+{
+  "version": 1,
+  "endings": {
+    "E01": {
+      "id": "E01",
+      "name": "门扉之邀·合流",
+      "type": "真·真相",
+      "hidden": false,
+      "trigger": "第 40 天击败守门人 → 选「跨入门扉」→ 知识度 ≥ 40 或 SAN ≤ 20",
+      "fail_trigger": "知识度 < 40 且 SAN > 20 → 跨门被拒 → E05",
+      "outline": "正文描写门后的异色星河与仪式真相——你即是这场四十年仪式的最后组件。子分支标注「清醒合流（知识度达标，肉身保留意志）/ 崩溃合流（SAN 崩溃，随波逐流）」",
+      "variants": [
+        "清醒合流",
+        "崩溃合流"
+      ],
+      "reach_hint": "day1~39 通过奇遇积累克苏鲁神话（「古书」「放任幻觉」）或获取 503/504/508；day40 胜利后跨门"
+    },
+    "E02": {
+      "id": "E02",
+      "name": "圣灯长明·封印",
+      "type": "好",
+      "hidden": false,
+      "trigger": "第 40 天击败守门人 → 选「圣灯封印」→ 持有 501 且 SAN ≥ 30；或持有 504 + SAN ≥ 40 走「歌谣暂封」",
+      "fail_trigger": "SAN < 30 且无 504 → 封印途中被门拉扯 → E01",
+      "outline": "正文描写圣灯古铜的火焰涌过门缝，庄园在黎明中坍缩为普通老宅。子分支标注「圣灯/歌谣」两条路线，含持有 504 时无 501 的备选路线彩蛋提示",
+      "variants": [
+        "圣灯",
+        "歌谣暂封"
+      ],
+      "reach_hint": "日常囤乌帕或从守门人处拿到 501 → day40 封印"
+    },
+    "E03": {
+      "id": "E03",
+      "name": "迷雾散尽·离去",
+      "type": "普通",
+      "hidden": false,
+      "trigger": "第 40 天击败守门人 → 选「转身离去」→ SAN ≥ 30，或 SAN < 30 时意志检定成功",
+      "fail_trigger": "SAN < 30 且意志检定失败 → 被门后低语呼唤 → E01",
+      "outline": "正文描写走出庄园大门、迷雾散尽、一切归于日常的余韵；刻意不提真相，暗示「不知情是一种仁慈」",
+      "variants": [],
+      "reach_hint": "不携带关键信物、保持 SAN 健康即可达成；是最易触发的门扉结局"
+    },
+    "E04": {
+      "id": "E04",
+      "name": "镜中倒影·自由",
+      "type": "隐藏·好",
+      "hidden": true,
+      "trigger": "第 40 天胜利后：背包持 400 幸运币 + 502 镜后之钥，且进度表 mirror_defeated=true → 出现隐藏选项「碎镜」",
+      "fail_trigger": "三要素缺一 → 隐藏分支不出现（不可见、不可选）",
+      "outline": "正文描写镜面碎裂时门后的存在发现自己的倒影被夺走、门轰然关闭；提示「那枚银币与钥匙的来历」",
+      "variants": [],
+      "reach_hint": "day1~39 击败 37 镜中之人（首次击杀必掉 502）→ 集齐 400+502 → day40 选「碎镜」→ 以钥匙击碎镜面，门在倒影中闭合"
+    },
+    "E05": {
+      "id": "E05",
+      "name": "万物皆归于门",
+      "type": "坏",
+      "hidden": false,
+      "trigger": "① day40 跨门失败（知识度 <40 且 SAN >20）；② day40 战败且无 501 复活",
+      "fail_trigger": "无（本结局即终局；若持 508 则触发 E05·星光变体——温柔化文本）",
+      "outline": "正文描写门后的血肉星云接纳你成为其一部分；标注「此结局是被动落入，隐藏变体需持格拉基之泪」",
+      "variants": [
+        "星光变体"
+      ],
+      "reach_hint": "不作准备硬刚跨门 / 无复活道具硬刚守门人"
+    },
+    "E06": {
+      "id": "E06",
+      "name": "永夜低语",
+      "type": "失败（疯狂）",
+      "hidden": false,
+      "trigger": "任意日期 SAN 归零（run_sanity_and_madness 返回 san_zero=true）",
+      "fail_trigger": "以疗养泉/圣泉洗礼/安神茶等事件回 SAN；或持 501 走「最后机会」",
+      "outline": "正文描写永久疯狂后你成为门廊中低语的一具轮廓；提示 SAN 管理技巧",
+      "variants": [],
+      "reach_hint": "长期低 SAN + 高理智损失怪（如 36/35）战败检定"
+    },
+    "E07": {
+      "id": "E07",
+      "name": "墓园拾骨",
+      "type": "失败（死亡）",
+      "hidden": false,
+      "trigger": "任意战斗 HP 归零，且未持有 501 / 选择不复活",
+      "fail_trigger": "持 501 使用 /复活 即可避免（沿用现有复活机制）",
+      "outline": "正文描写庄园阴影吞没你的尸骨、墓碑上无名的碑文；提示复活道具获取途径",
+      "variants": [],
+      "reach_hint": "高难日（5/10/16/40）无防具硬刚致死"
+    },
+    "E08": {
+      "id": "E08",
+      "name": "旁观者",
+      "type": "边缘（半开门）",
+      "hidden": false,
+      "trigger": "day40 战败 → 持 501 自动复活 → 选「驻足旁观」",
+      "fail_trigger": "选「重赴门前」再战胜利即回到三分支（不触发本结局）",
+      "outline": "正文描写你留在了半开的门前，日复一日旁观仪式，庄园既不接纳也不驱逐你；标注「需要一次失败才能抵达的边缘结局」",
+      "variants": [],
+      "reach_hint": "day40 强开守门人落败 + 备好 501 + 复活后拒绝再战"
+    },
+    "E09": {
+      "id": "E09",
+      "name": "庄园的记忆",
+      "type": "隐藏·收集（收藏家）",
+      "hidden": true,
+      "trigger": "第 40 天胜利后，背包同时持有 400/501/502/503/504/506/507/508 共 8 件信物 → 出现选项「见证」",
+      "fail_trigger": "任缺一件 → 选项不出现",
+      "outline": "正文描写门认可你见证一切的资格，庄园坍缩为掌心一枚模型，门扉从此认你为主；本条为图鉴党的终极彩蛋",
+      "variants": [],
+      "reach_hint": "day1~39 击杀 30/31/32/33/34/35/37 全部特殊掉怪并集齐信物（配合 shop 购买 501 备用）→ day40 胜利后「见证」"
+    },
+    "E11": {
+      "id": "E11",
+      "name": "星海彼岸·晨曦",
+      "type": "隐藏·真彩蛋",
+      "hidden": true,
+      "trigger": "勇气线终局战（星之彩二连战）胜利",
+      "fail_trigger": "战败（持 501 可复活重试；否则回退 E05 星光变体）",
+      "outline": "色彩一层层退去。终局体为你让开一条星路，晨曦从裂隙尽头亮起——你带回一枚熄灭一角的星辉，庄园第一次显出一座普通老宅的样子",
+      "variants": [],
+      "reach_hint": "完成所选主线（ml.done）且 SAN ≥ 20 → 直面星辉 → 击败星之彩二连战"
+    },
+    "E12": {
+      "id": "E12",
+      "name": "深渊回眸",
+      "type": "隐藏·好",
+      "hidden": true,
+      "trigger": "恐惧线终局（怪 66 终极形态）胜利",
+      "fail_trigger": "战败（不登记图鉴）",
+      "outline": "你站在深渊边缘，深渊回望了你。你带回了知识，知识也带走了你的一部分。你活着回来了，只是不太确定回来的那个，还是不是你。",
+      "variants": [],
+      "reach_hint": "选择恐惧线 → day40 击败怪 66 终极形态"
+    },
+    "E13": {
+      "id": "E13",
+      "name": "镜中归途",
+      "type": "隐藏·好",
+      "hidden": true,
+      "trigger": "自由线终局（怪 79 终局镜我·艾兹薇尔）胜利",
+      "fail_trigger": "战败（不登记图鉴）",
+      "outline": "三百二十七面镜子碎裂后，你回到钟楼，拾起最大的一片——里头只有此刻的你。",
+      "variants": [],
+      "reach_hint": "选择自由线 → day40 击败怪 79 终局镜我·艾兹薇尔"
+    }
+  },
+  "order": [
+    "E01",
+    "E02",
+    "E03",
+    "E04",
+    "E05",
+    "E06",
+    "E07",
+    "E08",
+    "E09",
+    "E11",
+    "E12",
+    "E13"
+  ],
+  "door": {
+    "day": 40,
+    "text_keys": {
+      "title": "door.title",
+      "intro": "door.intro",
+      "judge_pass": "door.judge_pass",
+      "judge_fail": "door.judge_fail",
+      "frozen_day": "door.frozen_day"
+    },
+    "main_choices": {
+      "A": {
+        "key": "A",
+        "label_key": "door.A.label",
+        "desc_key": "door.A.desc",
+        "end": "E01",
+        "fail_end": "E05",
+        "condition": {
+          "type": "or",
+          "rules": [
+            {
+              "type": "knowledge",
+              "min": 40
+            },
+            {
+              "type": "san",
+              "max": 20
+            }
+          ]
+        },
+        "variants": [
+          "清醒合流",
+          "崩溃合流"
+        ]
+      },
+      "B": {
+        "key": "B",
+        "label_key": "door.B.label",
+        "desc_key": "door.B.desc",
+        "end": "E02",
+        "fail_end": "E01",
+        "condition": {
+          "type": "and",
+          "rules": [
+            {
+              "type": "item",
+              "id": "501"
+            },
+            {
+              "type": "san",
+              "min": 30
+            }
+          ]
+        },
+        "fallback": {
+          "desc_key": "door.B.fallback_desc",
+          "end": "E02",
+          "variant": "歌谣暂封",
+          "condition": {
+            "type": "and",
+            "rules": [
+              {
+                "type": "item",
+                "id": "504"
+              },
+              {
+                "type": "san",
+                "min": 40
+              }
+            ]
+          }
+        }
+      },
+      "C": {
+        "key": "C",
+        "label_key": "door.C.label",
+        "desc_key": "door.C.desc",
+        "end": "E03",
+        "fail_end": "E01",
+        "condition": {
+          "type": "san",
+          "min": 30
+        }
+      }
+    },
+    "hidden_choices": {
+      "H_mirror": {
+        "key": "H_mirror",
+        "label_key": "door.H_mirror.label",
+        "desc_key": "door.H_mirror.desc",
+        "end": "E04",
+        "condition": {
+          "type": "and",
+          "rules": [
+            {
+              "type": "item",
+              "id": "400"
+            },
+            {
+              "type": "item",
+              "id": "502"
+            },
+            {
+              "type": "progress",
+              "key": "mirror_defeated"
+            }
+          ]
+        }
+      },
+      "W_witness": {
+        "key": "W_witness",
+        "label_key": "door.W_witness.label",
+        "desc_key": "door.W_witness.desc",
+        "end": "E09",
+        "condition": {
+          "type": "relics_all"
+        }
+      }
+    },
+    "defeat_choices": {
+      "R_refight": {
+        "key": "R_refight",
+        "label_key": "door.R_refight.label",
+        "desc_key": "door.R_refight.desc",
+        "end": null,
+        "note": "再战守门人，重新进入门扉三分支"
+      },
+      "O_observe": {
+        "key": "O_observe",
+        "label_key": "door.O_observe.label",
+        "desc_key": "door.O_observe.desc",
+        "end": "E08"
+      }
+    },
+    "knowledge": {
+      "base": "克苏鲁神话",
+      "threshold": 40,
+      "bonus_items": {
+        "503": 15,
+        "504": 5,
+        "508": 10
+      }
+    }
+  },
+  "relics": {
+    "ids": [
+      "400",
+      "501",
+      "502",
+      "503",
+      "504",
+      "506",
+      "507",
+      "508"
+    ],
+    "substitutes": [
+      [
+        "509",
+        "510"
+      ]
+    ],
+    "first_kill": {
+      "30": "503",
+      "33": "504",
+      "34": "507",
+      "35": "508",
+      "37": "502"
+    },
+    "items": {
+      "400": {
+        "name": "幸运币",
+        "source": "击败 37 镜中之人",
+        "end_tags": [
+          "E04",
+          "E09"
+        ]
+      },
+      "501": {
+        "name": "古圣者的遗愿",
+        "source": "击败 36 守门人 / 商店 200 档 / 游商",
+        "end_tags": [
+          "E02",
+          "E08",
+          "E09"
+        ]
+      },
+      "502": {
+        "name": "镜后之钥",
+        "source": "首次击败 37 镜中之人（首杀必掉）",
+        "end_tags": [
+          "E04",
+          "E09"
+        ]
+      },
+      "503": {
+        "name": "无面医师的手术笔记",
+        "source": "击败 30 无面医师 / 商店 120 档",
+        "end_tags": [
+          "E01",
+          "E09"
+        ]
+      },
+      "504": {
+        "name": "咏唱者的门扉歌谣·残页",
+        "source": "击败 33 门之咏唱者",
+        "end_tags": [
+          "E01",
+          "E02",
+          "E09"
+        ]
+      },
+      "506": {
+        "name": "廷达洛斯的骨哨",
+        "source": "击败 32 廷达洛斯之猎犬 / 商店 60 档",
+        "end_tags": [
+          "E09"
+        ]
+      },
+      "507": {
+        "name": "镇魂石徽记",
+        "source": "击败 34 石台守门卫",
+        "end_tags": [
+          "E09"
+        ],
+        "note": "QA 决策 2026-08-13（D7）：数值效果（守门人战理智-1d2/封印判定+20）未实现，仅收藏用途（信物）"
+      },
+      "508": {
+        "name": "格拉基之泪",
+        "source": "首次击败 35 格拉基之眼（首杀必掉）",
+        "end_tags": [
+          "E01",
+          "E05",
+          "E09"
+        ]
+      },
+      "509": {
+        "name": "启的怀表",
+        "source": "击败 38 启（隐藏挑战·固定赠礼）",
+        "end_tags": [
+          "E09"
+        ]
+      },
+      "510": {
+        "name": "主角的徽记",
+        "source": "击败 48 JK（隐藏挑战·固定赠礼）",
+        "end_tags": [
+          "E09"
+        ]
+      }
+    }
+  }
+}
