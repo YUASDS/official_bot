@@ -71,6 +71,7 @@ from .npc import (
     npc_states,
 )
 from ..utils.active_battles import battle_manager
+from ..utils.user_operations import exclusive_user_operation
 from ..utils.buttons import (
     _send_to_user,
     register_button_handler,
@@ -412,6 +413,7 @@ async def _start_battle_after_event(
     await send(send_turn(battle, bot, reply))
 
 
+@exclusive_user_operation
 async def _run_adventure(
     user_id: str, bot: Bot, send: Callable, finish: Callable
 ) -> None:
@@ -421,6 +423,14 @@ async def _run_adventure(
         if inv_model is None:
             await finish(need_create_message(bot, mention=user_id))
         inv = Investigator(inv_model)
+        # 必须在扣冒险卷/回血/主线恢复之前检查，flow 战斗不在 battle_manager 中。
+        from ..services.flow_engine import flow_states
+
+        if user_id in flow_states:
+            await finish(
+                md_message(data_loader.get_text("flow.in_progress"), bot, mention=user_id)
+            )
+            return
         # 主线分支节点悬挂恢复：进入 → flow 完成间进程重启 → 清 entered/当日冒险标记，
         # 还当日重进资格（须在 _adventure_done_today 门之前，否则已 done 会拦截当日重进）。
         recover_hung_mainline_entry(user_id, inv)
@@ -842,7 +852,11 @@ combat_cmd = on_command("行动", aliases={"combat_action"}, priority=5, block=T
 
 @combat_cmd.handle()
 async def handle_combat(event: Event, bot: Bot, msg: Message = CommandArg()):
-    user_id = event.get_user_id()
+    await _handle_combat(event.get_user_id(), bot, msg)
+
+
+@exclusive_user_operation
+async def _handle_combat(user_id: str, bot: Bot, msg: Message):
     if investigator_repo.find_by_qq(user_id) is None:
         await combat_cmd.finish(need_create_message(bot, mention=user_id))
     action = msg.extract_plain_text().strip()
@@ -1025,14 +1039,9 @@ async def handle_combat(event: Event, bot: Bot, msg: Message = CommandArg()):
             # 消耗品：走战斗动作（回复 HP / 骨哨助战）
             before = _ending_ids_snapshot(user_id)
             result = battle.execute_action(f"使用{item_id}")
-            await send_combat_result(battle, bot, result, send=combat_cmd.send)
-            if battle.fight_is_over():
-                await _send_new_battle_endings(
-                    bot, user_id, "", battle, before,
-                    _ending_ids_snapshot(user_id), combat_cmd.send,
-                )
-                await _cleanup_battle(user_id, battle)
-                await _present_door_choice(user_id, battle, bot, combat_cmd.send)
+            await _send_action_result(
+                user_id, battle, before, result, bot, combat_cmd.send
+            )
             return
         if battle.current_turn != "inv":
             await combat_cmd.finish(
@@ -1051,31 +1060,18 @@ async def handle_combat(event: Event, bot: Bot, msg: Message = CommandArg()):
         battle.refresh_available_actions()
         battle._update_gun_status()
         # 战斗内换装消耗玩家回合：与格斗/射击/急救一致走 _end_turn 推进。
-        await send_combat_result(
-            battle, bot, (msg_text, battle._end_turn()), send=combat_cmd.send
+        await _send_action_result(
+            user_id, battle, before, (msg_text, battle._end_turn()), bot,
+            combat_cmd.send,
         )
-        if battle.fight_is_over():
-            await _send_new_battle_endings(
-                bot, user_id, "", battle, before,
-                _ending_ids_snapshot(user_id), combat_cmd.send,
-            )
-            await _cleanup_battle(user_id, battle)
-            await _present_door_choice(user_id, battle, bot, combat_cmd.send)
         return
 
     before = _ending_ids_snapshot(user_id)
     result = battle.execute_action(action)
-    await send_combat_result(battle, bot, result, send=combat_cmd.send)
-
-    if battle.fight_is_over():
-        await _send_new_battle_endings(
-            bot, user_id, "", battle, before,
-            _ending_ids_snapshot(user_id), combat_cmd.send,
-        )
-        await _cleanup_battle(user_id, battle)
-        await _present_door_choice(user_id, battle, bot, combat_cmd.send)
+    await _send_action_result(user_id, battle, before, result, bot, combat_cmd.send)
 
 
+@exclusive_user_operation
 async def handle_combat_action(
     user_id: str,
     action: str,
@@ -1125,15 +1121,28 @@ async def handle_combat_action(
     async def _send(msg):
         await _send_to_user(bot, user_id, msg, group_openid)
 
-    await send_combat_result(battle, bot, result, send=_send)
+    await _send_action_result(user_id, battle, before, result, bot, _send, group_openid)
 
-    if battle.fight_is_over():
-        await _send_new_battle_endings(
-            bot, user_id, group_openid, battle, before,
-            _ending_ids_snapshot(user_id), _send,
-        )
+
+async def _send_action_result(
+    user_id: str, battle: Any, before: dict, result: tuple, bot: Bot,
+    send: Callable, group_openid: str = "",
+) -> None:
+    """先完成终态清理，再发战报；网络错误不留下已结束的活动战斗。"""
+    over = battle.fight_is_over()
+    if over:
         await _cleanup_battle(user_id, battle)
-        await _present_door_choice(user_id, battle, bot, _send, group_openid)
+    try:
+        await send_combat_result(battle, bot, result, send=send)
+    finally:
+        if over:
+            try:
+                await _send_new_battle_endings(
+                    bot, user_id, group_openid, battle, before,
+                    _ending_ids_snapshot(user_id), send,
+                )
+            finally:
+                await _present_door_choice(user_id, battle, bot, send, group_openid)
 
 
 async def _cleanup_battle(user_id: str, battle: Any) -> None:

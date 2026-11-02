@@ -575,7 +575,7 @@ def test_command_explore_while_active_rejected():
 
     asyncio.run(_handle_explore(qq, "巷口异闻", ConsoleBot(), send, finish))
     asyncio.run(_handle_explore(qq, "巷口异闻", ConsoleBot(), send, finish))
-    assert "没有正在进行中的探索" in "\n".join(sent + finished)
+    assert "你正在探索中" in "\n".join(sent + finished)
     _cleanup(qq)
 
 

@@ -35,17 +35,12 @@ def send_turn(battle: BattleService, bot: Bot, text: str) -> Message:
     if isinstance(msg, str):
         return msg
     if battle.fight_is_over():
-        if battle.hp_record["inv"] <= 0:
+        if battle.hp_record["inv"] <= 0 or not battle.investigator.is_survive:
+            actions = [(data_loader.get_text("character.create_button"), "create")]
+            if not getattr(battle, "san_zero_ended", False):
+                actions.insert(0, (data_loader.get_text("character.resurrect_button"), "resurrect"))
             kb = build_keyboard(
-                [
-                    [
-                        (
-                            data_loader.get_text("character.resurrect_button"),
-                            "resurrect",
-                        ),
-                        (data_loader.get_text("character.create_button"), "create"),
-                    ]
-                ]
+                [actions]
             )
             if kb is not None:
                 msg.append(kb)
@@ -69,7 +64,13 @@ async def send_end_buttons(battle: BattleService, bot: Bot, send: Callable) -> N
         return
     t = data_loader.get_text
     mention = battle.investigator.qq
-    if battle.hp_record["inv"] <= 0:
+    if getattr(battle, "san_zero_ended", False):
+        await send(md_message(
+            f"\n**{t('character.create_button')}**\n{cmd_tag('/创建调查员')}\n\n"
+            f"{t('adventure.sanity_zero_hint')}", bot, mention=mention,
+        ))
+        return
+    if battle.hp_record["inv"] <= 0 or not battle.investigator.is_survive:
         await send(
             md_message(
                 f"\n**{t('character.resurrect_button')}**\n{cmd_tag('/复活')}\n\n"
@@ -126,6 +127,13 @@ async def send_combat_result(
     全平台优先渲染 HTML 图片卡片（回合战报 + 结算卡片），失败回退 md 文本；
     卡片后附行动按钮消息（QQ 键盘 / 纯文本指令）。
     """
+    if getattr(battle, "san_zero_ended", False):
+        # 施法导致的 E06 使用永久疯狂卡片，避免显示普通阵亡/复活引导。
+        img = await render_pic(sanity_zero_card_html(battle.investigator))
+        if img is None or not await send_pic(bot, img, send):
+            await send(md_message(str(result[-1]), bot, mention=battle.investigator.qq))
+        await send_end_buttons(battle, bot, send)
+        return
     if battle.fight_is_over():
         # 1. 本回合战报卡片（不含结束文本；逃跑等单段结果无战报则跳过）
         if any(x for x in result[:-1]):

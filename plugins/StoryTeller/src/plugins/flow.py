@@ -25,9 +25,12 @@ from ..services.flow_engine import (
 )
 from ..utils.buttons import _send_to_user, register_button_handler
 from ..utils.md_format import md_message, need_create_message
+from ..utils.active_battles import battle_manager
+from ..utils.user_operations import exclusive_user_operation
 from .gm import is_master
 
 
+@exclusive_user_operation
 async def _handle_explore(user_id: str, ref: str, bot: Bot, send, finish) -> None:
     """/探索 入口（GM 专用）：校验权限 → 查角色 → 校验未在探索中 → 解析 flow。
 
@@ -44,7 +47,10 @@ async def _handle_explore(user_id: str, ref: str, bot: Bot, send, finish) -> Non
         return
     inv = Investigator(inv_model)
     if user_id in flow_states:
-        await finish(md_message(f"\n{t('flow.no_active')}", bot, mention=user_id))
+        await finish(md_message(f"\n{t('flow.in_progress')}", bot, mention=user_id))
+        return
+    if battle_manager.get_battle(user_id) is not None:
+        await finish(md_message(f"\n{t('adventure.in_battle')}", bot, mention=user_id))
         return
     flow_id = resolve_flow_ref(ref)
     if flow_id is None:

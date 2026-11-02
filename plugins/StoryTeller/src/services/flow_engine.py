@@ -57,6 +57,7 @@ from ..utils.md_format import (
     report_section,
 )
 from ..utils.state_registry import register_state_store
+from ..utils.user_operations import exclusive_user_operation
 
 # 状态机：user_id -> {flow_id, node_id, phase: "stage"|"battle", entered: [], buff: {}, battle}
 flow_states: dict[str, dict] = {}
@@ -589,14 +590,17 @@ async def _flow_handle_choice(
         check_block = _flow_check_block(inv, user_id, option["检定"])
         if check_block:
             reply = f"{reply}\n\n{check_block}" if reply else check_block
-    await send(md_message(f"\n{reply}", bot, mention=user_id))
     nxt = option.get("下一步", "结束")
     if nxt == "结束":
         state["node_id"] = "end"
     else:
         state["node_id"] = nxt
     state["phase"] = "stage"
-    await render_flow_node(user_id, state, bot, send)
+    # 先消费选项并切换节点；回复丢失不能让同一个奖励再次被领取。
+    try:
+        await send(md_message(f"\n{reply}", bot, mention=user_id))
+    finally:
+        await render_flow_node(user_id, state, bot, send)
 
 
 # --- 战斗节点：BattleService + is_gm_room 隔离（对齐 guest 战斗挂接） ---
@@ -713,7 +717,7 @@ async def _flow_battle_input(
     战斗结束时先补发最后一轮战报（result[:-1]），再走 _flow_battle_end 胜利/战败收尾。
     """
     service = state.get("battle")
-    if not service or service.fight_is_over():
+    if not service:
         await send(
             md_message(
                 f"\n{data_loader.get_text('flow.no_active')}",
@@ -721,6 +725,10 @@ async def _flow_battle_input(
                 mention=user_id,
             )
         )
+        return
+    if service.fight_is_over():
+        # 恢复旧的「战斗已结束但尚未收尾」状态，不能把它永久留在 battle 阶段。
+        await _flow_battle_end(user_id, state, bot, send)
         return
     if token is not None and token != service.get_turn_token():
         return  # 旧按钮（令牌不匹配）
@@ -734,13 +742,15 @@ async def _flow_battle_input(
     result = service.execute_action(choice)
     if service.fight_is_over():
         # 1. 最后一轮检定/交锋战报（不含结束文本；battle_round_html 图片优先/md 回退）
-        if any(x for x in result[:-1]):
-            img = await render_pic(battle_round_html(service, result))
-            if img is None or not await send_pic(bot, img, send):
-                combat_text = "\n" + "\n\n".join(str(x) for x in result[:-1] if x)
-                await send(md_message(combat_text, bot, mention=user_id))
-        # 2. 结束分支（胜利回复/战败归途，不附行动按钮）
-        await _flow_battle_end(user_id, state, bot, send)
+        try:
+            if any(x for x in result[:-1]):
+                img = await render_pic(battle_round_html(service, result))
+                if img is None or not await send_pic(bot, img, send):
+                    combat_text = "\n" + "\n\n".join(str(x) for x in result[:-1] if x)
+                    await send(md_message(combat_text, bot, mention=user_id))
+        finally:
+            # 发送失败或请求取消也必须结算并推进节点。
+            await _flow_battle_end(user_id, state, bot, send)
         return
     if not any(x for x in result[:-1]):
         # 单段信息结果（弹药不足/未知行动等）：直接发文本，避免空白战报
@@ -793,16 +803,19 @@ def _flow_battle_loot(inv: Investigator, user_id: str, service: BattleService) -
 
 async def _flow_battle_end(user_id: str, state: dict, bot: Bot, send) -> None:
     """战斗结束：胜利/战败应用分支效果并按「下一步」推进（默认结束收尾）。"""
+    service = state.get("battle")
+    if service is None:
+        return  # 本场已经结算，重复收尾不得再次发奖
     flow = get_flow(state["flow_id"])
     node = flow_node(flow, state["node_id"])
     battle_cfg = node.get("战斗") or {}
-    service = state["battle"]
     t = data_loader.get_text
     inv_model = investigator_repo.find_by_qq(user_id)
     inv = Investigator(inv_model) if inv_model else None
     state["phase"] = "stage"
     state["battle"] = None
     battle_manager.remove_battle(user_id)
+    end_id = None
     if service.hp_record["mon"] <= 0 or getattr(service, "_conditional_won", False):
         win = battle_cfg.get("胜利") or {}
         reply = win.get("回复", "")
@@ -819,13 +832,7 @@ async def _flow_battle_end(user_id: str, state: dict, bot: Bot, send) -> None:
                 )
             # 战利品（loots.json 按 hp 分档）：GM 房间隔离不掉落，其余 flow 战斗
             # 胜利归一化抽取 1 件 + 乌帕，战利品行追加在胜利回复尾部（与节点效果共存）
-            _end_id = (win.get("效果") or {}).get("结局")
-            if _end_id:
-                from ..plugins.adventure import _try_send_ending_card
-
-                await _try_send_ending_card(
-                    bot, user_id, "", str(_end_id), inv=inv, send=send
-                )
+            end_id = (win.get("效果") or {}).get("结局")
             loot_line = (
                 _flow_battle_loot(inv, user_id, service)
                 if state.get("flow_id") != "gm_room"
@@ -834,7 +841,7 @@ async def _flow_battle_end(user_id: str, state: dict, bot: Bot, send) -> None:
             if loot_line:
                 reply = f"{reply}\n\n{loot_line}" if reply else loot_line
                 inv.save()
-        await send(md_message(f"\n{reply}", bot, mention=user_id))
+        reply_msg = md_message(f"\n{reply}", bot, mention=user_id)
         nxt = win.get("下一步", "结束")
     else:
         lose = battle_cfg.get("战败") or {}
@@ -847,15 +854,27 @@ async def _flow_battle_end(user_id: str, state: dict, bot: Bot, send) -> None:
                     f"{reply}\n\n"
                     f"**{t('adventure.event_effect_title')}**\n> {summary}"
                 )
-        await send(
-            md_message(f"\n**{t('flow.defeat_title')}**\n\n{reply}", bot, mention=user_id)
+        reply_msg = md_message(
+            f"\n**{t('flow.defeat_title')}**\n\n{reply}", bot, mention=user_id
         )
         nxt = lose.get("下一步", "结束")
-    if nxt == "结束" or not flow_node(flow, nxt):
-        await _finish_flow(user_id, state, bot, send)
-    else:
+    finished = nxt == "结束" or not flow_node(flow, nxt)
+    if not finished:
         state["node_id"] = nxt
-        await render_flow_node(user_id, state, bot, send)
+    # 奖励和目标节点在首次 await 前确定。即使结局卡或回复发送失败，也推进/退出。
+    try:
+        if end_id:
+            from ..plugins.adventure import _try_send_ending_card
+
+            await _try_send_ending_card(
+                bot, user_id, "", str(end_id), inv=inv, send=send
+            )
+        await send(reply_msg)
+    finally:
+        if finished:
+            await _finish_flow(user_id, state, bot, send)
+        else:
+            await render_flow_node(user_id, state, bot, send)
 
 
 async def _finish_flow(user_id: str, state: dict, bot: Bot, send) -> None:
@@ -871,6 +890,9 @@ async def _finish_flow(user_id: str, state: dict, bot: Bot, send) -> None:
     flow_states（活跃流程态：node_id/entered/buff/battle）保持内存——重启后中断合理
     （同战斗）；完成标记 `flow.<flow_id>.done` 持久化到 flags，供后续条件/展示读取。
     """
+    if state.get("finished"):
+        return
+    state["finished"] = True
     t = data_loader.get_text
     flow_id = state.get("flow_id", "")
     node_id = state.get("node_id", "end")
@@ -916,6 +938,7 @@ async def _finish_flow(user_id: str, state: dict, bot: Bot, send) -> None:
 
 
 # --- 统一输入分发：/行动 命令兜底 与 flow_stage/flow_battle 按钮回调共用 ---
+@exclusive_user_operation
 async def handle_flow_input(
     user_id: str, choice: str, bot: Bot, send, token: int | None = None
 ) -> None:
@@ -929,6 +952,10 @@ async def handle_flow_input(
         )
         return
     if state["phase"] == "stage":
+        if not choice.strip():
+            # 上一条节点消息丢失时，空 /行动 可重发当前选项；entered 防重复效果。
+            await render_flow_node(user_id, state, bot, send)
+            return
         await _flow_handle_choice(user_id, state, choice, bot, send)
     elif state["phase"] == "battle":
         await _flow_battle_input(user_id, state, choice, bot, send, token)

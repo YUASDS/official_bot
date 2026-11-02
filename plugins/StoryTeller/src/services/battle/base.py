@@ -71,6 +71,7 @@ class BattleBaseMixin:
         self._weapon_reply_shown = False
         self.fled = False
         self._turn_counter = 0
+        self._combat_result: Optional[str] = None
         self.end_parts: tuple[str, str] = ("", "")
         self.end_card_ext: dict = {}
 

@@ -51,6 +51,14 @@ class BattleSpellsMixin:
             f"、{san_cost} 点理智" if san_cost else ""
         )
 
+        # 剧情/GM 战斗沿用隔离规则，不登记永久结局；普通战斗必须立即终止。
+        if (
+            san_cost
+            and self.investigator.get_skill("san", 0) <= 0
+            and not getattr(self, "is_gm_room", False)
+        ):
+            return (cost_line, self._end_san_zero())
+
         monster_action = self.monster.get_action(self.current_turn)
 
         # 对抗法术：法术技能 vs 怪物技能

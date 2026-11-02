@@ -9,6 +9,7 @@ from typing import Optional
 from ..data_loader import data_loader
 from ..dice_roller import roll_dice
 from ..ending_engine import (
+    check_san_zero,
     on_battle_40_end,
     register_e07,
     render_door_choice,
@@ -58,6 +59,8 @@ class BattleEngineMixin:
         return result
 
     def execute_action(self, action: str) -> tuple:
+        if self.fight_is_over():
+            return (self._combat_result or self._t("adventure.no_active_battle"),)
         self.current_action = action
         self.last_actor = self.current_turn  # 记录行动发起者（卡片标题用）
         if self.is_madness and self.madness_duration > 0:
@@ -432,6 +435,35 @@ class BattleEngineMixin:
         return self._handle_victory()
 
     def _check_combat_over(self) -> Optional[str]:
+        # 结算与消息发送无关；重复查询终态不能再次发奖、成长或推进天数。
+        if self._combat_result is not None:
+            return self._combat_result
+        result = self._resolve_combat_over()
+        if result is not None:
+            self._combat_result = result
+            self._advance_turn()  # 致命一击也必须使旧按钮令牌失效
+        return result
+
+    def _end_san_zero(self) -> str:
+        """普通战斗施法耗尽 SAN：立即登记 E06，禁止继续行动或复活。"""
+        if self._combat_result is not None:
+            return self._combat_result
+        inv = self.investigator
+        self._restore_absorb_snapshot()
+        inv.set_skill("san", 0)
+        inv.is_survive = False
+        inv.is_adventure = False
+        inv.hp = self.hp_record["inv"]
+        inv.save()
+        self._log_battle("death")
+        result = check_san_zero(inv)
+        self.san_zero_ended = True
+        self._combat_result = result["message"]
+        self.end_parts = (self._t("adventure.sanity_zero"), result["message"])
+        self._advance_turn()
+        return self._combat_result
+
+    def _resolve_combat_over(self) -> Optional[str]:
         if self.hp_record["inv"] <= 0:
             # 饰品触发：濒死免死（挂点最顶、判定生效前；GM 房间/乱入隔离不触发）
             if not getattr(self, "is_gm_room", False):
@@ -552,7 +584,8 @@ class BattleEngineMixin:
 
     def fight_is_over(self) -> bool:
         return (
-            self.fled
+            self._combat_result is not None
+            or self.fled
             or self.hp_record["inv"] <= 0
             or self.hp_record["mon"] <= 0
             or getattr(self, "_conditional_won", False)
