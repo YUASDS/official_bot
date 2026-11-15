@@ -652,3 +652,35 @@ def test_node_condition_locked_ends():
     assert "条件未满足" in "\n".join(out)
     assert qq not in flow_states
     _cleanup(qq)
+
+
+def test_flow_option_rows_fit_qq_keyboard_limit():
+    """h8 六选项：按钮压排到 ≤5 行 × ≤5 键，防 QQ 拒收整条节点消息（点击只有空 @ 的 bug）。"""
+    from src.services.flow_engine import _flow_option_rows, flow_node, get_flow
+
+    qq = "flow_rows_limit"
+    inv = _make_inv(qq)
+    node = flow_node(get_flow("mainline.hymn"), "h8")
+    rows, locked = _flow_option_rows({"node_id": "h8"}, node, node["选项"], inv)
+    assert locked == []
+    assert sum(len(r) for r in rows) == 6
+    assert len(rows) <= 5
+    assert all(len(r) <= 5 for r in rows)
+    _cleanup(qq)
+
+
+def test_choice_without_reply_sends_no_empty_message():
+    """无「回复」的选项不发空消息；下一节点提示正常送达（群里不再出现只有 @ 的空消息）。"""
+    from src.services.flow_engine import flow_states
+
+    qq = "flow_noempty"
+    inv = _make_inv(qq)
+    inv.set_flag("ml.hymn.node", 7)
+    inv.save()
+    out = _explore(qq, "mainline.hymn")
+    assert out and all(s.strip() for s in out)
+    out = _drive(qq, "dispatch|井后荒宅")
+    assert all(s.strip() for s in out)  # 不再有空 @ 消息
+    assert any("荒宅" in s for s in out)  # h8 节点文案已送达
+    assert flow_states[qq]["node_id"] == "h8"
+    _cleanup(qq)

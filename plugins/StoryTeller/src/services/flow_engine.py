@@ -383,24 +383,47 @@ def start_flow(user_id: str, flow_id: str) -> Optional[dict]:
     return state
 
 
+# QQ 键盘硬上限（行数 5、每行按钮 5）：超限整条 markdown 消息会被平台拒收，
+# 表现为「按钮点击后只有空 @ 消息」（h8 六选项 → 6 行 → 整条节点文案丢失）。
+_KB_MAX_ROWS = 5
+_KB_MAX_BUTTONS_PER_ROW = 5
+
+
 def _flow_option_rows(
     state: dict, node: dict, options: list[dict], inv: Investigator
 ) -> tuple[list[list[tuple[str, str]]], list[str]]:
-    """选项按钮行（每行 1 个，仅条件满足的选项进按钮）+ 锁定项收集。
+    """选项按钮行（默认每行 1 个，>5 个时压排至最多 5 行）+ 锁定项收集。
 
     - 条件满足的选项渲染按钮，payload：flow_stage:{node_id}|{option_input}（含节点校验防旧按钮）。
     - 条件未满足的选项不进按钮，仅收集其「输入」label，由 render_flow_node 追加为正文灰字
       「◽ {输入}」（不再标注「条件未满足」——那是谜语式引导）。
+    - QQ 键盘最多 5 行 × 5 键：选项 >5 个时每行 2~5 个压排，防整条消息被平台拒收；
+      极端 >25 个时截断（按钮缺失仍可 `/行动 <选项输入>` 继续，不阻塞流程）。
     """
     progress = _progress(inv)
-    rows: list[list[tuple[str, str]]] = []
+    buttons: list[tuple[str, str]] = []
     locked: list[str] = []
     for opt in options:
         label = opt["输入"]
         if _condition_ok(opt.get("条件"), inv, progress):
-            rows.append([(label, f"flow_stage:{state['node_id']}|{opt['输入']}")])
+            buttons.append((label, f"flow_stage:{state['node_id']}|{opt['输入']}"))
         else:
             locked.append(label)
+    max_buttons = _KB_MAX_ROWS * _KB_MAX_BUTTONS_PER_ROW
+    if len(buttons) > max_buttons:
+        logger.warning(
+            f"flow 选项按钮超 QQ 键盘上限 {max_buttons}，已截断: "
+            f"node_id={state['node_id']} total={len(buttons)}"
+        )
+        buttons = buttons[:max_buttons]
+    per_row = max(
+        1,
+        min(
+            -(-len(buttons) // _KB_MAX_ROWS),
+            _KB_MAX_BUTTONS_PER_ROW,
+        ),
+    )
+    rows = [buttons[i : i + per_row] for i in range(0, len(buttons), per_row)]
     return rows, locked
 
 
@@ -597,8 +620,10 @@ async def _flow_handle_choice(
         state["node_id"] = nxt
     state["phase"] = "stage"
     # 先消费选项并切换节点；回复丢失不能让同一个奖励再次被领取。
+    # 无「回复」的选项不发送空消息（群里会只剩一条只有 @ 的空消息，误导玩家）。
     try:
-        await send(md_message(f"\n{reply}", bot, mention=user_id))
+        if (reply or "").strip():
+            await send(md_message(f"\n{reply}", bot, mention=user_id))
     finally:
         await render_flow_node(user_id, state, bot, send)
 
