@@ -415,9 +415,13 @@ async def _start_battle_after_event(
 
 @exclusive_user_operation
 async def _run_adventure(
-    user_id: str, bot: Bot, send: Callable, finish: Callable
+    user_id: str, bot: Bot, send: Callable, finish: Callable, buy_scroll: bool = False
 ) -> None:
-    """今日冒险完整流程（命令与按钮共用）。finish 发送后须抛出 FinishedException 中断流程。"""
+    """今日冒险完整流程（命令与按钮共用）。finish 发送后须抛出 FinishedException 中断流程。
+
+    buy_scroll=True（「购买冒险卷并冒险」按钮）：只有通过全部前置门（无探索/存活/无战斗）
+    且当日冒险已完成时才扣乌帕购买，避免被拒仍扣款。
+    """
     try:
         inv_model = investigator_repo.find_by_qq(user_id)
         if inv_model is None:
@@ -455,26 +459,44 @@ async def _run_adventure(
                     mention=user_id,
                 )
             )
-        if battle_manager.get_battle(user_id):
+        battle = battle_manager.get_battle(user_id)
+        if battle:
+            # 战斗中误触 /今日冒险：重发当前行动提示+键盘（只提示「请继续战斗」会让玩家无按钮可点）
             await finish(
+                send_turn(
+                    battle,
+                    bot,
+                    f"\n{data_loader.get_text('adventure.in_battle')}\n\n"
+                    f"{battle.get_action_section()}",
+                )
+            )
+            return
+        if _adventure_done_today(user_id):
+            # 冒险卷（401）：背包持有则自动使用，获得额外冒险次数。
+            # 「购买冒险卷并冒险」按钮：买卷放在全部前置门之后立即消费，
+            # 被战斗/探索/死亡拦截时不产生任何扣费。
+            used = investigator_repo.remove_item_from_inventory(user_id, "401", 1)
+            if not used and buy_scroll:
+                from ..services.shop_service import shop_service
+
+                ok, res = shop_service.buy_item(
+                    user_id, "401", 1, shop_service.get_todays_shop("seed")
+                )
+                await send(md_message(f"\n{res}", bot, mention=user_id))
+                if ok:
+                    used = investigator_repo.remove_item_from_inventory(
+                        user_id, "401", 1
+                    )
+            if not used:
+                await finish(_daily_done_msg(user_id, bot))
+                return
+            await send(
                 md_message(
-                    f"\n{data_loader.get_text('adventure.in_battle')}",
+                    f"\n{data_loader.get_text('adventure.scroll_used')}",
                     bot,
                     mention=user_id,
                 )
             )
-        if _adventure_done_today(user_id):
-            # 冒险卷（401）：背包持有则自动使用，获得额外冒险次数
-            if investigator_repo.remove_item_from_inventory(user_id, "401", 1):
-                await send(
-                    md_message(
-                        f"\n{data_loader.get_text('adventure.scroll_used')}",
-                        bot,
-                        mention=user_id,
-                    )
-                )
-            else:
-                await finish(_daily_done_msg(user_id, bot))
 
         inv.restore_hp()
         inv.save()
@@ -802,19 +824,18 @@ async def handle_scroll_adventure_button(
     group_openid: str = "",
     token: int | None = None,
 ) -> None:
-    """「购买冒险卷并冒险」按钮回调：购买 401 后自动开始今日冒险。"""
-    from ..services.shop_service import shop_service
+    """「购买冒险卷并冒险」按钮回调：通过全部前置门后才扣乌帕购买并自动开始。"""
+    async def _send(msg: Any) -> None:
+        await _send_to_user(bot, user_id, msg, group_openid)
 
-    items = shop_service.get_todays_shop("seed")
-    ok, res = shop_service.buy_item(user_id, "401", 1, items)
-    await _send_to_user(
-        bot,
-        user_id,
-        md_message(f"\n{res}", bot, mention=user_id),
-        group_openid,
-    )
-    if ok:
-        await handle_adventure_button(user_id, "", bot, group_openid, token)
+    async def _finish(msg: Any) -> None:
+        await _send_to_user(bot, user_id, msg, group_openid)
+        raise FinishedException
+
+    try:
+        await _run_adventure(user_id, bot, _send, _finish, buy_scroll=True)
+    except FinishedException:
+        pass
 
 
 resurrect_cmd = on_command(
@@ -1404,7 +1425,42 @@ async def handle_event_choice(
         return
     event_states.pop(user_id, None)
     battle = battle_manager.get_battle(user_id)
-    if not ev_state or not battle:
+    if not ev_state:
+        # 事件已消费（重复点击旧按钮）：战斗已开始则重发当前行动提示+键盘自愈，
+        # 无战斗才提示选项过期（不再误报「战斗状态异常。」）。
+        if battle:
+            if not battle.investigator.is_survive:
+                battle_manager.remove_battle(user_id)
+                await _send_to_user(
+                    bot,
+                    user_id,
+                    md_message(
+                        f"\n{data_loader.get_text('adventure.player_dead')}",
+                        bot,
+                        mention=user_id,
+                    ),
+                    group_openid,
+                )
+                return
+            await _send_to_user(
+                bot,
+                user_id,
+                send_turn(battle, bot, battle.get_action_section()),
+                group_openid,
+            )
+            return
+        await _send_to_user(
+            bot,
+            user_id,
+            md_message(
+                f"\n{data_loader.get_text('adventure.event_stale', default='该选项已过期，请使用最新消息中的选项。')}",
+                bot,
+                mention=user_id,
+            ),
+            group_openid,
+        )
+        return
+    if not battle:
         await _send_to_user(
             bot,
             user_id,

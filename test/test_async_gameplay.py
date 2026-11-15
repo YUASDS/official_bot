@@ -16,7 +16,7 @@ import ujson
 sys.path.insert(0, str(Path(__file__).parent.parent / "plugins" / "StoryTeller"))
 nonebot.init()
 
-from database.db import User, get_info
+from database.db import User, add_gold, get_info
 from src.models.monster import Monster
 from src.models.player import (
     EndingCollectionModel,
@@ -31,7 +31,11 @@ from src.plugins import flow as flow_plugin
 from src.services import flow_engine as fe
 from src.services.battle import BattleService
 from src.services.battle import settlement
-from src.services.daily_service import _adventure_done_today, _clear_adventure_done
+from src.services.daily_service import (
+    _adventure_done_today,
+    _clear_adventure_done,
+    _mark_adventure_done,
+)
 from src.services.resurrect import do_resurrect
 from src.utils.active_battles import battle_manager
 
@@ -399,3 +403,91 @@ def test_spell_exhausting_san_respects_battle_isolation(make_inv, monkeypatch, i
         assert "永久疯狂" in text
         assert "/创建调查员" in text
         assert "/复活" not in text
+
+
+@pytest.mark.parametrize("blocker", ["battle", "flow", "dead"])
+def test_scroll_button_charges_nothing_when_blocked(make_inv, monkeypatch, blocker):
+    """「购买冒险卷并冒险」被前置门拦截时不扣乌帕：战斗/探索/死亡三种情况。"""
+    inv = make_inv(day=5)
+    add_gold(inv.qq, 100)
+    _mark_adventure_done(inv.qq)
+    battle = BattleService(inv, Monster("1"))
+    if blocker == "battle":
+        battle.roll_initiative()
+        battle.current_turn = "inv"
+        battle_manager.add_battle(inv.qq, battle)
+    elif blocker == "flow":
+        fe.flow_states[inv.qq] = {
+            "flow_id": "lane_tale",
+            "node_id": "n1",
+            "phase": "stage",
+            "entered": [],
+            "buff": {},
+            "battle": None,
+        }
+    else:
+        inv.is_survive = False
+        inv.save()
+
+    send_mock = AsyncMock()
+    monkeypatch.setattr(adv, "_send_to_user", send_mock)
+    asyncio.run(adv.handle_scroll_adventure_button(inv.qq, "", BOT, "group_x"))
+
+    assert get_info(inv.qq).gold == 100  # 未扣费
+    equipments = Investigator(investigator_repo.find_by_qq(inv.qq)).get_equipments()[0]
+    assert equipments.get("401", 0) == 0  # 未买卷
+    assert send_mock.await_count >= 1
+    if blocker == "battle":
+        assert battle_manager.get_battle(inv.qq) is battle
+
+
+def test_scroll_button_buys_only_after_gates(make_inv, monkeypatch):
+    """通过全部前置门后才扣 10 乌帕买卷，且买完立即消费进入冒险。"""
+    inv = make_inv(day=5)
+    add_gold(inv.qq, 100)
+    _mark_adventure_done(inv.qq)
+    monkeypatch.setattr(adv, "try_mainline_daily", AsyncMock(return_value=True))
+    monkeypatch.setattr(adv, "_send_to_user", AsyncMock())
+
+    asyncio.run(adv.handle_scroll_adventure_button(inv.qq, "", BOT, "group_x"))
+
+    assert get_info(inv.qq).gold == 90
+    equipments = Investigator(investigator_repo.find_by_qq(inv.qq)).get_equipments()[0]
+    assert equipments.get("401", 0) == 0  # 买入后立即消费
+
+
+def test_old_event_button_resends_battle_actions(make_inv, monkeypatch):
+    """事件已消费后重复点击旧按钮：战斗中重发行动提示+键盘，而非「战斗状态异常」。"""
+    inv = make_inv(day=5)
+    battle = BattleService(inv, Monster("1"))
+    battle.roll_initiative()
+    battle.current_turn = "inv"
+    battle_manager.add_battle(inv.qq, battle)
+    send_mock = AsyncMock()
+    monkeypatch.setattr(adv, "_send_to_user", send_mock)
+
+    asyncio.run(adv.handle_event_choice(inv.qq, "烧毁", BOT, "group_x", token=123))
+
+    text = str(send_mock.call_args.args[2])
+    assert "行动·抉择" in text
+    assert "战斗状态异常" not in text
+    assert battle_manager.get_battle(inv.qq) is battle
+
+
+def test_adventure_command_in_battle_resends_actions(make_inv):
+    """/今日冒险 在战斗中：重发当前行动提示+键盘，避免「请继续战斗」却无按钮可点。"""
+    inv = make_inv(day=5)
+    battle = BattleService(inv, Monster("1"))
+    battle.roll_initiative()
+    battle.current_turn = "inv"
+    battle_manager.add_battle(inv.qq, battle)
+    finished: list[str] = []
+
+    async def finish(msg):
+        finished.append(str(msg))
+
+    asyncio.run(adv._run_adventure(inv.qq, BOT, discard, finish))
+
+    assert finished and "请继续战斗" in finished[0]
+    assert "行动·抉择" in finished[0]
+    assert battle_manager.get_battle(inv.qq) is battle
