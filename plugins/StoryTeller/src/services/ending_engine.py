@@ -381,6 +381,22 @@ def mark_mirror_defeated(inv: Investigator) -> None:
 
 
 # --- 出口④：每日推进检查 ---
+def daily_block_reason(inv: Investigator, progress) -> Optional[str]:
+    if progress is None:
+        return None
+    # ④ 结局已结算 / 门扉抉择冻结 → 阻止再次推进
+    if progress.ended:
+        return _text(
+            "ending.frozen_ended", _ENDING_TEXT_DEFAULT["ending.frozen_ended"]
+        )
+    if pending_door_choice(inv, progress):
+        return _text(
+            "ending.frozen_door", _ENDING_TEXT_DEFAULT["ending.frozen_door"]
+        )
+
+    return None
+
+
 def check_daily(
     inv: Investigator, reset: bool = True
 ) -> tuple[list[str], Optional[str]]:
@@ -395,15 +411,9 @@ def check_daily(
     progress = ending_repo.ensure_progress(inv.qq, inv.day)
     logs: list[str] = []
 
-    # ④ 结局已结算 / 门扉抉择冻结 → 阻止再次推进
-    if progress.ended:
-        return [], _text(
-            "ending.frozen_ended", _ENDING_TEXT_DEFAULT["ending.frozen_ended"]
-        )
-    if inv.day >= 40 and (progress.boss36_defeated or progress.dead_once):
-        return [], _text(
-            "ending.frozen_door", _ENDING_TEXT_DEFAULT["ending.frozen_door"]
-        )
+    block = daily_block_reason(inv, progress)
+    if block:
+        return [], block
 
     if not reset:
         # D10 决策：E10 挂机结局已移除，仅保留连续未冒险天数统计（供运营/统计读取）。
@@ -650,12 +660,14 @@ def _choice_payload(key: str, cfg: dict) -> dict:
     }
 
 
-def pending_door_choice(inv: Investigator) -> bool:
+def pending_door_choice(inv: Investigator, progress=None) -> bool:
     """是否存在未完成的门扉抉择（供冻结拦截后重渲染，防 bot 重启后卡死）。"""
-    progress = ending_repo.get_progress(inv.qq)
-    if progress is None or progress.ended:
-        return False
-    return progress.boss36_defeated or progress.dead_once
+    if progress is None:
+        progress = ending_repo.get_progress(inv.qq)
+    return bool(
+        inv.day >= 40 and progress and not progress.ended
+        and (progress.boss36_defeated or progress.dead_once)
+    )
 
 
 def render_door_choice(inv: Investigator) -> dict:
@@ -745,6 +757,9 @@ def judge_door_choice(inv: Investigator, key: str) -> dict:
             "error": True,
             "message": _text("door.already_ended", "这段旅程已经落幕。新周目，请重新创建调查员。"),
         }
+
+    if not pending_door_choice(inv, progress):
+        return {"error": True, "message": _text("door.invalid_choice", "无效的门扉选择。")}
 
     # 战败分支（dead_once 后可见；已重赴者回到三分支，不再可选）
     defeat_cfg = (door.get("defeat_choices") or {}).get(key)

@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import copy
 import random
+import secrets
 import sys
 from pathlib import Path
 from typing import Callable, Optional
@@ -38,6 +39,9 @@ from nonebot.exception import FinishedException
 from ..models.player import Investigator, investigator_repo
 from ..services.data_loader import data_loader
 from ..services.dice_roller import roll_dice as _default_roll
+from ..utils.active_battles import battle_manager
+from ..utils.state_registry import register_state_store
+from ..utils.user_operations import exclusive_user_operation
 from ..utils.buttons import (
     BUTTON_HANDLERS,
     _send_to_user,
@@ -49,26 +53,18 @@ from ..utils.md_format import build_keyboard, md_message, need_create_message
 # 内存 dict 为快路径；持久化镜像写 inv.flags `boss.pending`，重启后挑战意图不丢，
 # `boss_resolve_forced` 读时双读（内存优先 → flags 兜底 → 旧薄壳 jk_pending/qiren_pending）。
 boss_pending: dict[str, str] = {}
+register_state_store(boss_pending)
 
 
-def _boss_pending_set(user_id: str, boss_id: str) -> None:
-    """置位待挑战旗标：内存 dict + flags 持久化双写（挑战意图跨重启保留）。"""
-    boss_pending[user_id] = boss_id
-    inv_model = investigator_repo.find_by_qq(user_id)
-    if inv_model is not None:
-        inv = Investigator(inv_model)
-        inv.set_flag("boss.pending", boss_id)
-        inv.save()
+def current_boss_invitation(inv: Investigator) -> dict | None:
+    invite = inv.get_flag("boss.invite")
+    if isinstance(invite, dict) and invite.get("day") == inv.day and get_boss(invite.get("id")):
+        return invite
+    return None
 
 
 # --- 冒险流程回调注册（解循环①：services 不再 import plugins/adventure） ---
-# adventure 插件在模块加载时注册 `_run_adventure` 的委托；运行时经 _run_adventure_runner
-# 调用。注册委托在 adventure 模块全局解析 `_run_adventure`，故 mock.patch 的测试桩同样生效；
-# 未注册时回退 sys.modules 动态读取（兼容加载顺序/未注册场景，行为与旧惰性导入一致）。
-#
-# 插件前缀按本模块自身 __name__ 推导：测试以 `src.services.boss_framework` 导入、
-# test_fullflow 等另以 `plugins.StoryTeller.src.services.boss_framework` 导入（同一物理文件
-# 的第二个模块实例），旧相对惰性导入按实例自洽解析同前缀插件；此处用前缀推导保持自洽。
+# 按当前模块前缀查找注册的插件，兼容机器人与测试的不同加载名称。
 _PLUGIN_PREFIX = __name__.rsplit(".services.boss_framework", 1)[0] + ".plugins."
 
 _adventure_runner: Optional[Callable] = None
@@ -86,11 +82,11 @@ def _plugin_module(name: str):
 
 
 def _adventure_from_modules() -> Optional[Callable]:
-    """sys.modules 动态读取 adventure._run_adventure（未注册/加载顺序兜底，不 import）。"""
+    """sys.modules 动态读取冒险核心（未注册/加载顺序兜底，不 import）。"""
     mod = _plugin_module("adventure")
     if mod is None:
         return None
-    fn = getattr(mod, "_run_adventure", None)
+    fn = getattr(mod, "_start_or_resume_adventure", None)
     return fn if callable(fn) else None
 
 
@@ -345,10 +341,21 @@ async def send_boss_dialogue(boss_id: str, user_id: str, bot: Bot, send) -> None
         if state is not None:
             await render_flow_node(user_id, state, bot, send)
         return
+    model = investigator_repo.find_by_qq(user_id)
+    if model is None:
+        await send(need_create_message(bot, mention=user_id))
+        return
+    inv = Investigator(model)
+    invite = current_boss_invitation(inv)
+    if not invite or invite["id"] != boss_id:
+        invite = {"id": boss_id, "day": inv.day, "token": secrets.randbits(63)}
+        inv.set_flag("boss.invite", invite)
+        inv.save()
+    token = invite["token"]
     t = data_loader.get_text
     rows: list[list[tuple[str, str]]] = [
         [
-            (t(btn.get("输入", "")), f"{boss_id}:{btn.get('动作', '')}")
+            (t(btn.get("输入", "")), f"{boss_id}:{btn.get('动作', '')}:{token}")
             for btn in dlg.get("按钮") or []
         ]
     ]
@@ -359,7 +366,11 @@ async def send_boss_dialogue(boss_id: str, user_id: str, bot: Bot, send) -> None
         bot,
         mention=user_id,
     )
-    if kb is not None and not isinstance(msg, str):
+    if isinstance(msg, str):
+        msg += "\n" + "　".join(
+            f"【/行动 {btn['动作']}】" for btn in dlg.get("按钮", [])
+        )
+    elif kb is not None:
         msg.append(kb)
     await send(msg)
 
@@ -372,18 +383,11 @@ async def handle_boss_button(
     group_openid: str = "",
     token: int | None = None,
 ) -> None:
-    """挑战/不挑战 按钮回调（配置驱动，逐字节对齐 jk/qiren 原镜像实现）。
+    """处理本次隐藏 BOSS 邀请的挑战/不挑战按钮。
 
     挑战 → 置位 boss_pending + 发送挑战后文案 + 重入今日冒险（强制绑定怪物）；
     不挑战 → 跳过今日（_skip_daily day40 冻结 + _mark_adventure_done + check_daily）。
     """
-    cfg = get_boss(boss_id)
-    if not cfg:
-        return
-    dlg = cfg.get("对话") or {}
-    challenge_action = dlg.get("挑战动作", "挑战")
-    decline_action = dlg.get("不挑战动作", "不挑战")
-
     async def _send(msg) -> None:
         await _send_to_user(bot, user_id, msg, group_openid)
 
@@ -392,41 +396,59 @@ async def handle_boss_button(
         raise FinishedException
 
     try:
-        t = data_loader.get_text
-        if choice == challenge_action:
-            _boss_pending_set(user_id, boss_id)
-            await _send(
-                md_message(
-                    f"\n{t(dlg.get('挑战后') or f'{boss_id}.challenge_pending')}",
-                    bot,
-                    mention=user_id,
-                )
-            )
-            # 重入今日冒险流程：boss_pending 旗标 → 强制绑定怪物（adventure 调度器消费）。
-            # adventure 插件经 register_adventure_runner 注册委托（解耦 services→plugins）。
-            await _run_adventure_runner(user_id, bot, _send, _finish)
-        elif choice == decline_action:
-            # 跳过今日冒险：_skip_daily（day+1 day40 冻结）+ 日常结算管线（对齐事件跳过战斗）
-            from ..services.daily_service import _mark_adventure_done, _skip_daily
-            from ..services.ending_engine import check_daily
-
-            inv_model = investigator_repo.find_by_qq(user_id)
-            if inv_model is None:
-                await _send(need_create_message(bot, mention=user_id))
-                return
-            inv = Investigator(inv_model)
-            _skip_daily(user_id, inv)
-            _mark_adventure_done(user_id)
-            check_daily(inv)
-            await _send(
-                md_message(
-                    f"\n{t(dlg.get('跳过') or f'{boss_id}.skip_done')}",
-                    bot,
-                    mention=user_id,
-                )
-            )
+        await choose_boss_invitation(user_id, boss_id, choice, token, bot, _send, _finish)
     except FinishedException:
         pass
+
+
+@exclusive_user_operation
+async def choose_boss_invitation(
+    user_id: str, boss_id: str, choice: str, token: int | None,
+    bot: Bot, send: Callable, finish: Callable,
+) -> None:
+    from ..services.daily_service import _mark_adventure_done, _skip_daily
+    from ..services.ending_engine import check_daily
+    from ..services.flow_engine import flow_states
+
+    model = investigator_repo.find_by_qq(user_id)
+    if model is None:
+        await send(need_create_message(bot, mention=user_id))
+        return
+    inv = Investigator(model)
+    invite = current_boss_invitation(inv)
+    if (
+        not invite
+        or invite["id"] != boss_id
+        or invite.get("token") != token
+        or token is None
+        or not inv.is_survive
+        or battle_manager.get_battle(user_id)
+        or user_id in flow_states
+    ):
+        await send(md_message(data_loader.get_text("adventure.boss_invite_stale"), bot, mention=user_id))
+        return
+    dlg = get_boss(boss_id).get("对话") or {}
+    challenge = dlg.get("挑战动作", "挑战")
+    decline = dlg.get("不挑战动作", "不挑战")
+    if choice not in (challenge, decline):
+        await send_boss_dialogue(boss_id, user_id, bot, send)
+        return
+
+    # 首次 await 前提交选择，重复或过期按钮不能再次推进日期。
+    inv.clear_flag("boss.invite")
+    t = data_loader.get_text
+    if choice == decline:
+        _skip_daily(user_id, inv)
+        _mark_adventure_done(user_id)
+        check_daily(inv)
+        await send(md_message(t(dlg.get("跳过") or f"{boss_id}.skip_done"), bot, mention=user_id))
+        return
+
+    inv.set_flag("boss.pending", boss_id)
+    inv.save()
+    boss_pending[user_id] = boss_id
+    await send(md_message(t(dlg.get("挑战后") or f"{boss_id}.challenge_pending"), bot, mention=user_id))
+    await _run_adventure_runner(user_id, bot, send, finish)
 
 
 def boss_resolve_forced(user_id: str, inv: Investigator) -> str | None:

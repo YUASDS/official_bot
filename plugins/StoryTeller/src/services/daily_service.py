@@ -15,14 +15,25 @@ guest/gm_room 构成插件层互相导入环。现将这些共享状态/函数�
 
 from __future__ import annotations
 
+import secrets
+
 from util.DaylyRecord import add_data, get_data, write_json
 
-from ..models.player import Investigator
+from ..models.player import Investigator, ending_repo
+from ..utils.md_format import build_keyboard
 from ..utils.state_registry import register_state_store
 
 # 门扉抉择状态（类比 event_states）：user_id -> {"choices": [...]}
 door_states: dict[str, dict] = {}
 register_state_store(door_states)
+
+
+def door_keyboard(inv: Investigator, choices: list[dict]):
+    run_id = ending_repo.ensure_progress(inv.qq, inv.day).run_id
+    token = secrets.randbits(63)
+    door_states[inv.qq] = {"choices": choices, "run_id": run_id, "token": token}
+    buttons = [(c["label"], f"door:{c['key']}:{token}") for c in choices]
+    return build_keyboard([buttons[i : i + 3] for i in range(0, len(buttons), 3)])
 
 
 def _adventure_done_today(user_id: str) -> bool:

@@ -335,7 +335,7 @@ def test_qiren_dialogue_trigger_no_battle():
     investigator_repo.delete_by_qq(qq)
 
 
-def test_qiren_button_decline_skips_day():
+def test_qiren_button_decline_skips_day(boss_invitation):
     """不挑战：day+1（day40 冻结）+ 标记今日冒险完成。"""
     import asyncio
 
@@ -354,14 +354,15 @@ def test_qiren_button_decline_skips_day():
         async def send_msg(self, user_id=None, message=None):
             pass
 
-    asyncio.run(handle_qiren_button(qq, "不挑战", FakeBot(), ""))
+    token = boss_invitation("qiren", qq, FakeBot())
+    asyncio.run(handle_qiren_button(qq, "不挑战", FakeBot(), "", token))
     after = Investigator(investigator_repo.find_by_qq(qq))
     assert after.day == 26
     assert get_data(qq, "adventure_done") is True
     investigator_repo.delete_by_qq(qq)
 
 
-def test_qiren_button_challenge_forces_boss():
+def test_qiren_button_challenge_forces_boss(boss_invitation):
     """挑战：置位旗标 → 重入今日冒险 → 强制怪物 38 + 环境。"""
     import asyncio
 
@@ -382,7 +383,8 @@ def test_qiren_button_challenge_forces_boss():
         async def send_msg(self, user_id=None, message=None):
             pass
 
-    asyncio.run(handle_qiren_button(qq, "挑战", FakeBot(), ""))
+    token = boss_invitation("qiren", qq, FakeBot())
+    asyncio.run(handle_qiren_button(qq, "挑战", FakeBot(), "", token))
     battle = battle_manager.get_battle(qq)
     assert battle is not None
     assert battle.monster.id == "38"

@@ -36,7 +36,7 @@ exit /b 1
 
 :check_behind
 set "BEHIND=0"
-for /f %%i in ('git rev-list HEAD...@{u} --count 2^>nul') do set BEHIND=%%i
+for /f %%i in ('git rev-list HEAD..@{u} --count 2^>nul') do set BEHIND=%%i
 if not defined BEHIND set BEHIND=0
 
 if %BEHIND% GTR 0 (
@@ -83,7 +83,7 @@ if %errorlevel% neq 0 (
 )
 
 set "BEHIND=0"
-for /f %%i in ('git rev-list HEAD...@{u} --count 2^>nul') do set BEHIND=%%i
+for /f %%i in ('git rev-list HEAD..@{u} --count 2^>nul') do set BEHIND=%%i
 if not defined BEHIND set BEHIND=0
 
 if %BEHIND% GTR 0 (

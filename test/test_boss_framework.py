@@ -274,7 +274,7 @@ def test_jk_send_dialogue_title_appear_and_buttons():
     _cleanup(qq)
 
 
-def test_jk_button_payload_routes_to_handler():
+def test_jk_button_payload_routes_to_handler(boss_invitation):
     """按钮 payload「挑战」经 BUTTON_HANDLERS["jk"] → handle_boss_button → boss_pending 置位。"""
     from unittest.mock import patch
 
@@ -290,14 +290,15 @@ def test_jk_button_payload_routes_to_handler():
 
     from src.utils.buttons import BUTTON_HANDLERS
 
-    with patch("src.plugins.adventure._run_adventure", fake_run):
-        asyncio.run(BUTTON_HANDLERS["jk"](qq, "挑战", ConsoleBot(), ""))
+    with patch("src.services.boss_framework._adventure_runner", fake_run):
+        token = boss_invitation("jk", qq, ConsoleBot())
+        asyncio.run(BUTTON_HANDLERS["jk"](qq, "挑战", ConsoleBot(), "", token))
     assert boss_pending.pop(qq, None) == "jk"
     _cleanup(qq)
 
 
 # --- C4：挑战 / 不挑战 / day40 防御 ---
-def test_boss_button_decline_skips_day():
+def test_boss_button_decline_skips_day(boss_invitation):
     import asyncio
 
     from src.services.boss_framework import handle_boss_button
@@ -307,14 +308,18 @@ def test_boss_button_decline_skips_day():
     inv = _make_inv(qq)
     inv.day = 25
     inv.save()
-    asyncio.run(handle_boss_button("jk", qq, "不挑战", ConsoleBot(), ""))
+    token = boss_invitation("jk", qq, ConsoleBot())
+    asyncio.run(handle_boss_button("jk", qq, "不挑战", ConsoleBot(), "", token + 1))
+    assert investigator_repo.find_by_qq(qq).day == 25
+    asyncio.run(handle_boss_button("jk", qq, "不挑战", ConsoleBot(), "", token))
+    asyncio.run(handle_boss_button("jk", qq, "不挑战", ConsoleBot(), "", token))
     after = Investigator(investigator_repo.find_by_qq(qq))
     assert after.day == 26
     assert get_data(qq, "adventure_done") is True
     _cleanup(qq)
 
 
-def test_boss_button_challenge_forces_boss():
+def test_boss_button_challenge_forces_boss(boss_invitation):
     import asyncio
     from unittest.mock import patch
 
@@ -328,8 +333,9 @@ def test_boss_button_challenge_forces_boss():
     async def fake_run(uid, bot, send, finish):
         pass
 
-    with patch("src.plugins.adventure._run_adventure", fake_run):
-        asyncio.run(handle_boss_button("jk", qq, "挑战", ConsoleBot(), ""))
+    with patch("src.services.boss_framework._adventure_runner", fake_run):
+        token = boss_invitation("jk", qq, ConsoleBot())
+        asyncio.run(handle_boss_button("jk", qq, "挑战", ConsoleBot(), "", token))
     assert boss_pending.get(qq) == "jk"
     # 模拟下一次 /今日冒险：boss_resolve_forced 弹出旗标并返回 boss id
     assert boss_resolve_forced(qq, Investigator(investigator_repo.find_by_qq(qq))) == "jk"
@@ -470,7 +476,7 @@ def test_qiren_unlocked_and_should_trigger():
     _cleanup("qa_bf_qiren")
 
 
-def test_qiren_send_dialogue_and_decline():
+def test_qiren_send_dialogue_and_decline(boss_invitation):
     import asyncio
 
     from src.plugins.qiren import qiren_send_dialogue
@@ -493,7 +499,8 @@ def test_qiren_send_dialogue_and_decline():
     assert "满月下的身影" in text
     assert "第 41 天" in text
 
-    asyncio.run(handle_boss_button("qiren", qq, "不挑战", ConsoleBot(), ""))
+    token = boss_invitation("qiren", qq, ConsoleBot())
+    asyncio.run(handle_boss_button("qiren", qq, "不挑战", ConsoleBot(), "", token))
     after = Investigator(investigator_repo.find_by_qq(qq))
     assert after.day == 26
     assert get_data(qq, "adventure_done") is True
@@ -545,7 +552,7 @@ def test_mini_boss_dialogue_and_buttons():
         _unregister_mini()
 
 
-def test_mini_boss_challenge_forces_monster_and_decline_skips():
+def test_mini_boss_challenge_forces_monster_and_decline_skips(boss_invitation):
     import asyncio
     from unittest.mock import patch
 
@@ -565,12 +572,14 @@ def test_mini_boss_challenge_forces_monster_and_decline_skips():
         async def fake_run(uid, bot, send, finish):
             pass
 
-        with patch("src.plugins.adventure._run_adventure", fake_run):
-            asyncio.run(handle_boss_button("test_champion", qq, "挑战", ConsoleBot(), ""))
+        with patch("src.services.boss_framework._adventure_runner", fake_run):
+            token = boss_invitation("test_champion", qq, ConsoleBot())
+            asyncio.run(handle_boss_button("test_champion", qq, "挑战", ConsoleBot(), "", token))
         assert boss_pending.get(qq) == "test_champion"
         assert boss_resolve_forced(qq, inv) == "test_champion"
         # 不挑战：day+1
-        asyncio.run(handle_boss_button("test_champion", qq, "不挑战", ConsoleBot(), ""))
+        token = boss_invitation("test_champion", qq, ConsoleBot())
+        asyncio.run(handle_boss_button("test_champion", qq, "不挑战", ConsoleBot(), "", token))
         after = Investigator(investigator_repo.find_by_qq(qq))
         assert after.day == 21
         _cleanup(qq)

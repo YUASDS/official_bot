@@ -53,23 +53,39 @@ class User_info:
         table_name = "user_info"
 
 
-db.create_tables([User], safe=True)
-# 旧库补唯一索引（新库由 unique=True 保证；已有等价唯一索引时跳过）。
-try:
-    has_unique_user_id = False
-    for row in db.execute_sql("PRAGMA index_list('user_info')").fetchall():
-        if not row[2]:
-            continue
-        cols = db.execute_sql(f'PRAGMA index_info("{row[1]}")').fetchall()
-        if [c[2] for c in cols] == ["user_id"]:
-            has_unique_user_id = True
-            break
-    if not has_unique_user_id:
-        db.execute_sql(
-            "CREATE UNIQUE INDEX user_info_user_id_uniq ON user_info(user_id)"
-        )
-except Exception as e:  # noqa: BLE001 - 旧库重复数据不应阻断启动
-    logger.warning(f"user_info.user_id 唯一索引创建失败: {type(e).__name__} {e}")
+def _initialize_user_table() -> None:
+    # get_info 一直以最早的行作为账户。旧重复行完整归档，保留原余额和签到记录。
+    with db.atomic("IMMEDIATE"):
+        if not User.table_exists():
+            db.create_tables([User])
+            return
+
+        # 兼容 Peewee 索引、自建索引和表级 UNIQUE 约束。
+        for index in db.get_indexes("user_info"):
+            if (index.unique and index.columns == ["user_id"]
+                    and "WHERE" not in (index.sql or "").upper()):
+                return
+
+        duplicates = "id NOT IN (SELECT MIN(id) FROM user_info GROUP BY user_id)"
+        count = db.execute_sql(
+            f"SELECT COUNT(*) FROM user_info WHERE {duplicates}"
+        ).fetchone()[0]
+        if count:
+            db.execute_sql(
+                "CREATE TABLE IF NOT EXISTS user_info_duplicates AS "
+                "SELECT * FROM user_info WHERE 0"
+            )
+            db.execute_sql(
+                f"INSERT INTO user_info_duplicates SELECT * FROM user_info WHERE {duplicates}"
+            )
+            db.execute_sql(f"DELETE FROM user_info WHERE {duplicates}")
+        # 旧库可能已有与 Peewee 默认名称相同的普通索引。
+        db.execute_sql("CREATE UNIQUE INDEX user_info_user_id_uniq ON user_info(user_id)")
+    if count:
+        logger.warning(f"已归档 {count} 条重复账户至 user_info_duplicates，当前账户沿用最早记录")
+
+
+_initialize_user_table()
 
 
 def init_user(user_id: str):

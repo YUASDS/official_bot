@@ -166,6 +166,7 @@
     "int_check_row": "| {icon} 智力检定 | `{dice} / {target}` | {result} |",
     "madness_remaining": "（😵 剩余 {count} 回合）",
     "madness_last": "（😵 最后 1 回合）",
+    "boss_invite_stale": "这次挑战邀请已失效，请使用当前冒险的选项。",
     "event_title": " ✨ 奇遇",
     "event_choice": "🔹 `【/行动 {input}】`",
     "event_default": "你犹豫不决，选择了最安全的方式——继续前进。",
@@ -498,6 +499,7 @@
     "count": "已收集 {count}/{total}"
   },
   "door": {
+    "stale": "门扉选项已失效，请通过 /今日冒险 查看当前选项。",
     "title": "🚪 门扉抉择",
     "intro": "第四十天。守门人倒下了。身后的石门吞吐着异色的光，门与你的距离从未如此接近——也从未如此令人犹豫。",
     "frozen_day": "（门扉已敞开，今日之日不再推进。）",

@@ -191,6 +191,8 @@ def test_e04_mirror_defeated_idempotent_and_first_kill_once():
 def test_refight_door_rejected_after_refought():
     qq = "test_refight"
     inv, _ = _make_inv(qq, "Refighter")
+    inv.day = 40
+    inv.save()
     progress = ending_repo.ensure_progress(inv.qq, inv.day)
     progress.dead_once = True
     progress.save()
@@ -218,6 +220,8 @@ def test_refight_door_rejected_after_refought():
 def test_refight_observe_ends_e08():
     qq = "test_refight_observe"
     inv, _ = _make_inv(qq, "Observer")
+    inv.day = 40
+    inv.save()
     progress = ending_repo.ensure_progress(inv.qq, inv.day)
     progress.dead_once = True
     progress.save()

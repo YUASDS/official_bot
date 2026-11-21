@@ -394,7 +394,7 @@ def test_jk_dialogue_trigger_no_battle():
     investigator_repo.delete_by_qq(qq)
 
 
-def test_jk_button_decline_skips_day():
+def test_jk_button_decline_skips_day(boss_invitation):
     import asyncio
 
     from src.plugins.jk import handle_jk_button
@@ -405,14 +405,15 @@ def test_jk_button_decline_skips_day():
     inv.day = 25
     inv.save()
 
-    asyncio.run(handle_jk_button(qq, "不挑战", FakeBot(), ""))
+    token = boss_invitation("jk", qq, FakeBot())
+    asyncio.run(handle_jk_button(qq, "不挑战", FakeBot(), "", token))
     after = Investigator(investigator_repo.find_by_qq(qq))
     assert after.day == 26
     assert get_data(qq, "adventure_done") is True
     investigator_repo.delete_by_qq(qq)
 
 
-def test_jk_button_challenge_forces_boss():
+def test_jk_button_challenge_forces_boss(boss_invitation):
     import asyncio
     from unittest.mock import patch
 
@@ -445,7 +446,8 @@ def test_jk_button_challenge_forces_boss():
         return_value=("", "", False, 0, False, 0),
     ):
         try:
-            asyncio.run(handle_jk_button(qq, "挑战", FakeBot(), ""))
+            token = boss_invitation("jk", qq, FakeBot())
+            asyncio.run(handle_jk_button(qq, "挑战", FakeBot(), "", token))
         except SystemExit:
             pass
 

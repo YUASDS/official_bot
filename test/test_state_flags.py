@@ -252,7 +252,7 @@ def test_flow_done_flag_written_on_finish():
 
 
 # --- C4：boss 待挑战旗标持久化 ---
-def test_boss_pending_flag_written_and_restored_after_restart():
+def test_boss_pending_flag_written_and_restored_after_restart(boss_invitation):
     """挑战按钮 → `boss.pending` 写入；重启模拟（内存清空）boss_resolve_forced 从 flags 恢复。"""
     import asyncio
 
@@ -266,8 +266,9 @@ def test_boss_pending_flag_written_and_restored_after_restart():
     async def fake_run(uid, bot, send, finish):
         pass
 
-    with patch("src.plugins.adventure._run_adventure", fake_run):
-        asyncio.run(handle_boss_button("jk", qq, "挑战", ConsoleBot(), ""))
+    with patch("src.services.boss_framework._adventure_runner", fake_run):
+        token = boss_invitation("jk", qq, ConsoleBot())
+        asyncio.run(handle_boss_button("jk", qq, "挑战", ConsoleBot(), "", token))
 
     assert boss_pending.get(qq) == "jk"
     reloaded = _reload(qq)

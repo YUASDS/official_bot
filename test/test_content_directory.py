@@ -42,7 +42,7 @@ def test_boss_registry_loaded_from_dir():
     # 与原 boss_data.json 归档条目字段级逐字一致（战利品系统已废弃手写 奖励.胜利.物品，
     # 掉落走 loots.json 档位池——从归档快照剔除该字段后再比较）
     old = json.loads(
-        (Path(__file__).parent.parent / "test" / "archive" / "content-directory"
+        (Path(__file__).parent / "fixtures"
          / "boss_data.json").read_text(encoding="utf-8-sig"))
     for bid in ("jk", "qiren"):
         expected = dict(old[bid])

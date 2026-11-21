@@ -491,3 +491,132 @@ def test_adventure_command_in_battle_resends_actions(make_inv):
     assert finished and "请继续战斗" in finished[0]
     assert "行动·抉择" in finished[0]
     assert battle_manager.get_battle(inv.qq) is battle
+
+@pytest.mark.parametrize("has_scroll", [True, False])
+@pytest.mark.parametrize("ended", [True, False])
+def test_frozen_door_recovery_is_free(make_inv, monkeypatch, has_scroll, ended):
+    inv = make_inv(day=40)
+    progress = ending_repo.get_progress(inv.qq)
+    progress.boss36_defeated = True
+    progress.ended = ended
+    progress.save()
+    _mark_adventure_done(inv.qq)
+    add_gold(inv.qq, 30)
+    if has_scroll:
+        investigator_repo.add_item_to_inventory(inv._model, "401")
+    monkeypatch.setattr(adv, "_send_to_user", AsyncMock())
+
+    asyncio.run(adv.handle_scroll_adventure_button(inv.qq, "", BOT))
+    assert get_info(inv.qq).gold == 30
+    assert inv.get_equipments()[0].get("401", 0) == int(has_scroll)
+    assert (inv.qq in adv.door_states) == (not ended)
+    assert battle_manager.get_battle(inv.qq) is None
+
+
+def test_door_requires_current_encounter_and_current_run(make_inv, monkeypatch):
+    inv = make_inv(day=1)
+    assert adv.judge_door_choice(inv, "A").get("error")
+    assert not ending_repo.get_progress(inv.qq).ended
+
+    inv.day = 40
+    inv.save()
+    progress = ending_repo.get_progress(inv.qq)
+    progress.boss36_defeated = True
+    progress.save()
+    choices = adv.render_door_choice(inv)["choices"]
+    adv.door_keyboard(inv, choices)
+    old_token = adv.door_states[inv.qq]["token"]
+    progress.run_id += 1
+    progress.save()
+    monkeypatch.setattr(adv, "_send_to_user", AsyncMock())
+    monkeypatch.setattr(adv, "_try_send_ending_card", AsyncMock(return_value=False))
+    asyncio.run(adv.handle_door_choice(inv.qq, "A", BOT, token=old_token))
+    assert not ending_repo.get_progress(inv.qq).ended
+    adv.door_keyboard(inv, choices)
+    for token in (old_token, None):
+        asyncio.run(adv.handle_door_choice(inv.qq, "A", BOT, token=token))
+        assert not ending_repo.get_progress(inv.qq).ended
+    token = adv.door_states[inv.qq]["token"]
+    asyncio.run(adv.handle_door_choice(inv.qq, "A", BOT, token=token))
+    assert ending_repo.get_progress(inv.qq).ended
+
+
+def test_paid_boss_invitation_resumes_without_another_scroll(make_inv, monkeypatch):
+    from src.services import boss_framework as bosses
+
+    inv = make_inv(day=25)
+    investigator_repo.add_item_to_inventory(inv._model, "401")
+    _mark_adventure_done(inv.qq)
+    monkeypatch.setattr(adv, "hidden_should_trigger", lambda inv: "jk")
+    monkeypatch.setattr(adv, "render_pic", AsyncMock(return_value=None))
+    monkeypatch.setattr(adv, "send_pic", AsyncMock(return_value=False))
+    monkeypatch.setattr(adv, "run_sanity_and_madness", lambda *args: ("", "", False, 0, False, 0))
+    monkeypatch.setattr(bosses, "_send_to_user", AsyncMock())
+    asyncio.run(adv._run_adventure(inv.qq, BOT, discard, discard))
+    invite = bosses.current_boss_invitation(Investigator(investigator_repo.find_by_qq(inv.qq)))
+    assert invite["id"] == "jk"
+    assert inv.get_equipments()[0].get("401", 0) == 0
+    output = AsyncMock()
+    asyncio.run(adv._run_adventure(inv.qq, BOT, output, discard))
+    assert "/行动 挑战" in str(output.await_args.args[0])
+    asyncio.run(bosses.handle_boss_button("jk", inv.qq, "挑战", BOT, token=invite["token"]))
+    assert battle_manager.get_battle(inv.qq).monster.id == "48"
+    asyncio.run(bosses.handle_boss_button("jk", inv.qq, "不挑战", BOT, token=invite["token"]))
+    assert investigator_repo.find_by_qq(inv.qq).day == 25
+
+
+def test_pending_event_cannot_execute_combat(make_inv, monkeypatch):
+    inv = make_inv()
+    battle = BattleService(inv, Monster("1"))
+    battle_manager.add_battle(inv.qq, battle)
+    state = {"token": 521, "event": {"描述": "灯火", "选项": [{"输入": "点灯"}]}}
+    monkeypatch.setitem(adv.event_states, inv.qq, state)
+    execute = AsyncMock()
+    monkeypatch.setattr(battle, "execute_action", execute)
+    sent = AsyncMock()
+    monkeypatch.setattr(adv, "_send_to_user", sent)
+    monkeypatch.setattr(adv.combat_cmd, "finish", AsyncMock())
+
+    finish = AsyncMock()
+    asyncio.run(adv._run_adventure(inv.qq, BOT, discard, finish))
+    assert "/行动 点灯" in str(finish.await_args.args[0])
+    asyncio.run(adv.handle_combat_action(inv.qq, "格斗", BOT, token=battle.get_turn_token()))
+    assert "/行动 点灯" in str(sent.await_args.args[2])
+    asyncio.run(adv._handle_combat(inv.qq, BOT, SimpleNamespace(extract_plain_text=lambda: "格斗")))
+    assert adv.event_states[inv.qq] == state
+    execute.assert_not_called()
+
+
+@pytest.mark.parametrize(("command", "flag"), [("踏入主线", "ml.opt_in"), ("重游门扉", "ml.opt_out")])
+def test_plain_text_selector_routes_to_adventure(make_inv, monkeypatch, command, flag):
+    inv = make_inv(day=1)
+    inv.set_flag("ml.unlocked", True)
+    inv.save()
+    send = AsyncMock()
+    asyncio.run(adv._present_mainline_selector(inv.qq, BOT, send))
+    assert f"/{command}" in str(send.await_args.args[0])
+    resume = AsyncMock()
+    monkeypatch.setattr(adv, "_start_or_resume_adventure", resume)
+    asyncio.run(adv.handle_selector_command(SimpleNamespace(get_user_id=lambda: inv.qq), BOT, (command,)))
+    assert Investigator(investigator_repo.find_by_qq(inv.qq)).get_flag(flag)
+    resume.assert_awaited_once()
+
+def test_selector_registered_by_nonebot(tmp_path):
+    # test_fullflow 会替换进程内的 NoneBot 模块，用新进程检查真实的命令注册。
+    import os
+    import subprocess
+
+    script = """
+import nonebot
+from nonebot.rule import TrieRule
+
+nonebot.init()
+assert nonebot.load_plugin("plugins.StoryTeller") is not None
+for command in ("踏入主线", "重游门扉"):
+    assert TrieRule.prefix[f"/{command}"].command == (command,)
+"""
+    env = dict(os.environ, STORYTELLER_DB_PATH=str(tmp_path / "inv.db"),
+               STORYTELLER_USER_DB_PATH=str(tmp_path / "users.db"),
+               STORYTELLER_DAY_DIR=str(tmp_path / "day"))
+    subprocess.run([sys.executable, "-c", script], check=True, env=env,
+                   cwd=Path(__file__).resolve().parents[1])

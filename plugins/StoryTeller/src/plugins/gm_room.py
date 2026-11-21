@@ -32,7 +32,7 @@ from ..services.ending_engine import (
 )
 from ..services.flow_engine import flow_states, render_flow_node, start_flow
 from ..utils.active_battles import battle_manager
-from ..utils.md_format import build_keyboard, md_message, need_create_message
+from ..utils.md_format import md_message, need_create_message
 from ..utils.state_registry import register_state_store
 
 
@@ -141,19 +141,13 @@ async def _use_dream_fragment(user_id: str, bot: Bot, send, finish) -> None:
         return
 
     # 用途 B：第 40 天门扉抉择判定后重掷（撤销判定 → 重新展示门扉 → 再次判定）
-    from ..services.daily_service import door_states
+    from ..services.daily_service import door_keyboard
 
     reroll_text = reroll_door_choice(inv)
     if reroll_text:
         ending_repo.remove_dream_fragment(user_id)
         door_render = render_door_choice(inv)
-        door_states[user_id] = {"choices": door_render["choices"]}
-        choices = door_render["choices"]
-        rows = [
-            [(c["label"], f"door:{c['key']}") for c in choices[i : i + 3]]
-            for i in range(0, len(choices), 3)
-        ]
-        kb = build_keyboard(rows)
+        kb = door_keyboard(inv, door_render["choices"])
         msg = md_message(
             f"\n{t('dream_fragment.reroll_show')}\n\n{reroll_text}\n\n"
             f"{door_render['text']}",
