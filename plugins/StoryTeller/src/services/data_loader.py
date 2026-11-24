@@ -43,6 +43,7 @@ class DataLoader:
             self.shop_data = self._load_json(base_path / "shop_data.json")
             self.environment_data = self._load_json(base_path / "environment_data.json")
             self.event_data = self._load_json(base_path / "event_data.json")
+            self.tomorrow_call = self._load_json(base_path / "tomorrow_call.json")
             self.spell_data = self._load_json(base_path / "spell_data.json")
             self.text_data = self._load_json(base_path / "text_data.json")
             self.ending_data = self._load_json(base_path / "ending_data.json")

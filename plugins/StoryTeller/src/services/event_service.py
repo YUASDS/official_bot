@@ -160,7 +160,7 @@ def resolve_check_option(
 
 
 def apply_event_choice(
-    inv: Investigator, user_id: str, matched: dict
+    inv: Investigator, user_id: str, matched: dict, *, event_key: str = ""
 ) -> tuple[str, bool]:
     """处理事件选项：条件硬门 → 乌帕校验 → 检定 → 效果 → 回复。返回 (消息, 是否跳过战斗)。"""
     from ..models.player import ending_repo
@@ -182,7 +182,9 @@ def apply_event_choice(
     summary = apply_event_effects(inv, user_id, effects)
     # 统计二期：事件流水（效果应用后，写后不理）
     check = matched.get("检定") or {}
-    record_event(inv, matched, check_skill=check.get("技能", ""), passed=passed, effects=effects)
+    record_event(
+        inv, matched, check_skill=check.get("技能", ""), passed=passed, effects=effects, event_key=event_key
+    )
     reply = event_reply_with_effects(reply, summary)
     skip = bool(matched.get("跳过战斗")) and (passed is None or passed)
     return reply, skip

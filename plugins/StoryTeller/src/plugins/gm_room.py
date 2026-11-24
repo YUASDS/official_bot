@@ -30,6 +30,7 @@ from ..services.ending_engine import (
     render_door_choice,
     reroll_door_choice,
 )
+from ..services.event_service import event_states
 from ..services.flow_engine import flow_states, render_flow_node, start_flow
 from ..utils.active_battles import battle_manager
 from ..utils.md_format import md_message, need_create_message
@@ -130,7 +131,7 @@ async def _use_dream_fragment(user_id: str, bot: Bot, send, finish) -> None:
 
     # 用途 A：战斗中激活战斗强化（全技能 +30、伤害翻倍、+25 临时生命）
     battle = battle_manager.get_battle(user_id)
-    if battle and not battle.fight_is_over() and battle.investigator.is_survive:
+    if battle and user_id not in event_states and not battle.fight_is_over() and battle.investigator.is_survive:
         ending_repo.remove_dream_fragment(user_id)
         buff_text = battle.apply_dream_buff()
         from ..services.combat_messaging import send_combat_result

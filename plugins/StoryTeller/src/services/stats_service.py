@@ -342,6 +342,8 @@ def record_event(
     check_skill: str = "",
     passed: Optional[bool] = None,
     effects: Optional[dict] = None,
+    *,
+    event_key: str = "",
 ) -> None:
     """写一行 event_logs（效果应用后调用）。"""
     try:
@@ -351,7 +353,7 @@ def record_event(
             qq=str(inv.qq),
             run_id=_run_id_of(inv.qq),
             day=int(getattr(inv, "day", 0) or 0),
-            event_key=_find_event_key(option or {}),
+            event_key=event_key or _find_event_key(option or {}),
             option=str((option or {}).get("输入", "")),
             check_skill=str(check_skill or ""),
             passed=1 if passed else (0 if passed is False else -1),

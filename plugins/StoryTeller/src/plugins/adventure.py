@@ -5,9 +5,11 @@ from nonebot.params import Command, CommandArg
 from loguru import logger
 import random
 import ujson
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Any, Callable
 
+from ..services import tomorrow_call
 from ..services.battle import BattleService
 from ..models.player import Investigator, ending_repo, investigator_repo
 from ..models.monster import Monster, monster_repo
@@ -93,7 +95,7 @@ from ..utils.md_format import (
 from ..services.daily_service import (
     _adventure_done_today,
     _mark_adventure_done,
-    _skip_daily as _skip_daily,  # noqa: F401 - 保留旧调用方/测试 re-export
+    _skip_daily,
     door_states,
     door_keyboard,
 )
@@ -262,17 +264,6 @@ def _daily_done_msg(user_id: str, bot: Bot):
     return msg
 
 
-def _advance_day_after_event(inv: Investigator) -> None:
-    """事件检定成功跳过战斗后推进 day：与胜利结算一致（settlement.py，day40 冻结不推进）。
-
-    圣泉洗礼等「跳过战斗」事件此前不推进 day，导致 day5 反复触发/主线卡死（B1）。
-    day40 保持冻结（终局由守门人战斗结算），不再额外 +1。
-    """
-    if inv.day < 40:
-        inv.day += 1
-    inv.save()
-
-
 # --- 每日彩蛋互斥链调度器（triggers 配置驱动）---
 # 缺省触发器顺序 = 现状链（hidden[jk/qiren] → guest → npc → gm_room）；
 # 唯一数据定义在 data_loader._DEFAULT_TRIGGERS，本插件只读不定义。
@@ -412,6 +403,31 @@ async def _start_battle_after_event(
     await send(send_turn(battle, bot, reply))
 
 
+def _new_encounter(inv: Investigator, monster: Monster, env: dict) -> BattleService:
+    battle = BattleService(inv, monster)
+    if env:
+        battle.set_environment(env)
+    _apply_hound_hesitation(battle, inv, monster.id)
+    inject_companion(battle, inv)
+    inv.is_adventure = True
+    inv.save()
+    return battle
+
+
+def _restore_call(inv: Investigator) -> dict | None:
+    """重启后恢复已入场的调查，包括原怪物、环境和按钮令牌。"""
+    from ..services.flow_engine import flow_states
+
+    case = tomorrow_call.pending(inv)
+    if case is None or inv.qq in flow_states or daily_block_reason(inv, ending_repo.get_progress(inv.qq)):
+        return None
+    battle = _new_encounter(inv, Monster(case["monster"]), case["environment"])
+    battle_manager.add_battle(inv.qq, battle)
+    state = tomorrow_call.event_state(case)
+    event_states[inv.qq] = state
+    return state
+
+
 def _event_prompt(
     inv: Investigator, state: dict, bot: Bot, header: str = "", *, show_description: bool = True
 ):
@@ -425,7 +441,7 @@ def _event_prompt(
     locks = [event_option_locked(opt, inv, progress) for opt in options]
     kb = build_keyboard(event_option_rows(labels, options, locks, token=state["token"]))
     t = data_loader.get_text
-    lines = [header, t("adventure.event_title")]
+    lines = [header, event.get("标题") or t("adventure.event_title")]
     if show_description:
         lines.append(report_quote([event["描述"]]))
     for opt, label in zip(options, labels):
@@ -510,6 +526,10 @@ async def _start_or_resume_adventure(
         if block:
             await _send_frozen_door(user_id, inv, block, bot, send, finish)
             return
+        restored = _restore_call(inv)
+        if restored:
+            await finish(_event_prompt(inv, restored, bot))
+            return
         invite = current_boss_invitation(inv)
         if invite:
             await send_boss_dialogue(invite["id"], user_id, bot, send)
@@ -567,12 +587,13 @@ async def _start_or_resume_adventure(
         # 隐藏挑战 BOSS（jk/qiren 及未来新 BOSS）：挑战旗标 → 强制绑定怪物（boss 配置表）；
         # 否则每日共享概率触发对话（挑战/不挑战）。day40 守卫内置 boss_framework（门扉归守门人）。
         forced = bool(forced_boss)
+        case_node = None if forced else tomorrow_call.due_node(inv)
         if forced:
             monster_id = str((get_boss(forced_boss) or {}).get("怪物id") or forced_boss)
         else:
             monster_id = None
         if not monster_id:
-            if await _dispatch_daily_triggers(
+            if not case_node and await _dispatch_daily_triggers(
                 user_id, inv, bot, send, after_monster=False
             ):
                 # 每日彩蛋互斥链：按 triggers 配置 priority 排序，第一个命中即触发（一天至多一个）
@@ -615,7 +636,7 @@ async def _start_or_resume_adventure(
 
         # GM 房间彩蛋（梦之碎片）：after_monster 触发器（选怪后判定，保持随机消费时序不变）；
         # day40/隐藏挑战不参与（互斥链优先级最低）
-        if not forced and await _dispatch_daily_triggers(
+        if not forced and not case_node and await _dispatch_daily_triggers(
             user_id, inv, bot, send, after_monster=True
         ):
             return
@@ -636,16 +657,13 @@ async def _start_or_resume_adventure(
                 env["name"] = env_key
                 env_desc = f"【{env_key}】{env.get('描述', '')}"
 
-        # --- Battle service ---
-        service = BattleService(inv, monster)
-        if env:
-            service.set_environment(env)
-        # 周目联动：被猎犬杀死过 → 首次遭遇猎犬它迟疑一回合（首回合跳过攻击）
-        _apply_hound_hesitation(service, inv, monster_id)
-        # 伙伴助战：好感度满解锁的 NPC 伙伴注入（泛化 506 骨哨助战，纯战斗内状态）
-        inject_companion(service, inv)
-        inv.is_adventure = True
-        inv.save()
+        service = _new_encounter(inv, monster, env)
+        if case_node:
+            state = tomorrow_call.open_node(inv, case_node, monster_id, env)
+            event_states[user_id] = state
+            battle_manager.add_battle(user_id, service)
+            await send(_event_prompt(inv, state, bot))
+            return
 
         env_name = env.get("name", "") if env else ""
         title = (
@@ -888,8 +906,10 @@ async def handle_combat(event: Event, bot: Bot, msg: Message = CommandArg()):
 
 @exclusive_user_operation
 async def _handle_combat(user_id: str, bot: Bot, msg: Message):
-    if investigator_repo.find_by_qq(user_id) is None:
+    inv_model = investigator_repo.find_by_qq(user_id)
+    if inv_model is None:
         await combat_cmd.finish(need_create_message(bot, mention=user_id))
+        return
     action = msg.extract_plain_text().strip()
 
     # 门扉抉择命令通道（door 按钮/命令同通道）
@@ -941,10 +961,12 @@ async def _handle_combat(user_id: str, bot: Bot, msg: Message):
         await npc_handle_command(user_id, npc_state["npc_id"], choice, bot, combat_cmd.send)
         return
 
+    # 重启后，玩家也可以直接回复原提示。
+    if inv_model.issurvive and user_id not in event_states and battle_manager.get_battle(user_id) is None:
+        _restore_call(Investigator(inv_model))
     # Check for pending event choice first
     ev_state = event_states.get(user_id)
     if ev_state:
-        event_data = ev_state["event"]
         battle = battle_manager.get_battle(user_id)
         if not battle:
             event_states.pop(user_id, None)
@@ -955,6 +977,7 @@ async def _handle_combat(user_id: str, bot: Bot, msg: Message):
                     mention=user_id,
                 )
             )
+            return
         if not battle.investigator.is_survive:
             # P0-1 防线：死亡角色不进入事件流程，清理战场残留
             event_states.pop(user_id, None)
@@ -966,67 +989,10 @@ async def _handle_combat(user_id: str, bot: Bot, msg: Message):
                     mention=user_id,
                 )
             )
-
-        # Strip /行动 prefix
-        choice = action.removeprefix("/行动 ").removeprefix("/行动").strip()
-        matched = (
-            next((o for o in event_data["选项"] if o["输入"] == choice), None)
-            if choice
-            else None
-        )
-
-        if choice and matched is None:
-            await combat_cmd.finish(_event_prompt(battle.investigator, ev_state, bot))
-            return
-        event_states.pop(user_id, None)
-
-        if matched:
-            event_reply, skip_battle = apply_event_choice(
-                battle.investigator, user_id, matched
-            )
-            if skip_battle:
-                # 检定成功：跳过今日战斗（图片卡片优先，失败回退 md）
-                battle.investigator.is_adventure = False
-                _advance_day_after_event(battle.investigator)  # day +1（day40 冻结），与胜利结算一致
-                battle_manager.remove_battle(user_id)
-                _mark_adventure_done(user_id)
-                await send_event_skip_battle(
-                    battle, event_reply, bot, combat_cmd.send, combat_cmd.finish
-                )
-                return
-        else:
-            event_reply = data_loader.get_text("adventure.event_default")
-            skip_battle = False
-        if skip_battle:
             return
 
-        # 奇遇完成后：怪物出场 → 理智检定（+智力检定/疯狂）→ 敏捷对比 → 战斗开始
-        san_desc, madness_desc, is_mad, madness_duration, san_zero, san_loss = (
-            run_sanity_and_madness(battle.investigator, battle.monster)
-        )
-        if san_zero:
-            await _handle_san_zero(
-                battle,
-                battle.investigator,
-                user_id,
-                san_desc,
-                san_loss,
-                bot,
-                combat_cmd.send,
-                show_cg=False,
-            )
-            return
-        await _start_battle_after_event(
-            battle,
-            user_id,
-            event_reply,
-            san_desc,
-            madness_desc,
-            is_mad,
-            madness_duration,
-            bot,
-            combat_cmd.send,
-        )
+        choice = action.removeprefix("/行动").strip()
+        await _resolve_event_input(battle, ev_state, choice, bot, combat_cmd.send, combat_cmd.finish)
         return
 
     # Normal combat flow
@@ -1437,6 +1403,10 @@ async def handle_event_choice(
     token: int | None = None,
 ) -> None:
     """按钮触发奇遇事件选择。"""
+    if user_id not in event_states and battle_manager.get_battle(user_id) is None:
+        model = investigator_repo.find_by_qq(user_id)
+        if model and model.issurvive:
+            _restore_call(Investigator(model))
     ev_state = event_states.get(user_id)
     state_token = ev_state.get("token") if ev_state else None
     if ev_state and state_token is not None and token != state_token:
@@ -1451,7 +1421,6 @@ async def handle_event_choice(
             group_openid,
         )
         return
-    event_states.pop(user_id, None)
     battle = battle_manager.get_battle(user_id)
     if not ev_state:
         # 事件已消费（重复点击旧按钮）：战斗已开始则重发当前行动提示+键盘自愈，
@@ -1489,6 +1458,7 @@ async def handle_event_choice(
         )
         return
     if not battle:
+        event_states.pop(user_id, None)
         await _send_to_user(
             bot,
             user_id,
@@ -1502,6 +1472,7 @@ async def handle_event_choice(
         return
     if not battle.investigator.is_survive:
         # P0-1 防线：死亡角色不能通过按钮继续事件流程，清理战场残留
+        event_states.pop(user_id, None)
         battle_manager.remove_battle(user_id)
         await _send_to_user(
             bot,
@@ -1515,58 +1486,57 @@ async def handle_event_choice(
         )
         return
 
-    event_data = ev_state["event"]
-    matched = next((o for o in event_data["选项"] if o["输入"] == choice), None)
-
     async def _send(msg) -> None:
         await _send_to_user(bot, user_id, msg, group_openid)
 
-    if matched:
-        event_reply, skip_battle = apply_event_choice(
-            battle.investigator, user_id, matched
-        )
-        if skip_battle:
-            # 检定成功：跳过今日战斗（图片卡片优先，失败回退 md）
-            battle.investigator.is_adventure = False
-            _advance_day_after_event(battle.investigator)  # day +1（day40 冻结），与胜利结算一致
-            battle_manager.remove_battle(user_id)
-            _mark_adventure_done(user_id)
-            await send_event_skip_battle(battle, event_reply, bot, _send, _send)
-            return
-    else:
-        event_reply = data_loader.get_text("adventure.event_default")
-        skip_battle = False
-    if skip_battle:
+    await _resolve_event_input(battle, ev_state, choice, bot, _send, _send)
+
+
+async def _resolve_event_input(
+    battle: BattleService, state: dict, choice: str, bot: Bot, send: Callable, finish: Callable
+) -> None:
+    inv = battle.investigator
+    user_id = inv.qq
+    matched = next((o for o in state["event"]["选项"] if o["输入"] == choice), None)
+    case_node = state.get("case_node")
+    if matched is None and (case_node or choice):
+        await finish(_event_prompt(inv, state, bot))
         return
 
-    # 奇遇完成后：怪物出场 → 理智检定（+智力检定/疯狂）→ 敏捷对比 → 战斗开始
-    san_desc, madness_desc, is_mad, madness_duration, san_zero, san_loss = (
-        run_sanity_and_madness(battle.investigator, battle.monster)
-    )
-    if san_zero:
-        await _handle_san_zero(
-            battle,
-            battle.investigator,
-            user_id,
-            san_desc,
-            san_loss,
-            bot,
-            _send,
-            show_cg=False,
-        )
+    if case_node and matched.get("转到"):
+        state = tomorrow_call.open_node(inv, matched["转到"], battle.monster.id, battle.environment)
+        event_states[user_id] = state
+        await send(_event_prompt(inv, state, bot))
         return
-    await _start_battle_after_event(
-        battle,
-        user_id,
-        event_reply,
-        san_desc,
-        madness_desc,
-        is_mad,
-        madness_duration,
-        bot,
-        _send,
-    )
-    return
+
+    if matched:
+        with investigator_repo.db.atomic() if case_node else nullcontext():
+            reply, skip = apply_event_choice(
+                inv, user_id, matched, event_key=state.get("event_key", "")
+            )
+            if case_node:
+                tomorrow_call.record_choice(inv, matched)
+            if skip:
+                _skip_daily(user_id, inv)
+    else:
+        reply, skip = data_loader.get_text("adventure.event_default"), False
+
+    event_states.pop(user_id, None)
+    if skip:
+        battle_manager.remove_battle(user_id)
+        _mark_adventure_done(user_id)
+        if case_node:
+            heading = "明天的来电 · 结案" if case_node == "door" else "明天的来电 · 调查笔记"
+            await send(md_message(f"**{heading}**\n\n{reply}\n\n今日冒险完成。", bot, mention=user_id))
+        else:
+            await send_event_skip_battle(battle, reply, bot, send, finish)
+        return
+
+    san_desc, madness_desc, is_mad, duration, san_zero, san_loss = run_sanity_and_madness(inv, battle.monster)
+    if san_zero:
+        await _handle_san_zero(battle, inv, user_id, san_desc, san_loss, bot, send, show_cg=False)
+        return
+    await _start_battle_after_event(battle, user_id, reply, san_desc, madness_desc, is_mad, duration, bot, send)
 
 
 # --- 二周目选择器（day1 踏入主线 / 重游门扉） ---

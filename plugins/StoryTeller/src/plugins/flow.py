@@ -15,6 +15,7 @@ from nonebot.exception import FinishedException
 from nonebot.params import CommandArg
 
 from ..models.player import Investigator, investigator_repo
+from ..services import tomorrow_call
 from ..services.data_loader import data_loader
 from ..services.flow_engine import (
     flow_states,
@@ -49,7 +50,7 @@ async def _handle_explore(user_id: str, ref: str, bot: Bot, send, finish) -> Non
     if user_id in flow_states:
         await finish(md_message(f"\n{t('flow.in_progress')}", bot, mention=user_id))
         return
-    if battle_manager.get_battle(user_id) is not None:
+    if battle_manager.get_battle(user_id) is not None or tomorrow_call.pending(inv):
         await finish(md_message(f"\n{t('adventure.in_battle')}", bot, mention=user_id))
         return
     flow_id = resolve_flow_ref(ref)
