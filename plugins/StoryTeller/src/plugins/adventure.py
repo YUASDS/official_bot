@@ -9,7 +9,8 @@ from contextlib import nullcontext
 from pathlib import Path
 from typing import Any, Callable
 
-from ..services import tomorrow_call
+from ..services import ship_case, tomorrow_call
+from ..services.ship_battle import ShipBattle
 from ..services.battle import BattleService
 from ..models.player import Investigator, ending_repo, investigator_repo
 from ..models.monster import Monster, monster_repo
@@ -526,15 +527,20 @@ async def _start_or_resume_adventure(
         if block:
             await _send_frozen_door(user_id, inv, block, bot, send, finish)
             return
+        ship_state = ship_case.pending(inv)
+        if ship_state and not ship_state.get("retry"):
+            await _show_ship_day(inv, ship_state, bot, send)
+            return
         restored = _restore_call(inv)
         if restored:
             await finish(_event_prompt(inv, restored, bot))
             return
-        invite = current_boss_invitation(inv)
+        ship_active = inv.get_flag(ship_case.ACTIVE)
+        invite = None if ship_active else current_boss_invitation(inv)
         if invite:
             await send_boss_dialogue(invite["id"], user_id, bot, send)
             return
-        forced_boss = boss_resolve_forced(user_id, inv)
+        forced_boss = None if ship_active else boss_resolve_forced(user_id, inv)
         if not forced_boss and _adventure_done_today(user_id):
             # 冒险卷（401）：背包持有则自动使用，获得额外冒险次数。
             # 「购买冒险卷并冒险」按钮：买卷放在全部前置门之后立即消费，
@@ -577,6 +583,9 @@ async def _start_or_resume_adventure(
         # 主线弧互斥链优先级最高（二周目）：开幕插曲/分支节点命中即接管当日（占日 day+1 走 flow）。
         # 一周目/未解锁恒不命中（mainline 内部零回归红线），此处返回 False 走既有 乱入/普通冒险。
         # 二周目 day1 返回 SELECTOR_SIGNAL → 展示选择器 UI（不占日），玩家选择后重进当日冒险。
+        if ship_active:
+            await _show_ship_day(inv, ship_case.open_day(inv), bot, send)
+            return
         if not forced_boss:
             _signal = await try_mainline_daily(user_id, inv, bot, send, finish)
             if _signal is not False:
@@ -911,6 +920,13 @@ async def _handle_combat(user_id: str, bot: Bot, msg: Message):
         await combat_cmd.finish(need_create_message(bot, mention=user_id))
         return
     action = msg.extract_plain_text().strip()
+    inv = Investigator(inv_model)
+    ship_state = ship_case.pending(inv)
+    if inv.is_survive and ship_state and not battle_manager.get_battle(user_id):
+        _restore_ship_battle(inv, ship_state)
+    if inv.is_survive and ship_state and ship_state["phase"] != "fight":
+        await _ship_input(inv, action.removeprefix("/行动").strip(), None, bot, combat_cmd.send)
+        return
 
     # 门扉抉择命令通道（door 按钮/命令同通道）
     door_state = door_states.get(user_id)
@@ -1060,6 +1076,7 @@ async def _handle_combat(user_id: str, bot: Bot, msg: Message):
         battle.investigator.update_equipment()
         battle.refresh_available_actions()
         battle._update_gun_status()
+        battle.current_action = "换装"
         # 战斗内换装消耗玩家回合：与格斗/射击/急救一致走 _end_turn 推进。
         await _send_action_result(
             user_id, battle, before, (msg_text, battle._end_turn()), bot,
@@ -1082,6 +1099,11 @@ async def handle_combat_action(
 ) -> None:
     """按钮触发战斗行动。token 用于防重复点击（旧按钮失效）。"""
     battle = battle_manager.get_battle(user_id)
+    if not battle:
+        model = investigator_repo.find_by_qq(user_id)
+        if model and model.issurvive:
+            inv = Investigator(model)
+            battle = _restore_ship_battle(inv, ship_case.pending(inv))
     if not battle:
         await _send_to_user(
             bot,
@@ -1136,6 +1158,17 @@ async def _send_action_result(
 ) -> None:
     """先完成终态清理，再发战报；网络错误不留下已结束的活动战斗。"""
     over = battle.fight_is_over()
+    if isinstance(battle, ShipBattle):
+        if not over:
+            battle.checkpoint()
+        elif battle.fled or not battle.investigator.is_survive:
+            inv = battle.investigator
+            state = inv.get_flag(ship_case.PENDING)
+            state.pop("battle", None)
+            state["retry"] = True
+            inv.set_flag(ship_case.PENDING, state)
+        else:
+            battle.investigator.clear_flag(ship_case.PENDING)
     if over:
         await _cleanup_battle(user_id, battle)
     try:
@@ -1539,7 +1572,106 @@ async def _resolve_event_input(
     await _start_battle_after_event(battle, user_id, reply, san_desc, madness_desc, is_mad, duration, bot, send)
 
 
-# --- 二周目选择器（day1 踏入主线 / 重游门扉） ---
+ship_notes_cmd = on_command("航海日志", priority=10, block=True)
+
+
+@ship_notes_cmd.handle()
+async def handle_ship_notes(event: Event, bot: Bot):
+    user_id = event.get_user_id()
+    model = investigator_repo.find_by_qq(user_id)
+    inv = Investigator(model) if model else None
+    if not inv or not inv.get_flag(ship_case.ACTIVE):
+        await ship_notes_cmd.finish(md_message("进入失船案后即可查看本局航海日志。", bot, mention=user_id))
+        return
+    await ship_notes_cmd.finish(md_message(ship_case.case_notes(inv), bot, mention=user_id))
+
+
+def _ship_prompt(inv, state, bot):
+    title, body, choices = ship_case.view(inv, state)
+    lines = [f"**{title}**", body, "线索可查 /航海日志"]
+    rows = []
+    for idx, label in enumerate(choices, start=1):
+        lines.append(f"{idx}. {cmd_tag('/行动 ' + label, show=label)}")
+        rows.append([(label, f"ship:{idx}:{state['token']}")])
+    msg = md_message("\n\n".join(lines), bot, mention=inv.qq)
+    if isinstance(msg, str):
+        return f"{title}\n\n{body}\n\n线索可查 /航海日志\n" + "\n".join(
+            f"{idx}. /行动 {label}" for idx, label in enumerate(choices, start=1)
+        )
+    kb = build_keyboard(rows)
+    if kb is not None:
+        msg.append(kb)
+    return msg
+
+
+def _restore_ship_battle(inv, state):
+    if not state or state.get("retry") or not state.get("battle"):
+        return None
+    battle = ShipBattle(inv, Monster(state["monster"]))
+    battle.restore(state["battle"])
+    battle_manager.add_battle(inv.qq, battle)
+    return battle
+
+
+async def _show_ship_day(inv, state, bot, send):
+    if state["phase"] != "fight":
+        await send(_ship_prompt(inv, state, bot))
+        return
+    battle = _restore_ship_battle(inv, state)
+    if battle:
+        text = f"接续战斗 · {battle.monster.name}\n\n{battle.get_status_table()}\n\n{battle.get_action_section()}"
+        await send(send_turn(battle, bot, text))
+        return
+    battle = ShipBattle(inv, Monster(state["monster"]))
+    inject_companion(battle, inv)
+    with investigator_repo.db.atomic():
+        state.pop("retry", None)
+        inv.set_flag(ship_case.PENDING, state)
+        inv.is_adventure = True
+        san, madness, mad, duration, zero, loss = run_sanity_and_madness(inv, battle.monster)
+        if not zero and inv.get_skill("san") > 0:
+            battle.set_madness(mad, duration if mad else 0)
+            intro = battle.start_turn()
+            battle.checkpoint()
+    if zero or inv.get_skill("san") <= 0:
+        await _handle_san_zero(battle, inv, inv.qq, san, loss, bot, send)
+        return
+    battle_manager.add_battle(inv.qq, battle)
+    await send(send_turn(battle, bot, "\n\n".join(filter(None, (
+        state["reply"], battle.monster.intro, san, madness, intro,
+    )))))
+
+
+async def _ship_input(inv, choice, token, bot, send):
+    kind, result = ship_case.respond(inv, choice, token)
+    if kind == "ending":
+        _mark_adventure_done(inv.qq)
+        if not await _try_send_ending_card(bot, inv.qq, "", result, inv=inv, send=send):
+            meta = data_loader.ending_data["endings"][result]
+            await send(md_message(f"**{meta['name']}**\n\n{meta['outline']}", bot, mention=inv.qq))
+    elif kind == "fight":
+        await _show_ship_day(inv, ship_case.pending(inv), bot, send)
+    else:
+        if kind == "done":
+            _mark_adventure_done(inv.qq)
+            result += "\n\n今日冒险完成。"
+        await send(md_message(result, bot, mention=inv.qq))
+        if kind == "prompt":
+            await send(_ship_prompt(inv, ship_case.pending(inv), bot))
+
+
+@exclusive_user_operation
+async def handle_ship_button(user_id, choice, bot, group_openid="", token=None):
+    async def send(message):
+        await _send_to_user(bot, user_id, message, group_openid)
+
+    model = investigator_repo.find_by_qq(user_id)
+    if not model or not model.issurvive or token is None:
+        return
+    await _ship_input(Investigator(model), choice, token, bot, send)
+
+
+# --- 开局战役选择器 ---
 async def _present_mainline_selector(
     user_id: str, bot: Bot, send: Callable
 ) -> None:
@@ -1551,12 +1683,12 @@ async def _present_mainline_selector(
     opt2 = copy.get("选项2", "重游门扉")
     opt2_desc = copy.get("选项2说明", "")
 
-    kb = build_keyboard(
-            [
-                [(opt1, "mainline_selector:guard_in")],
-                [(opt2, "mainline_selector:door")],
-            ]
-        )
+    rows = [[(opt1, "mainline_selector:guard_in")], [(opt2, "mainline_selector:door")]]
+    can_board = ship_case.unlocked(user_id)
+    if can_board:
+        title = "请选择这一次要踏入的旅程。"
+        rows.append([("接听未结的呼救", "mainline_selector:ship")])
+    kb = build_keyboard(rows)
     body = (
         f"\n**{title}**\n\n"
         f"🔹 `{opt1}`\n> {opt1_desc}  \n"
@@ -1564,9 +1696,13 @@ async def _present_mainline_selector(
         f"🔹 `{opt2}`\n> {opt2_desc}  \n"
         f"{cmd_tag('/重游门扉', show=opt2)}"
     )
+    if can_board:
+        body += f"\n\n{cmd_tag('/接听未结的呼救', show='接听未结的呼救')} · 失船案（三周目，40 天）"
     msg = md_message(body, bot, mention=user_id)
     if isinstance(msg, str):
         msg = f"{title}\n/踏入主线　{opt1_desc}\n/重游门扉　{opt2_desc}"
+        if can_board:
+            msg += "\n/接听未结的呼救　雾鸣镇失船案（40 天）"
     elif kb is not None:
         msg.append(kb)
     await send(msg)
@@ -1585,7 +1721,7 @@ async def _choose_mainline(user_id: str, choice: str, bot: Bot, send, finish):
     await _start_or_resume_adventure(user_id, bot, send, finish)
 
 
-selector_cmd = on_command("踏入主线", aliases={"重游门扉"}, priority=10, block=True)
+selector_cmd = on_command("踏入主线", aliases={"重游门扉", "接听未结的呼救"}, priority=10, block=True)
 
 
 @selector_cmd.handle()
@@ -1614,6 +1750,7 @@ async def handle_mainline_selector_button(
 
 
 # --- 按钮回调注册 ---
+register_button_handler("ship", handle_ship_button)
 register_button_handler("action", handle_combat_action)
 register_button_handler("event", handle_event_choice)
 register_button_handler("event_locked", handle_event_locked)

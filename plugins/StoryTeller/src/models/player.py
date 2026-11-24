@@ -41,7 +41,9 @@ def _add_column_if_missing(db: Any, table: str, column: str, ddl: str) -> None:
     if column in columns:
         return
     try:
-        db.execute_sql(f'ALTER TABLE "{table}" ADD COLUMN {ddl}')
+        # ddl 只传类型与默认值（如 "TEXT DEFAULT '{}'"），列名由 column 统一加引号，
+        # 避免 "ADD COLUMN TEXT DEFAULT ..." 建出名为 TEXT 的垃圾列。
+        db.execute_sql(f'ALTER TABLE "{table}" ADD COLUMN "{column}" {ddl}')
         logger.info(f"数据库迁移：{table} 新增列 {column}")
     except Exception as e:  # noqa: BLE001 - 迁移失败必须可见
         logger.warning(f"数据库迁移失败 {table}.{column}: {type(e).__name__} {e}")
@@ -154,6 +156,7 @@ class EndingCollectionModel(BaseModel):
     """
 
     qq = CharField(unique=True, verbose_name="QQ号")
+    campaign_clears = TextField(default="{}", verbose_name="合格通关记录（每局一条）")
     total_runs = IntegerField(default=0, verbose_name="累计周目数")
     total_days = IntegerField(default=0, verbose_name="累计存活天数")
     endings = TextField(default="[]", verbose_name="已解锁结局(JSON)")
@@ -192,11 +195,9 @@ class InvestigatorRepository:
     @staticmethod
     def _migrate(db: Any) -> None:
         """旧库补充新增列（spells / 克苏鲁神话 / flags）。"""
-        _add_column_if_missing(db, "investigators", "spells", "spells TEXT DEFAULT '[]'")
-        _add_column_if_missing(
-            db, "investigators", "克苏鲁神话", "克苏鲁神话 INTEGER DEFAULT 0"
-        )
-        _add_column_if_missing(db, "investigators", "flags", "flags TEXT DEFAULT '{}'")
+        _add_column_if_missing(db, "investigators", "spells", "TEXT DEFAULT '[]'")
+        _add_column_if_missing(db, "investigators", "克苏鲁神话", "INTEGER DEFAULT 0")
+        _add_column_if_missing(db, "investigators", "flags", "TEXT DEFAULT '{}'")
 
     def find_by_qq(self, qq: str) -> Optional[InvestigatorModel]:
         try:
@@ -382,6 +383,7 @@ class EndingRepository:
     def _migrate(db: Any) -> None:
         """旧库补列：表 A 全字段 + 表 B 全字段（缺列才 ALTER，失败可见）。"""
         columns = (
+            ("ending_collection", "campaign_clears", "TEXT DEFAULT '{}'"),
             ("ending_collection", "total_runs", "INTEGER DEFAULT 0"),
             ("ending_collection", "total_days", "INTEGER DEFAULT 0"),
             ("ending_collection", "endings", "TEXT DEFAULT '[]'"),
@@ -502,6 +504,7 @@ class EndingRepository:
         ending_id: str,
         variant: Optional[str] = None,
         run: Optional[int] = None,
+        campaign: str = "",
     ) -> None:
         """表 B `endings` 追加解锁记录（同结局同变体去重）。"""
         collection = self.ensure_collection(qq)
@@ -512,6 +515,11 @@ class EndingRepository:
             records = []
         if run is None:
             run = collection.total_runs
+        if campaign in {"door", "mainline"}:
+            clears = ujson.loads(collection.campaign_clears or "{}")
+            clears[str(run)] = {"campaign": campaign, "ending": ending_id}
+            collection.campaign_clears = ujson.dumps(clears)
+            collection.save(only=[EndingCollectionModel.campaign_clears])
         payload = {
             "id": ending_id,
             "unlocked_at": datetime.now().strftime("%Y-%m-%d %H:%M"),

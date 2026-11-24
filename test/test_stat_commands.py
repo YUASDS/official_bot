@@ -192,7 +192,7 @@ def test_career_section_shows_data() -> None:
     _seed()
     text = career_section(QQ)
     assert "累计周目：3" in text
-    assert "结局图鉴：2/12" in text
+    assert "结局图鉴：2/15" in text
     assert "信物图鉴：2/8" in text
     assert "累计存活天数：55" in text
     assert "NG+ 等级：Lv.2" in text

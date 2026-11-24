@@ -48,9 +48,8 @@ def send_turn(battle: BattleService, bot: Bot, text: str) -> Message:
     actions = battle.get_available_actions_for_turn()
     if actions:
         token = battle.get_turn_token()
-        rows = [[(a, f"action:{a}:{token}") for a in actions[:4]]]
-        if len(actions) > 4:
-            rows.append([(a, f"action:{a}:{token}") for a in actions[4:]])
+        buttons = [(a, f"action:{a}:{token}") for a in actions]
+        rows = [buttons[i:i + 4] for i in range(0, len(buttons), 4)]
         kb = build_keyboard(rows)
         if kb is not None:
             msg.append(kb)

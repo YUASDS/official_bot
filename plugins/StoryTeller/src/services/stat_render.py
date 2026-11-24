@@ -24,8 +24,7 @@ _t = data_loader.get_text
 # 展示配置段（display_data.json `stat`，缺失回退默认）
 _DISPLAY_STAT = get_display_config().get("stat") or {}
 
-# 结局图鉴总数：以 ending_data.order 为唯一数据源（E01-E09 + E11-E13 = 12）；
-# display_data 的 total_endings 仅作无 order 时的兜底，避免 12 个结局显示成 x/10。
+# 结局图鉴总数以 ending_data.order 为准，旧配置缺少 order 时使用展示配置。
 _TOTAL_ENDINGS_DEFAULT = 10
 _total_endings_cfg = _DISPLAY_STAT.get("total_endings")
 _order_count = len((data_loader.ending_data or {}).get("order") or [])

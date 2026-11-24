@@ -143,6 +143,39 @@
             "text": "#d8f0ee",
             "text_soft": "#a8cccc",
             "text_dim": "#5a8282"
+        },
+        "E14": {
+            "icon": "⚓",
+            "accent": "#8ddfcf",
+            "border": "#517f78",
+            "bg_top": "#0e1a1c",
+            "bg_mid": "#122723",
+            "bg_bottom": "#0a1416",
+            "text": "#d8f0ee",
+            "text_soft": "#a8cccc",
+            "text_dim": "#5a8282"
+        },
+        "E15": {
+            "icon": "🕯",
+            "accent": "#edcb91",
+            "border": "#846c50",
+            "bg_top": "#0e1a1c",
+            "bg_mid": "#251f19",
+            "bg_bottom": "#0a1416",
+            "text": "#d8f0ee",
+            "text_soft": "#a8cccc",
+            "text_dim": "#5a8282"
+        },
+        "E16": {
+            "icon": "📻",
+            "accent": "#adb6cc",
+            "border": "#666879",
+            "bg_top": "#0e1a1c",
+            "bg_mid": "#1d202a",
+            "bg_bottom": "#0a1416",
+            "text": "#d8f0ee",
+            "text_soft": "#a8cccc",
+            "text_dim": "#5a8282"
         }
     },
     "ending_variant_accents": {
@@ -186,7 +219,7 @@
         }
     },
     "stat": {
-        "total_endings": 12,
+        "total_endings": 15,
         "door_labels": {
             "E01": "A门·合流",
             "E02": "B门·封印",

@@ -20,25 +20,18 @@ from src.models.monster import Monster
 from src.models.player import Investigator, InvestigatorGenerator, investigator_repo
 from src.services.battle import damage as damage_mod
 from src.services.battle import BattleService
-from src.services.config_validator import ConfigValidator
+from src.services.config_validator import DATA_FILES, ConfigValidator
 from src.services.dice_roller import SuccessLevel
 
 _DATA_DIR = Path(__file__).parent.parent / "plugins" / "StoryTeller" / "data"
 
-_DATA_FILES = (
-    "monster_data.json", "goods_data.json", "event_data.json",
-    "environment_data.json", "check_point.json", "reply_data.json",
-    "text_data.json", "npc_data.json", "ending_data.json", "flow_data.json",
-    "display_data.json", "shop_data.json", "spell_data.json",
-    "mainline_config.json", "weights.json", "boss_weights.json", "loots.json", "boss/", "worlds/",
-)
 
 
 def _copy_data(tmp: Path) -> Path:
     """把 data/*.json 复制到临时目录（测试隔离，改副本不影响生产数据）。"""
     dst = tmp / "data"
     dst.mkdir(parents=True, exist_ok=True)
-    for name in _DATA_FILES:
+    for name in DATA_FILES:
         if name.endswith("/"):
             sub = dst / name
             sub.mkdir(parents=True, exist_ok=True)
@@ -388,7 +381,7 @@ def _validator_absorb(mon_absorb: dict) -> list[str]:
     with tempfile.TemporaryDirectory() as tmp:
         d = Path(tmp) / "data"
         d.mkdir(parents=True, exist_ok=True)
-        for name in _DATA_FILES:
+        for name in DATA_FILES:
             if name.endswith("/"):
                 sub = d / name
                 sub.mkdir(parents=True, exist_ok=True)

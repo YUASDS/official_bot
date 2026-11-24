@@ -718,7 +718,8 @@ def _finish_door(
     progress.door_choice = progress.door_choice or end_id
     progress.save()
     if end_id:
-        ending_repo.add_ending(inv.qq, end_id, variant=variant, run=run)
+        campaign = "mainline" if inv.get_flag("ml.opt_in") else "door"
+        ending_repo.add_ending(inv.qq, end_id, variant=variant, run=run, campaign=campaign)
         # 统计二期：门扉结局周目快照（写后不理）
         snapshot_run(inv, end_id, variant, progress=progress)
         # 周目联动：达成门扉 E01「清醒合流」→ 记录跨周目行为（下周目 D1 门后低语 + D40 只读提示）
@@ -851,6 +852,10 @@ def reroll_door_choice(inv: Investigator) -> Optional[str]:
         records = []
     target = progress.door_choice
     run = progress.run_id
+    clears = ujson.loads(collection.campaign_clears or "{}")
+    if clears.pop(str(run), None) is not None:
+        collection.campaign_clears = ujson.dumps(clears)
+        collection.save()
     removed = False
     for i in range(len(records) - 1, -1, -1):
         rec = records[i]

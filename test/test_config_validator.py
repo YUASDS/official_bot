@@ -83,7 +83,7 @@ def test_all_files_covered():
         "text_data.json", "npc_data.json",
         "ending_data.json", "flow_data.json",
         "display_data.json", "shop_data.json", "spell_data.json",
-        "mainline_config.json", "weights.json", "boss_weights.json",
+        "mainline_config.json", "ship_case.json", "weights.json", "boss_weights.json",
         "loots.json", "boss/", "worlds/",
         }
     assert set(DATA_FILES) == expected

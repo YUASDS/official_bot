@@ -47,6 +47,7 @@ DATA_FILES: tuple[str, ...] = (
     "shop_data.json",
     "spell_data.json",
     "mainline_config.json",
+    "ship_case.json",
     "weights.json",
     "boss_weights.json",
     "loots.json",
@@ -66,7 +67,7 @@ KNOWN_SKILLS: frozenset[str] = frozenset(
 
 # 结局 ID 集合（ending_data.endings 的合法键）
 _ENDING_KEYS: frozenset[str] = frozenset(
-    {f"E{i:02d}" for i in range(1, 14)}
+    {f"E{i:02d}" for i in range(1, 17)}
 )
 
 # 物品 type 合法值（goods_data）
@@ -97,7 +98,8 @@ _SPECIAL_MONSTER_IDS: frozenset[str] = frozenset(
     {"12", "14", "15", "16", "21", "22", "23", "24", "30", "33", "37",
      "38", "40", "41", "42", "44", "45", "46", "47", "48", "49", "50", "51",
      "52", "53", "55", "56", "57", "61", "62", "63", "64", "65", "66",
-     "67", "68", "69", "70", "71", "72", "73", "74", "75", "76", "77", "78", "79"}
+     "67", "68", "69", "70", "71", "72", "73", "74", "75", "76", "77", "78", "79",
+     *map(str, range(80, 89))}
 )
 
 # 主线三倾向（mainline.py _LANES 一致）
@@ -1245,6 +1247,57 @@ class ConfigValidator:
             if isinstance(w, bool) or not isinstance(w, int) or w < 1:
                 self._err(file, f"{ekey}.权重", f"权重应为 ≥1 整数，实际 {w!r}")
 
+    def validate_ship_case(self) -> None:
+        file = "ship_case.json"
+        case = self.data.get(file, {})
+        if not self._require_dict(file, "失船案", case):
+            return
+        days = case.get("days")
+        if not isinstance(days, list) or len(days) != 40:
+            self._err(file, "days", "需要 40 个冒险日")
+            return
+        for day, scene in enumerate(days, 1):
+            if not self._require_dict(file, str(day), scene):
+                continue
+            for key in ("title", "body"):
+                self._require_str(file, f"{day}.{key}", scene.get(key))
+            if scene.get("monster"):
+                self._check_monster_ref(file, str(day), scene["monster"])
+            options = scene.get("options")
+            if not isinstance(options, list) or (not options and day not in {10, 21, 26, 40}):
+                self._err(file, str(day), "需要可用选项")
+                continue
+            for opt in options:
+                if self._require_dict(file, str(day), opt):
+                    for key in ("label", "reply"):
+                        self._require_str(file, f"{day}.{key}", opt.get(key))
+                    if day % 2:
+                        self._require_str(file, f"{day}.echo", opt.get("echo"))
+        pools = case.get("riddles")
+        if not isinstance(pools, list) or len(pools) != 2:
+            self._err(file, "riddles", "两次验票均需题库")
+        else:
+            for pool in pools:
+                if not isinstance(pool, list) or len(pool) < 2:
+                    self._err(file, "riddles", "题库至少需要两件不同失物")
+                    continue
+                for item in pool:
+                    if not (isinstance(item, list) and len(item) == 4
+                            and all(isinstance(s, str) and s for s in item[:3])
+                            and isinstance(item[3], list)):
+                        self._err(file, "riddles", "需要物名、物签、谜面和别名列表")
+        questions = case.get("questions")
+        if not isinstance(questions, list) or len(questions) != 3:
+            self._err(file, "questions", "清点员需要三问")
+        else:
+            for q in questions:
+                if not (isinstance(q, list) and len(q) == 2 and isinstance(q[0], str)
+                        and isinstance(q[1], list) and len(q[1]) == 3
+                        and all(isinstance(a, list) and len(a) == 2 and isinstance(a[0], str)
+                                and type(a[1]) is int for a in q[1])
+                        and {a[1] for a in q[1]} == {0, 1, 2}):
+                    self._err(file, "questions", "每问需要分别得 0、1、2 分的三个回答")
+
     # --- 汇总入口 ---
     def validate_all(self) -> list[str]:
         """运行全部校验，返回错误清单（含已收集错误）。"""
@@ -1266,6 +1319,7 @@ class ConfigValidator:
         self.validate_weights()
         self.validate_loots()
         self.validate_mainline_config()
+        self.validate_ship_case()
         return self.errors
 
 

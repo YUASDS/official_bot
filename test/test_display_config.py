@@ -106,7 +106,7 @@ def test_item_labels_from_config():
 
 
 def test_stat_config_from_display_data():
-    assert stat_render.TOTAL_ENDINGS == _load_display()["stat"]["total_endings"] == 12
+    assert stat_render.TOTAL_ENDINGS == _load_display()["stat"]["total_endings"] == 15
     assert stat_render._DOOR_LABELS["E01"] == "A门·合流"
     # E10 挂机结局已移除，不再显示门扉标签
     assert "E10" not in stat_render._DOOR_LABELS
@@ -211,11 +211,11 @@ def test_variant_keys_fallback_when_config_empty(monkeypatch):
 
 # --- D6：theme 数据可被配置覆盖（新增结局主题 = 纯数据） ---
 def test_theme_override_and_new_ending(monkeypatch):
-    """配置新增/覆盖结局主题即可生效：新增 E14 主题、覆盖 E01 accent。"""
+    """配置新增/覆盖结局主题即可生效：新增 E17 主题、覆盖 E01 accent。"""
     cfg = _load_display()
     patched = dict(cfg["ending_themes"])
     patched["E01"] = dict(patched["E01"], accent="#123456")
-    patched["E14"] = {
+    patched["E17"] = {
         "icon": "🧪", "accent": "#111111", "border": "#222222",
         "bg_top": "#000000", "bg_mid": "#111111", "bg_bottom": "#000000",
         "text": "#ffffff", "text_soft": "#cccccc", "text_dim": "#888888",
@@ -223,12 +223,12 @@ def test_theme_override_and_new_ending(monkeypatch):
     merged = bc._merge_ending_themes({"ending_themes": patched})
     assert merged["E01"]["accent"] == "#123456"
     assert merged["E01"]["icon"] == "🌌"  # 未覆盖子键回退默认
-    assert merged["E14"]["icon"] == "🧪"
-    assert merged["E14"]["accent"] == "#111111"
-    assert len(merged) == 14  # 10 默认 + E11/E12/E13 真实 + 1 新增
+    assert merged["E17"]["icon"] == "🧪"
+    assert merged["E17"]["accent"] == "#111111"
+    assert len(merged) == len(cfg["ending_themes"]) + 1
 
     monkeypatch.setattr(bc, "_ENDING_THEMES", merged)
-    html = bc.ending_card_html(end_id="E14", name="新", body="b")
+    html = bc.ending_card_html(end_id="E17", name="新", body="b")
     assert "#111111" in html and "🧪" in html
     html_e01 = bc.ending_card_html(end_id="E01", name="旧", body="b")
     assert "#123456" in html_e01

@@ -382,7 +382,7 @@ def register_mainline_ending(inv, ending_id: str, line: str | None = None) -> No
         logger.warning(f"mainline ending knowledge failed: {type(e).__name__} {e}")
     progress.ended = True
     progress.save()
-    ending_repo.add_ending(inv.qq, ending_id, run=progress.run_id)
+    ending_repo.add_ending(inv.qq, ending_id, run=progress.run_id, campaign="mainline")
     inv.save()
     try:
         from ..services.stats_service import snapshot_run
@@ -436,6 +436,13 @@ def apply_selector_choice(inv, choice: str, save: bool = True) -> bool:
     choice = str(choice)
     if choice in ("guard_in", "guard", "主线", "踏入主线"):
         inv.set_flag("ml.opt_in", True)
+    elif choice in ("ship", "接听未结的呼救"):
+        from ..services import ship_case
+
+        if inv.day != 1 or not ship_case.unlocked(inv.qq):
+            return False
+        inv.set_flag(ship_case.ACTIVE, True)
+        inv.set_flag("ml.opt_out", True)
     elif choice in ("door", "门扉", "重游门扉"):
         inv.set_flag("ml.opt_out", True)
     else:
