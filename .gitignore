@@ -126,7 +126,7 @@ venv.bak/
 
 # mkdocs documentation
 /site
-
+docs
 # mypy
 .mypy_cache/
 .dmypy.json
@@ -140,7 +140,28 @@ dmypy.json
 
 .vscode
 
-test
+# 测试源码纳入版本管理；仅忽略生成物/大体积产物
+test/archive/
+test/balance_sim/
+test/logs/
+test/img/
+test/.pytest_cache/
+test/**/__pycache__/
+test/*.pyc
+test/scan_silent_result.txt
+test/poetry.lock
+test/pyproject.toml
+test/requirements.txt
 logs
-env.prod
+.env.prod
+*.db
+util/day
+util/browser/data
 # End of https://www.toptal.com/developers/gitignore/api/python
+# OMO plugin runtime artifacts
+.omo/
+.qa
+task_plan.md
+*.db-shm
+*.db-wal
+opencode.json

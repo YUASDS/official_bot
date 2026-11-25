@@ -1,0 +1,306 @@
+COC 每日冒险文字游戏开发文档
+1. 项目概述
+本项目是一个基于 NoneBot2 框架和 QQ 官方机器人 API 的克苏鲁呼唤（Call of Cthulhu，简称 COC）主题文字游戏。玩家每天可以进行一次冒险，根据当前天数遭遇不同强度的怪物，通过一系列 COC 规则的鉴定（理智鉴定、敏捷鉴定）进入战斗轮，使用武器与怪物战斗，获胜后获得战利品并进入下一天，同时可访问商店购买装备与补给。
+
+1.1 核心玩法 （目前已有完成代码，直接参考即可）
+每日冒险：每天可触发一次，根据当前天数随机生成对应强度范围的怪物。
+
+理智鉴定（SC）：遭遇怪物时进行，失败扣除理智值（SAN），若理智值降至 0 则角色陷入永久疯狂（游戏结束）。
+
+疯狂机制：理智鉴定失败后进行一次智力鉴定，若成功则陷入 1d10 回合的临时疯狂，期间玩家角色失去控制，由 AI 自动执行随机动作。
+
+行动顺序：通过敏捷鉴定决定玩家与怪物的行动先后。
+
+战斗轮：
+
+怪物回合：怪物执行预设动作（通常为攻击），玩家可选择“闪避”或“反击”（若武器允许）。
+
+玩家回合：根据当前武器类型（近战/枪械）选择行动，枪械支持单发射击或三连射。
+
+胜利条件：怪物 HP 归零，玩家获胜，进行侦查检定获得战利品。
+
+失败条件：玩家 HP 归零，游戏结束。
+
+商店：可用冒险获得的货币（如“理智碎片”或自定义货币）购买武器、弹药、回复道具等。
+
+2. 技术选型
+组件	选择	说明
+机器人框架	NoneBot2	成熟稳定的 Python 异步机器人框架
+适配器	nonebot-adapter-qq	支持 QQ 官方机器人 API
+数据存储	SQLite + Redis	SQLite 存储玩家持久数据，Redis 缓存战斗状态（可选）
+随机数	Python random + 自定义骰子函数	实现 1d100、1d10 等骰子逻辑
+
+3. 项目结构
+text
+plugins/StoryTeller/
+├── bot.py                  # NoneBot 启动入口
+├── .env                    # 环境变量配置
+├── requirements.txt        # 依赖列表
+├── src/
+│   ├── __init__.py
+│   ├── plugins/            # 插件目录
+│   │   ├── __init__.py
+│   │   ├── adventure.py    # 每日冒险主逻辑
+│   │   ├── shop.py         # 商店功能
+│   │   ├── character.py    # 角色状态查看/管理
+│   │   └── dice.py         # 骰子命令（可选）
+│   ├── models/             # 数据模型
+│   │   ├── __init__.py
+│   │   ├── player.py       # 玩家数据模型
+│   │   ├── monster.py      # 怪物数据模型
+│   │   ├── weapon.py       # 武器数据模型
+│   │   └── item.py         # 道具数据模型
+│   ├── services/           # 业务逻辑层
+│   │   ├── __init__.py
+│   │   ├── battle.py       # 战斗流程控制
+│   │   ├── dice_roller.py  # 骰子服务
+│   │   ├── sanity.py       # 理智与疯狂处理
+│   │   ├── monster_factory.py # 怪物生成
+│   │   └── shop_service.py # 商店服务
+│   ├── utils/              # 工具函数
+│   │   ├── __init__.py
+│   │   ├── database.py     # 数据库连接与操作
+│   │   └── logger.py       # 日志配置
+│   └── data/               # 静态数据
+│       ├── monsters.json   # 怪物库（按天数范围分组）
+│       ├── weapons.json    # 武器库
+│       └── items.json      # 道具库
+├── migrations/             # 数据库迁移脚本（可选）
+├── tests/                  # 单元测试
+
+4. 数据模型
+4.1 玩家数据（SQLite）
+sql
+CREATE TABLE players (
+    user_id TEXT PRIMARY KEY,       -- QQ 用户 ID
+    name TEXT,                      -- 角色名
+    day INTEGER DEFAULT 1,          -- 当前冒险天数
+    hp INTEGER DEFAULT 10,          -- 生命值
+    max_hp INTEGER DEFAULT 10,      -- 最大生命值
+    san INTEGER DEFAULT 50,         -- 理智值
+    max_san INTEGER DEFAULT 50,     -- 最大理智值
+    strength INTEGER DEFAULT 50,    -- 力量
+    dex INTEGER DEFAULT 50,         -- 敏捷
+    intel INTEGER DEFAULT 50,       -- 智力
+    app INTEGER DEFAULT 50,         -- 外貌（可选）
+    edu INTEGER DEFAULT 50,         -- 教育（可选）
+    currency INTEGER DEFAULT 0,     -- 货币数量（用于商店）
+    weapon_id TEXT,                 -- 当前装备武器 ID
+    inventory TEXT,                 -- 背包（JSON 格式，存储道具及数量）
+    last_adventure_date TEXT        -- 上次冒险日期（用于每日限制）
+);
+4.2 怪物数据（JSON 文件示例）
+json
+{
+  "monsters": [
+    {
+      "id": "cultist_1",
+      "name": "邪教徒",
+      "min_day": 1,
+      "max_day": 3,
+      "hp": 10,
+      "damage": "1d4",
+      "san_loss": "1/1d3",
+      "description": "一个身穿黑袍的狂热信徒",
+      "skills": {
+        "attack": "爪击",
+        "special": null
+      }
+    },
+    {
+      "id": "deep_one",
+      "name": "深潜者",
+      "min_day": 4,
+      "max_day": 7,
+      "hp": 15,
+      "damage": "1d6",
+      "san_loss": "1d3/1d6",
+      "description": "半人半鱼的恐怖生物",
+      "skills": {
+        "attack": "鱼叉攻击",
+        "special": "水中潜行（战斗中随机触发）"
+      }
+    }
+  ]
+}
+4.3 武器数据（JSON 文件示例）
+json
+{
+  "weapons": [
+    {
+      "id": "fist",
+      "name": "拳头",
+      "type": "melee",
+      "damage": "1d3",
+      "description": "赤手空拳",
+      "price": 0,
+      "ammo_capacity": 0
+    },
+    {
+      "id": "pistol",
+      "name": "手枪",
+      "type": "ranged",
+      "damage": "1d10",
+      "description": "普通手枪，可单发或三连射",
+      "price": 50,
+      "ammo_capacity": 6,
+      "burst": true
+    }
+  ]
+}
+4.4 道具数据（JSON 文件示例）
+json
+{
+  "items": [
+    {
+      "id": "bandage",
+      "name": "绷带",
+      "type": "heal",
+      "effect": "恢复 1d3 HP",
+      "price": 10
+    },
+    {
+      "id": "san_potion",
+      "name": "镇定剂",
+      "type": "san_restore",
+      "effect": "恢复 1d6 SAN",
+      "price": 20
+    }
+  ]
+}
+5. 核心逻辑流程
+5.1 每日冒险流程
+graph TD
+    A[玩家发送命令开始冒险] --> B{检查今日是否已冒险}
+    B -->|是| C[提示等待明日]
+    B -->|否| D[根据天数随机生成怪物]
+    D --> E[进行 SC 鉴定]
+    E --> F{SC 是否成功?}
+    F -->|成功| G[无 SAN 损失]
+    F -->|失败| H[扣除对应 SAN 值]
+    H --> I{SAN <= 0?}
+    I -->|是| J[游戏结束]
+    I -->|否| K[进行智力鉴定]
+    K --> L{智力成功?}
+    L -->|是| M[陷入疯狂 1d10 回合]
+    L -->|否| N[不陷入疯狂]
+    G --> O[敏捷鉴定决定行动顺序]
+    N --> O
+    M --> O
+    O --> P[战斗轮开始]
+    P --> Q{战斗结束?}
+    Q -->|玩家胜利| R[侦查检定获得战利品]
+    Q -->|怪物胜利| S[玩家死亡游戏结束]
+    R --> T[增加货币/道具]
+    T --> U[天数 +1]
+    U --> V[冒险结束]
+
+5.2 战斗轮详细流程（以已完成代码为准）
+战斗轮初始化：记录玩家与怪物的 HP、武器、状态（疯狂等）。
+
+行动顺序：
+
+玩家敏捷属性（DEX）与怪物敏捷（预设值）比较，高者先动。
+
+若敏捷相同，随机决定。
+
+回合制战斗：
+
+怪物回合（若怪物先动，则先执行怪物回合）：
+
+怪物执行攻击动作（根据怪物设定，如普通攻击或特殊技能）。
+
+玩家选择闪避或反击（若武器允许）：
+
+闪避：投掷闪避（DEX*2 或 50% 成功率），成功则不受伤害，失败则受到怪物伤害。
+
+反击：仅近战武器可用，投掷武器技能（如斗殴），若成功则同时造成伤害并抵消怪物伤害，若失败则受到怪物伤害。
+
+若玩家处于疯狂状态，则随机选择动作（包括攻击自己、逃跑等）。
+
+玩家回合（若玩家先动，则先执行玩家回合）：
+
+根据当前武器类型：
+
+近战武器：投掷武器技能（如斗殴），成功则造成武器伤害，失败则无伤害。
+
+枪械：
+
+单发射击：投掷射击技能，成功造成武器伤害，失败无伤害。
+
+三连射（仅支持 burst 的枪械）：消耗 3 发弹药，分别投掷三次射击，每发独立命中并造成伤害。
+
+若玩家处于疯狂状态，则随机行动（可能攻击自己、浪费回合、逃跑等）。
+
+循环直到一方 HP ≤ 0。
+
+战斗结束：
+
+玩家胜利：调用侦查检定（侦察技能），获得战利品（随机道具/货币）。
+
+玩家死亡：记录游戏结束，重置玩家数据或标记为死亡。
+
+5.3 商店功能
+玩家使用货币购买武器、弹药、道具。
+
+商店商品列表可定期刷新（例如每天随机几个商品）。
+
+购买后扣除货币，添加至玩家背包或装备。
+
+售卖功能（可选）。
+
+6. 指令设计
+所有指令需在 QQ 私聊或群聊中触发（建议私聊以保持状态连续性）。指令前缀为 /，例如：
+
+指令以参考plugins\StoryTeller\__init__.py
+
+注意事项：
+
+战斗过程中可能需要额外的交互指令（如选择闪避/反击），建议使用会话（Session）机制，在战斗期间捕获用户的下一条消息作为选择。
+
+疯狂状态下的自动行动由系统随机决定，无需玩家输入。
+
+7. 配置与部署
+7.1 环境变量（.env）
+ini
+# NoneBot 配置
+DRIVER=~fastapi
+LOG_LEVEL=INFO
+
+# QQ 机器人配置（需在 QQ 开放平台申请）
+QQ_BOT_APP_ID=your_app_id
+QQ_BOT_TOKEN=your_bot_token
+QQ_BOT_SECRET=your_client_secret
+
+# 数据库配置
+DATABASE_URL=sqlite+aiosqlite:///data/players.db
+REDIS_URL=redis://localhost:6379/0  # 可选
+
+# 游戏配置
+MAX_DAILY_ADVENTURES=1
+START_HP=10
+START_SAN=50
+START_CURRENCY=0
+7.2环境路径
+
+E:/anaconda3/envs/official_bot/python.exe
+8. 扩展与优化建议
+技能系统：增加更多的 COC 技能（侦察、闪避、斗殴、射击等），允许玩家通过冒险提升技能值。
+
+弹药系统：枪械需要弹药，可单独购买或从战利品获得。
+
+多日存档：支持玩家多个角色存档。
+
+排行榜：根据天数、总杀敌数等排名。
+
+怪物图鉴：记录已遭遇的怪物信息。
+
+异步与缓存：使用 Redis 缓存正在战斗的玩家状态，避免数据库频繁读写。
+
+异常处理：对网络请求、数据库操作等进行健壮的错误处理。
+
+9. 测试
+需要完成单元测试
+测试覆盖核心逻辑，如冒险流程、战斗轮、商店购买等。
+
+

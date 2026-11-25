@@ -1,0 +1,6 @@
+{
+  "guest": {"dice": "d100", "value": 3, "relation": "lte"},
+  "gm_room": {"dice": "d100", "value": 1, "relation": "lte"},
+  "hidden": {"dice": "d20", "value": 1, "relation": "lte"},
+  "daily": {"dice": "d100", "value": 100, "relation": "gte"}
+}
