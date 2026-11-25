@@ -97,7 +97,7 @@ class BattleReporterMixin:
         t = self._t
         if self.current_turn != "mon":
             return ""
-        action = self.monster.get_action("mon")
+        action = self.monster.rotation_action(upcoming=True) or self.monster.get_action("mon")
         attack_text = action.get("attack", action.get("desc", ""))
         return (
             f"{report_section(t('battle.danger_title'))}\n"
@@ -113,6 +113,10 @@ class BattleReporterMixin:
         others = [a for a in actions if a not in attack_list]
 
         lines = [report_section(t("report.action_title"))]
+        if self.current_turn == "mon":
+            cue = self.monster.rotation_action(upcoming=True).get("预兆")
+            if cue:
+                lines.append(cue)
         if attack:
             codes = " ".join(t("report.action_code", action=a) for a in attack)
             lines.append(t("report.action_group", actions=codes))

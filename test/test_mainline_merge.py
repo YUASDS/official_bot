@@ -27,6 +27,7 @@ import asyncio
 import ujson
 
 import nonebot
+import pytest
 
 nonebot.init()
 
@@ -477,6 +478,62 @@ def test_free_finale_e13_souvenir():
     assert any(rec.get("id") == "E13" for rec in endings)
     equipments, _ = r.get_equipments()
     assert equipments.get("517", 0) == 1
+    _cleanup(qq)
+
+
+@pytest.mark.parametrize(("line", "choices", "second_fight", "monster_id"), [
+    ("dread", ["终焉前厅", "走向最后一扇门"], False, "66"),
+    ("hymn", ["直面之地·最后一夜", "把灯举高，站定"], False, "52"),
+    ("hymn", ["直面之地·最后一夜", "把灯举高，站定"], True, "53"),
+    ("free", ["镜厅"], False, "78"),
+    ("free", ["镜厅"], True, "79"),
+])
+def test_day37_fatal_defeat(line, choices, second_fight, monster_id):
+    from src.plugins.adventure import _run_adventure
+    from src.services.resurrect import do_resurrect
+
+    qq = f"fatal_{monster_id}"
+    inv = _make_inv(qq, day=37)
+    _set_ng_plus(qq, 2)
+    inv.set_flag("ml.line", line)
+    inv.set_flag(f"ml.{line}.node", 9)
+    has_revive = monster_id == "53"
+    if has_revive:
+        inv.add_item_to_inventory("501", 1)
+    inv.save()
+    ok, _, _, bot = asyncio.run(_run_try_mainline(qq, inv))
+    assert ok is True
+    for choice in choices:
+        _drive(qq, choice, bot)
+    if second_fight:
+        _finish_battle(qq, _hold_win if line == "hymn" else _kill_win)
+    service = fe.flow_states[qq]["battle"]
+    assert service.monster.id == monster_id
+    service.hp_record["inv"] = 0
+    service._check_combat_over()
+    messages = _drive(qq, "格斗", bot)
+
+    dead = Investigator(investigator_repo.find_by_qq(qq))
+    assert dead.hp == 0 and not dead.is_survive and not dead.is_adventure
+    assert dead.day == 37 and qq not in fe.flow_states
+    assert dead.get_flag(f"ml.{line}.entered.37") is None
+    assert dead.get_flag(f"ml.{line}.node") == 9
+    assert not dead.get_flag(f"ml.{line}.done")
+    endings = {rec["id"] for rec in ujson.loads(ending_repo.get_collection(qq).endings)}
+    assert endings == (set() if has_revive else {"E07"})
+    assert "已死亡" in "".join(messages)
+    sent = []
+
+    async def send(msg):
+        sent.append(str(msg))
+
+    asyncio.run(_run_adventure(qq, bot, send, send))
+    assert "已死亡" in "".join(sent)
+    assert Investigator(investigator_repo.find_by_qq(qq)).day == 37
+    if has_revive:
+        do_resurrect(qq)
+        revived = Investigator(investigator_repo.find_by_qq(qq))
+        assert revived.is_survive and ml.branch_available(revived, 37)
     _cleanup(qq)
 
 

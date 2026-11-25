@@ -382,10 +382,13 @@ class ConfigValidator:
                     self._err(file, f"{mid}.{field}", f"应为整数，实际 {m[field]!r}")
             # ID 段位（config-id-naming §二）：非每日池怪物必须是固定语义白名单
             # （38/40~42/44/45~47/48）或 ≥49 预留段且登记 check_point
+            story_only = m.get("剧情专属", False)
+            if not isinstance(story_only, bool):
+                self._err(file, f"{mid}.剧情专属", "应为 bool")
             if mid.isdigit():
                 mid_num = int(mid)
                 in_daily = mid in self._checkpoint_flat()
-                if mid_num > 48 and not in_daily and mid not in _SPECIAL_MONSTER_IDS:
+                if mid_num > 48 and not in_daily and not story_only and mid not in _SPECIAL_MONSTER_IDS:
                     self._err(file, mid, "ID > 48 的预留段怪物必须登记进 check_point 每日池")
             # 战利品手动覆盖（loots 系统）：`loots` 字段必须指向 loots.json `pools` 命名池
             loots_ref = m.get("loots")
@@ -462,6 +465,23 @@ class ConfigValidator:
             # AI 法术引用
             ai = m.get("ai")
             if isinstance(ai, dict):
+                if "招式顺序" in ai:
+                    order = ai["招式顺序"]
+                    attacks = m.get("攻击") or {}
+                    if not isinstance(order, list) or not order:
+                        self._err(file, f"{mid}.ai.招式顺序", "应为非空招式列表")
+                    else:
+                        for move in order:
+                            if not isinstance(move, str) or move not in attacks:
+                                self._err(file, f"{mid}.ai.招式顺序", f"未知招式 {move!r}")
+                                continue
+                            action = attacks[move]
+                            if not self._require_dict(file, f"{mid}.攻击.{move}", action):
+                                continue
+                            if not isinstance(action.get("预兆"), str) or not action["预兆"]:
+                                self._err(file, f"{mid}.攻击.{move}", "轮换招式缺少预兆文案")
+                            if "应对" in action and action["应对"] not in ("反击", "闪避"):
+                                self._err(file, f"{mid}.攻击.{move}.应对", "应为反击或闪避")
                 injured = ai.get("受伤后") or {}
                 if isinstance(injured, dict):
                     for sid in injured.get("法术") or []:
@@ -621,6 +641,8 @@ class ConfigValidator:
             for mid in lst:
                 if str(mid) not in self.data.get("monster_data.json", {}):
                     self._err(file, f"day {day}", f"怪物 {mid} 不存在于 monster_data")
+                elif self.data["monster_data.json"][str(mid)].get("剧情专属"):
+                    self._err(file, f"day {day}", f"剧情专属怪物 {mid} 不能进入每日池")
 
     def validate_reply(self) -> None:
         file = "reply_data.json"
@@ -894,6 +916,11 @@ class ConfigValidator:
                     if isinstance(branch, dict):
                         self._check_effects(file, f"{nkey}.战斗.{br}", branch.get("效果"))
                         nxt = branch.get("下一步")
+                        if br == "战败" and "死亡" in branch:
+                            if not isinstance(branch["死亡"], bool):
+                                self._err(file, f"{nkey}.战斗.战败.死亡", "应为 bool")
+                            elif branch["死亡"] and nxt in nodes and nodes[nxt].get("类型") != "结束":
+                                self._err(file, f"{nkey}.战斗.战败.下一步", "死亡分支应指向结束节点")
                         if nxt and nxt not in nodes and nxt != "结束":
                             self._err(file, f"{nkey}.战斗.{br}.下一步", f"未知节点 {nxt!r}")
 
@@ -1167,7 +1194,9 @@ class ConfigValidator:
                 if not (isinstance(iid, str) and iid.isdigit()):
                     self._err(file, f"怪物池.{lane}", f"怪物 id 应为数字字符串，实际 {iid!r}")
                     continue
-                if iid in monster_data and iid not in _SPECIAL_MONSTER_IDS:
+                if iid in monster_data and monster_data[iid].get("剧情专属"):
+                    self._err(file, f"怪物池.{lane}.{iid}", "剧情专属怪物不能进入主线日常池")
+                elif iid in monster_data and iid not in _SPECIAL_MONSTER_IDS:
                     self._err(
                         file, f"怪物池.{lane}.{iid}",
                         "已建固定怪未登记 _SPECIAL_MONSTER_IDS（应为明确语义怪，非每日池）",

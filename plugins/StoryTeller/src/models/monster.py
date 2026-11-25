@@ -29,6 +29,13 @@ class MonsterRepository:
         """Find raw monster data by ID."""
         return self._monster_data.get(monster_id)
 
+    def daily_candidates(self, pool: list[str]) -> list[str]:
+        """保留日常遭遇可用的怪物，重复条目继续作为抽取权重。"""
+        return [
+            mid for mid in pool
+            if mid in self._monster_data and not self._monster_data[mid].get("剧情专属")
+        ]
+
     def find_random_id_for_day(
         self, day: int | str, weights: dict | None = None
     ) -> Optional[str]:
@@ -38,14 +45,14 @@ class MonsterRepository:
         被猎犬杀死过的调查员猎犬权重 ×2）。缺省不传 = 现状均匀随机，零行为变化。
         """
         day_str = str(day)
-        available_monsters = self._checkpoint_data.get(day_str)
+        available_monsters = self.daily_candidates(self._checkpoint_data.get(day_str) or [])
         if not available_monsters:
             logger.warning(f"No monster configuration found for day {day_str}.")
             if self._checkpoint_data:
                 valid_keys = [int(k) for k in self._checkpoint_data if k.isdigit()]
                 if valid_keys:
                     max_day = max(valid_keys)
-                    fallback_pool = self._checkpoint_data.get(str(max_day), [])
+                    fallback_pool = self.daily_candidates(self._checkpoint_data.get(str(max_day)) or [])
                     if fallback_pool:
                         selected = random.choice(fallback_pool)
                         logger.warning(
@@ -217,6 +224,14 @@ class Monster:
         return action
 
     # --- AI 状态机（仅 ai 怪物，`get_ai_action` 纯读、`advance_ai` 副作用） ---
+    def rotation_action(self, *, upcoming: bool = False) -> dict:
+        """读取轮换招式；预告下一次怪物行动时不推进回合。"""
+        order = (self._ai_data or {}).get("招式顺序")
+        if not order:
+            return {}
+        index = self._ai_turn_count if upcoming else max(0, self._ai_turn_count - 1)
+        return self._data["攻击"][order[index % len(order)]]
+
     def get_ai_action(self, turn: str) -> dict[str, Any]:
         """AI 怪物当前阶段行动（纯读，不做副作用）：按阶段返回 melee/ranged/spell。"""
         if self._ai_pending_spell is not None:
@@ -227,6 +242,9 @@ class Monster:
                 "name": spell.get("name", self._ai_pending_spell),
                 "des": spell.get("des", ""),
             }
+        move = self.rotation_action()
+        if move:
+            return self._ensure_ai_fields(move)
         # 自由攻击池（ai.攻击，如 JK）：每怪物回合随机取一行动（近/远随机）
         pool = self._ai_data.get("攻击")
         if pool:
@@ -459,21 +477,7 @@ class Monster:
     @classmethod
     def load_random_for_day(cls, day: int) -> Optional[Monster]:
         monster_id = monster_repo.find_random_id_for_day(day)
-        if not monster_id:
-            keys = list(monster_repo._monster_data.keys())
-            if keys:
-                return cls(random.choice(keys))
-            return None
-        try:
-            return cls(monster_id)
-        except ValueError as e:
-            logger.warning(
-                f"Monster '{monster_id}' not found, using random fallback: {e}"
-            )
-            keys = list(monster_repo._monster_data.keys())
-            if keys:
-                return cls(random.choice(keys))
-            return None
+        return cls(monster_id) if monster_id else None
 
     @property
     def attack_dice(self) -> str:

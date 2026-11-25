@@ -61,6 +61,12 @@ class BattleEngineMixin:
     def execute_action(self, action: str) -> tuple:
         if self.fight_is_over():
             return (self._combat_result or self._t("adventure.no_active_battle"),)
+        # 预告中的招式只在玩家提交有效防御后推进。重发面板和无效指令不能跳拍。
+        if self.current_turn == "mon" and self.monster.rotation_action(upcoming=True):
+            if action not in ("反击", "闪避"):
+                return (self._t("battle.unknown_defense_action", action=action, actions="反击、闪避"),)
+            if action == "反击" and self._defense_weapon(action) is None:
+                return (self._t("battle.no_counter_weapon"),)
         self.current_action = action
         self.last_actor = self.current_turn  # 记录行动发起者（卡片标题用）
         if self.is_madness and self.madness_duration > 0:

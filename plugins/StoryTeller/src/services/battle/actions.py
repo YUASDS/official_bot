@@ -624,6 +624,8 @@ class BattleActionsMixin:
         """@description 防御检定：怪物攻击 vs 玩家闪避/反击，返回对抗结果。"""
         skill = "闪避" if player_action == "闪避" else "格斗"
         player_skill = self._get_player_modified_skill(skill, 25)
+        if monster_action.get("应对") == player_action:
+            player_skill += 20
         monster_skill = self._get_monster_attack_skill(monster_action)
         return ConfrontationRoll(monster_skill, player_skill)
 

@@ -31,12 +31,14 @@ _WORLDS = ("sword_magic", "dnd_dungeon", "anime_academy")
 # anime_academy 为多季世界（S1+S2）：每季注册 flow.<世界id>.<季>
 _ANIME_SEASONS = ("flow.anime_academy.s1", "flow.anime_academy.s2")
 _WORLD_FLOWS = ("sword_magic", "dnd_dungeon", *_ANIME_SEASONS)
+_BOSS_IDS = {"jk", "qiren", "frieren", "jinwoo", "tanjiro", "momo", "laios", "yuta",
+             "kirito", "asuna", "lihuowang"}
 
 
 # --- C1：BOSS 目录加载 ---
 def test_boss_registry_loaded_from_dir():
     reg = boss_registry()
-    assert set(reg.keys()) == {"jk", "qiren"}
+    assert set(reg) == _BOSS_IDS
     assert reg["jk"]["怪物id"] == "48"
     assert reg["qiren"]["战斗"]["强制环境"] == "庄园.黑色满月"
     # 与原 boss_data.json 归档条目字段级逐字一致（战利品系统已废弃手写 奖励.胜利.物品，
@@ -59,9 +61,25 @@ def test_boss_dir_ignores_non_boss_files():
     try:
         from src.services.boss_framework import _load_boss_files
         reg = _load_boss_files()
-        assert set(reg.keys()) == {"jk", "qiren"}
+        assert set(reg) == _BOSS_IDS
     finally:
         stray.unlink()
+
+
+def test_story_monsters_excluded_from_daily_pools(monkeypatch):
+    from src.models.monster import Monster, monster_repo
+    from src.plugins import mainline
+    from src.services.data_loader import data_loader
+
+    exclusive = {"47", "48", "49", "50", "55", "56", "57", *map(str, range(89, 98))}
+    pools = [*data_loader.check_point.values(), *mainline._cfg("怪物池").values()]
+    assert all(exclusive.isdisjoint(pool) for pool in pools)
+    assert all(Monster(mid).剧情专属 for mid in exclusive)
+    monkeypatch.setattr(monster_repo, "_checkpoint_data", {"1": ["47", "90", "26"]})
+    assert monster_repo.daily_candidates(["47", "26", "26"]) == ["26", "26"]
+    assert Monster.load_random_for_day(99).id == "26"
+    monkeypatch.setattr(monster_repo, "_checkpoint_data", {"1": list(exclusive)})
+    assert Monster.load_random_for_day(1) is None
 
 
 # --- C2：世界季结构 / flow_id 兼容映射 ---

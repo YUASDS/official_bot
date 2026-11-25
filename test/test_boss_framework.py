@@ -21,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "plugins" / "StoryTeller")
 import asyncio
 
 import nonebot
+import pytest
 
 nonebot.init()
 
@@ -69,6 +70,179 @@ def _drive_send(boss_id: str, qq: str, bot=None):
 
     asyncio.run(send_boss_dialogue(boss_id, qq, bot or ConsoleBot(), send))
     return sent
+
+
+@pytest.mark.parametrize(("boss_id", "item", "mid"), [
+    ("frieren", "504", "89"), ("jinwoo", "103", "90"),
+    ("tanjiro", "106", "91"), ("momo", "115", "92"),
+    ("laios", "302", "93"), ("yuta", "702", "94"),
+    ("kirito", "121", "95"), ("asuna", "107", "96"), ("lihuowang", "503", "97"),
+])
+@pytest.mark.parametrize("choice", ["挑战", "不挑战"])
+def test_anime_boss_daily_invitation(boss_id, item, mid, choice, monkeypatch):
+    from unittest.mock import AsyncMock
+    from src.plugins import adventure, jk
+    from src.services.boss_framework import boss_unlocked, choose_boss_invitation, current_boss_invitation
+    from src.utils.active_battles import battle_manager
+    from src.utils.buttons import BUTTON_HANDLERS
+
+    qq = f"invite_{boss_id}_{choice}"
+    inv = _make_inv(qq)
+    inv.day = 13
+    inv.add_item_to_inventory(item, 1)
+    inv.save()
+    monkeypatch.setattr(jk, "roll_dice", lambda _: ("1", 1))
+    monkeypatch.setattr(adventure, "render_pic", AsyncMock(return_value=None))
+    bot, send = ConsoleBot(), AsyncMock()
+    asyncio.run(adventure._run_adventure(qq, bot, send, send))
+    invite = current_boss_invitation(Investigator(investigator_repo.find_by_qq(qq)))
+    assert invite["id"] == boss_id and boss_id in BUTTON_HANDLERS
+    assert battle_manager.get_battle(qq) is None
+
+    asyncio.run(choose_boss_invitation(qq, boss_id, choice, invite["token"], bot, send, send))
+    saved = Investigator(investigator_repo.find_by_qq(qq))
+    assert current_boss_invitation(saved) is None
+    if choice == "挑战":
+        assert battle_manager.get_battle(qq).monster.id == mid and saved.day == 13
+        battle_manager.remove_battle(qq)
+    else:
+        assert battle_manager.get_battle(qq) is None and saved.day == 14
+    saved.day = 40
+    assert not boss_unlocked(boss_id, saved)
+    _cleanup(qq)
+
+
+@pytest.mark.parametrize(("mid", "common", "rare"), [
+    ("89", "314", "606"), ("90", "122", "607"), ("91", "123", "608"),
+    ("92", "315", "609"), ("93", "316", "610"), ("94", "124", "611"),
+    ("95", "125", "612"), ("96", "126", "613"), ("97", "317", "614"),
+])
+def test_exclusive_rewards_reach_inventory(mid, common, rare, monkeypatch):
+    from src.models.item import Equipment
+    from src.models.monster import Monster
+    from src.services.battle import BattleService
+    from src.services.boss_framework import boss_unlocked
+
+    qq = f"story_loot_{mid}"
+    inv = _make_inv(qq)
+    inv.day = 13
+    inv.set_skill("侦查", 0)
+    inv.save()
+    partner = {"95": "asuna", "96": "kirito"}.get(mid)
+    if partner:
+        assert not boss_unlocked(partner, inv)
+    for roll, iid in [(65, common), (66, rare)]:
+        battle = BattleService(inv, Monster(mid))
+        monkeypatch.setattr("src.models.monster.random.uniform", lambda a, b: roll)
+        battle.hp_record["mon"] = 0
+        result = battle._check_combat_over()
+        assert Equipment(iid).name in result
+        assert battle._check_combat_over() == result
+        inv = Investigator(investigator_repo.find_by_qq(qq))
+        items, _ = inv.get_equipments()
+        assert items[iid] == 1
+        assert items.get(common, 0) + items.get(rare, 0) == (1 if iid == common else 2)
+        assert investigator_repo.equip_item(qq, iid)[0]
+        if partner:
+            assert boss_unlocked(partner, inv)
+    _cleanup(qq)
+
+
+@pytest.mark.parametrize(("iid", "amounts", "expected"), [
+    ("612", [2, 2], [5, 2]),           # 首击附加 1d4，本次固定掷出 3
+    ("613", [2, 2, 2, 2], [3, 3, 3, 2]),
+    ("614", [5, 6, 6], [5, 2, 6]),    # 小额伤害不消耗抵挡次数
+])
+def test_signature_trinket_in_battle(iid, amounts, expected, monkeypatch):
+    from src.models.monster import Monster
+    from src.services.battle import BattleService
+
+    qq = f"signature_{iid}"
+    inv = _make_inv(qq)
+    inv.add_item_to_inventory(iid, 1)
+    inv.save()
+    assert investigator_repo.equip_item(qq, iid)[0]
+    battle = BattleService(Investigator(investigator_repo.find_by_qq(qq)), Monster("95"))
+    monkeypatch.setattr("src.services.battle.trinkets.roll_dice", lambda _: ("3", 3))
+    target = "inv" if iid == "614" else "mon"
+    battle.hp_record[target] = 26
+    for damage, delta in zip(amounts, expected):
+        before = battle.hp_record[target]
+        if target == "inv":
+            battle._apply_damage_to_player(damage, armor_absorbed=True)
+        else:
+            battle._apply_damage_to_monster(damage)
+        assert before - battle.hp_record[target] == delta
+    _cleanup(qq)
+
+
+@pytest.mark.parametrize(("mid", "rotation"), [
+    ("96", ["试距", "引步", "闪光突刺"]), ("97", ["纸影虚招", "门槛实剑"]),
+])
+def test_telegraphed_defense_matches_resolved_move(mid, rotation, monkeypatch):
+    from src.models.monster import Monster
+    from src.services.battle import BattleService
+
+    qq = f"telegraph_{mid}"
+    inv = _make_inv(qq)
+    monster = Monster(mid)
+    battle = BattleService(inv, monster)
+    resolved = []
+
+    def defend(choice):
+        move = monster.get_action("mon")
+        resolved.append(move["动作"])
+        for defense, skill in [("闪避", "闪避"), ("反击", "格斗")]:
+            bonus = 20 if move.get("应对") == defense else 0
+            assert battle._defense_confrontation(defense, move).skill2 == inv.get_skill(skill) + bonus
+        return ("防御检定",)
+
+    monkeypatch.setattr(battle, "_handle_defensive_action", defend)
+    battle.current_turn = "mon"
+    for expected in [*rotation, rotation[0]]:
+        move = monster.rotation_action(upcoming=True)
+        assert move["动作"] == expected and move["预兆"] in battle.get_action_section()
+        assert move["attack"] in battle.get_danger_section()
+        battle.execute_action("无效输入")
+        assert monster.rotation_action(upcoming=True) == move
+        battle.execute_action("闪避")
+        assert resolved[-1] == expected
+    _cleanup(qq)
+
+
+def test_kirito_draws_second_sword_at_low_hp():
+    from src.models.monster import Monster
+
+    kirito = Monster("95")
+    kirito.hp = kirito.max_hp // 2
+    kirito.advance_ai()
+    assert kirito.get_ai_action("mon")["动作"] == "单手直剑"
+    kirito.hp -= 1
+    kirito.advance_ai()
+    move = kirito.get_ai_action("mon")
+    assert move["动作"] == "二刀流交叉斩" and move["damage"] == "2d4+2"
+    assert "第二把剑" in kirito._ai_transform_text
+
+
+def test_crossover_equipment_is_exclusive():
+    from src.services.boss_framework import boss_registry
+
+    loot = data_loader.loots_data
+    pools = loot["pools"]
+    ordinary = {entry["物品"] for tier in loot["tiers"] for entry in tier["pool"]}
+    for stock in data_loader.shop_data.values():
+        ordinary.update(stock)
+    for boss_id, cfg in boss_registry().items():
+        mid = cfg["怪物id"]
+        if mid not in {str(i) for i in range(89, 98)}:
+            continue
+        assert data_loader.monster_data[mid]["loots"] == boss_id
+        assert [entry["权重"] for entry in pools[boss_id]] == [65, 35]
+        ids = {entry["物品"] for entry in pools[boss_id]}
+        assert len(ids) == 2 and ids.isdisjoint(ordinary)
+        assert all(ids.isdisjoint(e["物品"] for e in pool)
+                   for key, pool in pools.items() if key != boss_id)
+        assert not any(m.get("loots") == boss_id for k, m in data_loader.monster_data.items() if k != mid)
 
 
 # --- 测试专用微型 BOSS 配置（验证 schema 扩展性；仅代码注册，不落生产数据） ---

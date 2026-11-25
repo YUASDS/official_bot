@@ -14,7 +14,7 @@
   - 效果：`apply_event_effects`（event_service，san/hp/金币/物品/技能 统一收口）；
   - 检定：1d100 vs 技能、默认意志、roll<=skill_val（与 guest/event 判定逐字一致）；
   - 按钮：`build_keyboard`（md_format）+ `register_button_handler`（buttons）；
-  - 战斗：`BattleService` + `is_gm_room` 隔离（战败不落 is_survive/不登记 E07，胜利不走掉落/门扉）。
+  - 战斗：`BattleService` 隔离日常结算，由剧情处理胜负。战败分支可显式配置死亡。
 - **文案**：从 text_data.json 读，键约定 `flow.<flow_id>.<node_id>`（节点可 `文案键` 覆盖）。
 - **注册机制**：纯数据加载（flow_data.json + data/worlds/*.json）为主 + `@flow_engine`
   装饰器 / `register_flow` 代码注册为辅（对齐 trinket 注册表：查表分发，新 flow 无需改分发链）。
@@ -826,6 +826,36 @@ def _flow_battle_loot(inv: Investigator, user_id: str, service: BattleService) -
     return f"> {loot_text}" if loot_text else ""
 
 
+async def _finish_fatal_defeat(
+    user_id: str, state: dict, inv: Investigator, lose: dict, bot: Bot, send
+) -> None:
+    from .ending_engine import register_e07
+
+    # 终局败北停在当前幕。复活后仍从该幕进入，不走普通收尾的占日/计数。
+    with investigator_repo.db.atomic():
+        summary = _apply_effects(inv, user_id, lose.get("效果") or {})
+        inv.hp = 0
+        inv.mark_as_deceased()
+        inv.is_adventure = False
+        line = inv.get_flag("ml.line")
+        if state["flow_id"] == f"mainline.{line}":
+            inv.clear_flag(f"ml.{line}.entered.{inv.day}")
+        inv.save()
+        ending = register_e07(inv)
+    state["battle"] = None
+    flow_states.pop(user_id, None)
+    battle_manager.remove_battle(user_id)
+    t = data_loader.get_text
+    reply = lose.get("回复", t("flow.defeat_title"))
+    nxt = lose.get("下一步")
+    epilogue = _node_text(state["flow_id"], nxt) if nxt and nxt != "结束" else ""
+    lines = [
+        t("battle.death_text", name=inv.name), reply, summary, epilogue,
+        ending, t("adventure.player_dead"),
+    ]
+    await send(md_message("\n\n".join(filter(None, lines)), bot, mention=user_id))
+
+
 async def _flow_battle_end(user_id: str, state: dict, bot: Bot, send) -> None:
     """战斗结束：胜利/战败应用分支效果并按「下一步」推进（默认结束收尾）。"""
     service = state.get("battle")
@@ -837,11 +867,18 @@ async def _flow_battle_end(user_id: str, state: dict, bot: Bot, send) -> None:
     t = data_loader.get_text
     inv_model = investigator_repo.find_by_qq(user_id)
     inv = Investigator(inv_model) if inv_model else None
+    won = service.hp_record["inv"] > 0 and (
+        service.hp_record["mon"] <= 0 or getattr(service, "_conditional_won", False)
+    )
+    lose = battle_cfg.get("战败") or {}
+    if not won and lose.get("死亡") is True and inv is not None:
+        await _finish_fatal_defeat(user_id, state, inv, lose, bot, send)
+        return
     state["phase"] = "stage"
     state["battle"] = None
     battle_manager.remove_battle(user_id)
     end_id = None
-    if service.hp_record["mon"] <= 0 or getattr(service, "_conditional_won", False):
+    if won:
         win = battle_cfg.get("胜利") or {}
         reply = win.get("回复", "")
         hold_text = getattr(service, "hold_win_text", "")
@@ -869,7 +906,6 @@ async def _flow_battle_end(user_id: str, state: dict, bot: Bot, send) -> None:
         reply_msg = md_message(f"\n{reply}", bot, mention=user_id)
         nxt = win.get("下一步", "结束")
     else:
-        lose = battle_cfg.get("战败") or {}
         reply = lose.get("回复", t("flow.defeat_title"))
         if inv is not None:
             summary = _apply_effects(inv, user_id, lose.get("效果") or {})

@@ -25,6 +25,7 @@ from typing import Any, Optional
 import ujson
 from loguru import logger
 
+from ..models.monster import monster_repo
 from ..models.player import ending_repo
 from ..services.data_loader import data_loader
 
@@ -233,7 +234,7 @@ def mainline_pool(inv) -> Optional[list[str]]:
     pool = _cfg("怪物池", lane)
     if not isinstance(pool, list) or not pool:
         return None
-    return list(pool)
+    return monster_repo.daily_candidates(pool) or None
 
 
 def pick_mainline_monster(inv) -> Optional[str]:
@@ -272,8 +273,7 @@ def branch_available(inv, day) -> bool:
         return False
     if inv.get_flag(f"ml.{line}.done"):
         return False
-    # 十幕已走完（含 day37 终局战失败）：不再排分支节点，避免 day40 无选项软锁。
-    # 终局胜利会由 register_mainline_ending 置 ended 冻结；失败则回归 day40 门扉兜底。
+    # 兼容旧存档中已结算的第十幕，避免再次排出没有可选项的节点。
     if int(inv.get_flag(f"ml.{line}.node") or 0) >= 10:
         return False
     offset = _branch_day_offset(inv, day)
